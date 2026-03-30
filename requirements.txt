@@ -1,0 +1,11 @@
+# Core: Web Service oficial del SAT (e-firma)
+requests>=2.31.0
+cryptography>=41.0.0
+lxml>=4.9.0
+urllib3>=2.0.0
+
+# CLI
+click>=8.0.0
+
+# Tests
+pytest>=8.0.0

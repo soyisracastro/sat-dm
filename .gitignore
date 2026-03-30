@@ -1,0 +1,62 @@
+# Credenciales / e-firma (NUNCA subir)
+efirma/
+*.cer
+*.key
+fiel.txt
+password.txt
+
+# Excepcion: fixtures de test (certificados fake, no reales)
+!tests/fixtures/test_fiel.cer
+!tests/fixtures/test_fiel.key
+!tests/fixtures/test_fiel.txt
+
+# CFDIs descargados
+cfdi_*/
+descargas/
+*.zip
+
+# Estado temporal de scripts
+descarga_*_state.json
+
+# Diagnósticos HTML (dumps del portal SAT)
+diag_*.html
+diagnostico_consulta.html
+login_page.html
+
+# Scripts de prueba/debug (se quedan locales)
+prueba.py
+prueba_ciec.py
+consulta_metadata_2025.py
+descarga_2025.py
+debug_verificacion.py
+diagnostico_ciec.py
+inspeccionar_login.py
+
+# Módulos aún no listos para publicar
+sat_descarga/ciec.py
+sat_descarga/server.py
+
+# Notas internas de desarrollo
+CLAUDE.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
