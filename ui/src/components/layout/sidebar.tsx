@@ -1,0 +1,81 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import {
+  Database,
+  Download,
+  FolderTree,
+  LayoutDashboard,
+  ShieldCheck,
+} from 'lucide-react';
+
+import { cn } from '@/lib/utils';
+import { useServer } from '@/providers/server-provider';
+import { FielStatus } from '@/components/fiel/fiel-status';
+
+const NAV_ITEMS = [
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/descarga', label: 'Descarga', icon: Download },
+  { href: '/metadata', label: 'Metadata', icon: Database },
+  { href: '/validacion', label: 'Validacion', icon: ShieldCheck },
+  { href: '/organizador', label: 'Organizador', icon: FolderTree },
+] as const;
+
+export function Sidebar() {
+  const pathname = usePathname();
+  const { isConnected } = useServer();
+
+  return (
+    <aside className="hidden w-64 shrink-0 border-r bg-card md:flex md:flex-col">
+      {/* Logo / Brand */}
+      <div className="flex h-14 items-center border-b px-4">
+        <span className="text-sm font-semibold tracking-tight">
+          SAT Descarga Masiva
+        </span>
+      </div>
+
+      {/* FIEL status */}
+      <div className="border-b px-4 py-3">
+        <FielStatus />
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-1 px-3 py-4">
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          const isActive =
+            href === '/' ? pathname === '/' : pathname.startsWith(href);
+
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
+              )}
+            >
+              <Icon className="size-4 shrink-0" />
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Server connection indicator */}
+      <div className="border-t px-4 py-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span
+            className={cn(
+              'size-2 shrink-0 rounded-full',
+              isConnected ? 'bg-green-500' : 'bg-red-500',
+            )}
+          />
+          <span>{isConnected ? 'Conectado' : 'Desconectado'}</span>
+        </div>
+      </div>
+    </aside>
+  );
+}

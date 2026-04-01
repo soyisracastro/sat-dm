@@ -36,7 +36,6 @@ inspeccionar_login.py
 
 # Módulos aún no listos para publicar
 sat_descarga/ciec.py
-sat_descarga/server.py
 
 # Notas internas de desarrollo
 CLAUDE.md
@@ -49,6 +48,14 @@ __pycache__/
 dist/
 build/
 *.egg
+
+# UI
+ui/node_modules/
+ui/.next/
+ui/out/
+ui/next-env.d.ts
+ui/tsconfig.tsbuildinfo
+ui/pnpm-lock.yaml
 
 # Virtual environment
 .venv/
