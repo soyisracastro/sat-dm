@@ -208,6 +208,75 @@ def _solicitar_recibidos(
 
 
 # ---------------------------------------------------------------------------
+# Descarga por Folio (UUID)
+# ---------------------------------------------------------------------------
+
+def solicitar_descarga_folio(
+    fiel: FIEL,
+    token: str,
+    rfc_solicitante: str,
+    uuids: list[str],
+    tipo_solicitud: str = TIPO_CFDI,
+) -> str:
+    """
+    SolicitaDescargaFolio — descarga CFDIs específicos por UUID.
+
+    Permite solicitar la descarga de CFDIs individuales identificados por
+    su UUID, sin importar periodo o tipo. Útil para auditorías de folios
+    específicos.
+
+    Args:
+        fiel: Instancia de FIEL.
+        token: Token WRAP.
+        rfc_solicitante: RFC del contribuyente.
+        uuids: Lista de UUIDs a descargar.
+        tipo_solicitud: "CFDI" o "Metadata".
+
+    Returns:
+        IdSolicitud (string) para usar en verificación.
+    """
+    solicitud_attrs = (
+        f' RfcSolicitante="{rfc_solicitante}"'
+        f' TipoSolicitud="{tipo_solicitud}"'
+    )
+
+    # Cada UUID es un elemento <des:UUID> separado
+    uuids_xml = "".join(f"<des:UUID>{u}</des:UUID>" for u in uuids)
+
+    envelope_xml = (
+        f'<s:Envelope xmlns:s="{_SOAP_NS}" xmlns:des="{_DES_NS}">'
+        f'<s:Header/>'
+        f'<s:Body>'
+        f'<des:SolicitaDescargaFolio>'
+        f'<des:solicitud{solicitud_attrs}>'
+        f'<des:UUIDs>'
+        f'{uuids_xml}'
+        f'</des:UUIDs>'
+        f'</des:solicitud>'
+        f'</des:SolicitaDescargaFolio>'
+        f'</s:Body>'
+        f'</s:Envelope>'
+    )
+
+    body = _sign_envelope(envelope_xml, fiel, "SolicitaDescargaFolio")
+
+    headers = {
+        "Content-Type": "text/xml; charset=utf-8",
+        "SOAPAction": SOAP_ACTIONS["solicita_descarga_folio"],
+        "Authorization": f'WRAP access_token="{token}"',
+    }
+
+    resp_xml = make_request(
+        url=ENDPOINTS["solicita_descarga"],
+        body=body,
+        headers=headers,
+        operation="SolicitaDescargaFolio",
+    )
+
+    return _parse_request_id(resp_xml, "SolicitaDescargaFolioResult")
+
+
+# ---------------------------------------------------------------------------
 # Firma enveloped (xmldsig) — el elemento firmado es el padre de solicitud
 # ---------------------------------------------------------------------------
 

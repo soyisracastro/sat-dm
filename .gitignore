@@ -13,7 +13,9 @@ password.txt
 # CFDIs descargados
 cfdi_*/
 descargas/
+metadata/
 *.zip
+*.csv
 
 # Estado temporal de scripts
 descarga_*_state.json

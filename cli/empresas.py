@@ -51,13 +51,19 @@ def _detectar_fiel(cer: str | None, key: str | None) -> tuple[str | None, str | 
 
     empresas_existentes = {e["rfc"] for e in config_store.list_empresas()}
 
+    # Directorios que no contienen FIELs de usuario
+    _EXCLUDE_DIRS = {"tests", ".venv", "__pycache__", ".git", ".pytest_cache", "node_modules"}
+
     def _buscar(extension: str) -> list[Path]:
-        """Busca archivos con la extensión dada, excluyendo los ya registrados."""
+        """Busca archivos con la extensión dada, excluyendo tests, .venv, CSD y ya registrados."""
         encontrados = list(Path(".").glob(f"**/*{extension}"))
-        # Excluir archivos en efirma/{RFC}/ de empresas ya registradas
-        return [p for p in encontrados if not (
-            p.parent.name in empresas_existentes and p.parent.parent.name == "efirma"
-        )]
+        return [
+            p for p in encontrados
+            if not (p.parent.name in empresas_existentes and p.parent.parent.name == "efirma")
+            and not any(part in _EXCLUDE_DIRS for part in p.parts)
+            and not any(part.startswith("CSD") for part in p.parts)  # Excluir CSD (sello digital)
+            and "CSD" not in p.name.upper()  # Excluir archivos con CSD en el nombre
+        ]
 
     def _elegir(archivos: list[Path], label: str) -> str | None:
         if len(archivos) == 1:

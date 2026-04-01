@@ -95,6 +95,155 @@ descargar_cfdi(
 )
 ```
 
+## Validar estatus de CFDIs ante el SAT
+
+Verifica si tus CFDIs están **Vigentes**, **Cancelados** o **No Encontrados** — directo contra el SAT, sin FIEL (endpoint público).
+
+```bash
+# Validar todos los XMLs de un directorio
+uv run python sat_dm.py validar ./descargas/
+
+# Con export a CSV
+uv run python sat_dm.py validar ./descargas/ -o resultado_validacion.csv
+
+# Ajustar concurrencia (default: 10 hilos)
+uv run python sat_dm.py validar ./xmls/ -c 20
+```
+
+Desde Python:
+
+```python
+from sat_descarga.validacion import validar_cfdi, validar_masivo
+
+# Un solo CFDI
+resultado = validar_cfdi(
+    uuid="AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+    emisor_rfc="AAA010101AAA",
+    receptor_rfc="BBB020202BBB",
+    total=1160.00,
+)
+print(resultado.estado)  # "Vigente", "Cancelado" o "No Encontrado"
+
+# Masivo (10 hilos en paralelo)
+cfdis = [
+    {"uuid": "...", "emisor_rfc": "...", "receptor_rfc": "...", "total": 1000.0},
+    # ...
+]
+resultados = validar_masivo(cfdis, concurrency=10)
+```
+
+## Descarga de metadata (sin descargar XMLs)
+
+La metadata es un resumen de tus CFDIs (UUID, RFC, monto, estatus) que el SAT procesa en **segundos** — sin esperar 72 horas ni descargar GBs de XMLs.
+
+| | Descarga CFDI | Descarga Metadata |
+|---|---|---|
+| Contenido | XMLs completos | CSV con resumen |
+| Límite | 200,000 por solicitud | 1,000,000 por solicitud |
+| Tiempo SAT | 24-72 horas | Segundos a minutos |
+| Peso | GBs | MBs |
+
+```bash
+# Descargar metadata de emitidos
+uv run python sat_dm.py metadata --desde 2025-01-01 --hasta 2025-12-31
+
+# Recibidos, con export a CSV
+uv run python sat_dm.py metadata --desde 2025-01-01 --hasta 2025-12-31 -t R --csv-export reporte.csv
+```
+
+### Casos de uso de metadata
+
+- **Conteo rápido** — cuántos CFDIs tienes en un periodo, sin esperar horas
+- **Reporte de facturación** — export CSV/Excel con montos por RFC
+- **Detección de cancelados** — qué facturas cancelaron y cuándo
+- **Filtrar y luego descargar** — identificar UUIDs relevantes, luego descargar solo esos
+- **Conciliación** — comparar lo que el SAT reporta vs tu sistema contable
+
+## Descarga por UUIDs específicos
+
+Descarga CFDIs individuales por su UUID, sin importar periodo. Útil después de filtrar con metadata.
+
+```python
+from sat_descarga.client import descargar_por_uuid
+
+descargar_por_uuid(
+    cer_path="mi_fiel.cer",
+    key_path="mi_fiel.key",
+    password="mi_contraseña",
+    uuids=["UUID-1111-...", "UUID-2222-...", "UUID-3333-..."],
+    directorio_salida="./cfdi/",
+)
+```
+
+## Organizar archivos XML
+
+Herramientas para organizar, renombrar y deduplicar los XMLs descargados.
+
+### Organizar en carpetas
+
+```bash
+# Por RFC emisor / año / mes (default)
+uv run python sat_dm.py organizar carpetas ./descargas/ -d ./organizado/
+
+# Por tipo de comprobante / año / mes
+uv run python sat_dm.py organizar carpetas ./descargas/ -d ./organizado/ -e tipo/anio/mes
+
+# Copiar en lugar de mover
+uv run python sat_dm.py organizar carpetas ./descargas/ -d ./organizado/ --copiar
+```
+
+Estructuras disponibles: `rfc_emisor/anio/mes`, `rfc_emisor/anio`, `anio/mes/rfc_emisor`, `anio/mes`, `anio/mes/dia`, `tipo/anio/mes`, `rfc_emisor/tipo/anio/mes`, `rfc_receptor/anio/mes`, `plano`.
+
+### Renombrar masivamente
+
+```bash
+# Por emisor + fecha + total (default)
+uv run python sat_dm.py organizar renombrar ./xmls/
+# Resultado: AAA010101AAA_2025-06-15_1160.00_12345678.xml
+
+# Solo por UUID
+uv run python sat_dm.py organizar renombrar ./xmls/ -p uuid
+```
+
+Patrones: `emisor_fecha_total`, `receptor_fecha_total`, `uuid`, `fecha_emisor_total`, `fecha_uuid`.
+
+### Eliminar duplicados
+
+```bash
+# Ver duplicados sin eliminar
+uv run python sat_dm.py organizar deduplicar ./xmls/ --dry-run
+
+# Eliminar duplicados (por UUID)
+uv run python sat_dm.py organizar deduplicar ./xmls/
+```
+
+## Servidor local (FastAPI)
+
+El servidor en `localhost:8787` permite que aplicaciones web (como [todoconta](https://apps.todoconta.com)) interactúen con el SAT sin que la e-firma salga de tu máquina.
+
+```bash
+uv run uvicorn sat_descarga.server:app --port 8787
+```
+
+### Endpoints disponibles
+
+| Endpoint | Auth | Descripción |
+|---|---|---|
+| `GET /health` | No | Estado del servidor |
+| `POST /auth/cargar-fiel` | No | Cargar e-firma en memoria |
+| `DELETE /auth/fiel` | No | Descargar e-firma de memoria |
+| `POST /solicitar` | FIEL | Solicitar descarga de CFDIs |
+| `POST /verificar` | FIEL | Verificar estado de solicitud |
+| `POST /descargar` | FIEL | Descargar paquetes listos |
+| `POST /solicitar-folio` | FIEL | Descarga por lista de UUIDs |
+| `POST /metadata` | FIEL | Descarga metadata (CSV rápido) |
+| `POST /validar` | No | Validar estatus CFDI ante SAT |
+| `POST /descarga-completa` | FIEL | Flujo completo (bloquea) |
+| `POST /descarga-inteligente` | FIEL | Auto-elige CIEC o Web Service |
+| `POST /ciec/descargar` | CIEC | Descarga via portal web |
+
+> `POST /validar` no requiere FIEL — cualquier app puede llamarlo para verificar CFDIs.
+
 ## Estructura del proyecto
 
 ```
@@ -107,12 +256,19 @@ sat_descarga/              # Core: protocolo SOAP del SAT (sin I/O de terminal)
 ├── verificacion.py        # Polling del estado → PackageIDs
 ├── descarga.py            # Descarga ZIPs y extrae XMLs
 ├── client.py              # Orquestador principal
-└── server.py              # FastAPI (localhost:8787)
+├── server.py              # FastAPI (localhost:8787)
+├── validacion.py          # Validación estatus CFDI ante SAT
+├── metadata.py            # Parser de metadata CSV del SAT
+├── xml_reader.py          # Parser ligero de XML CFDI (headers)
+└── organizador.py         # Organizar, renombrar, deduplicar XMLs
 
 cli/                       # CLI multi-empresa (click)
 ├── main.py                # Grupo principal de comandos
 ├── empresas.py            # Gestión de empresas/FIELs
 ├── descargar.py           # Flujo de descarga + retomar
+├── validar.py             # Validación masiva contra SAT
+├── metadata_cmd.py        # Descarga de metadata
+├── organizar.py           # Organizar/renombrar/deduplicar
 ├── config_store.py        # Persistencia (~/.sat-descarga/)
 └── display.py             # Formato de salida
 

@@ -71,23 +71,32 @@ class FIEL:
 
     @property
     def rfc(self) -> str:
-        """RFC extraído del certificado (campo OID 2.5.4.45 o CN)."""
+        """
+        RFC extraído del certificado (campo UniqueIdentifier OID 2.5.4.45).
+
+        Formato del SAT:
+        - Persona física: "RFC / CURP" → se toma el primer token (RFC tiene 13 chars)
+        - Persona moral:  "RFC_EMPRESA / RFC_REPRESENTANTE" → se toma el primer token (RFC tiene 12 chars)
+
+        En ambos casos el RFC del titular es el PRIMER valor antes del " / ".
+        """
         try:
-            # El RFC está en el campo serialNumber o en el OID específico del SAT
             for attr in self._cert.subject:
                 if attr.oid.dotted_string in ("2.5.4.45", "2.5.4.5"):
-                    # El SAT lo guarda como "CURP / RFC" separado por espacio
-                    value = attr.value
-                    parts = value.strip().split()
-                    # El RFC es el último token
-                    return parts[-1]
+                    value = attr.value.strip()
+                    # Separar por " / " (formato SAT: "RFC / CURP" o "RFC1 / RFC2")
+                    if " / " in value:
+                        return value.split(" / ")[0].strip()
+                    # Sin separador, tomar todo
+                    parts = value.split()
+                    return parts[0] if parts else value
         except Exception:
             pass
         # Fallback: buscar en CN
         try:
             cn = self._cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
             if cn:
-                return cn[0].value.split()[-1]
+                return cn[0].value.split()[0]
         except Exception:
             pass
         raise ValueError("No se pudo extraer el RFC del certificado.")
