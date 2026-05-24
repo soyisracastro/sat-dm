@@ -102,6 +102,19 @@ Los XMLs se guardan en `cfdi_ciec_<RFC>/` (con subcarpetas `recibidos/` y `emiti
 pides ambos). Sujeto a la **cuota diaria** del portal (~2,000/día); si se agota, el cliente
 se detiene y puedes retomar al día siguiente. Como librería: `sat_descarga.ciec.descargar_cfdi_ciec(...)`.
 
+## Descargar Constancia de Situación Fiscal (CSF)
+
+Sin e-firma, vía CIEC. Abre un Chromium visible: resuelves el captcha y «Enviar», y el
+script da clic en «Generar Constancia» y guarda el PDF.
+
+```bash
+uv run python prueba_constancia.py RFC CIEC
+# PDF en ./constancia_<RFC>/constancia_<RFC>_<fecha>.pdf
+```
+
+Como librería: `sat_descarga.constancia.descargar_constancia_ciec(rfc, ciec)`. También por
+API: `POST /constancia/descargar`.
+
 ## Uso como librería Python
 
 ```python
@@ -265,7 +278,8 @@ uv run uvicorn sat_descarga.server:app --port 8787
 | `POST /validar` | No | Validar estatus CFDI ante SAT |
 | `POST /descarga-completa` | FIEL | Flujo completo (bloquea) |
 | `POST /descarga-inteligente` | FIEL | Auto-elige CIEC o Web Service |
-| `POST /ciec/descargar` | CIEC | Descarga via portal web |
+| `POST /ciec/descargar` | CIEC | Descarga CFDIs via portal web |
+| `POST /constancia/descargar` | CIEC | Descarga la Constancia de Situación Fiscal (PDF) |
 
 > `POST /validar` no requiere FIEL — cualquier app puede llamarlo para verificar CFDIs.
 
