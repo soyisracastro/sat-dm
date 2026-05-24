@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.0.0 (2026-05-24)
+
+Interfaz web (UI + API), descarga vía CIEC sin e-firma, y madurez del proyecto.
+
+### Nuevas funcionalidades
+
+- **Descarga vía CIEC (portal web, sin e-firma)**: para contribuyentes que no cuentan con FIEL
+  - `sat_descarga/ciec.py` — cliente Playwright headful (el usuario resuelve el captcha)
+  - Recibidos (día por día) y Emitidos (rango); modo "ambos" con un solo captcha
+  - Descarga item por item vía `RecuperaCfdi.aspx?Datos=`; subcarpetas `recibidos/` y `emitidos/`
+  - Detección de cuota diaria del portal (se detiene tras 3 fallos seguidos)
+  - Runner de ejemplo: `prueba_ciec.py RFC CIEC desde hasta [R|E|RE]`
+- **Servidor FastAPI** (`localhost:8787`): expone SATDescarga vía HTTP sin que la e-firma salga de la máquina (compatible con apps web como todoconta)
+  - Auth (e-firma en memoria), solicitar/verificar/descargar, folio, metadata, validación, descarga-completa, descarga-inteligente y `/ciec/descargar`
+- **UI web (Next.js)**: interfaz para descarga, validación y organización de CFDIs
+
+### Archivos nuevos
+
+- `sat_descarga/ciec.py` — descarga vía portal CIEC (Playwright)
+- `sat_descarga/server.py` — servidor FastAPI
+- `ui/` — aplicación web Next.js
+- `docs/protocolo-sat.md` — detalle del protocolo SOAP del Web Service y de la mecánica del portal CIEC
+
+---
+
 ## v0.2.0 (2026-04-01)
 
 Validación, metadata, descarga por UUID, y herramientas de organización de XMLs.
