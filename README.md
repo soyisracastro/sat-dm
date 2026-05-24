@@ -92,11 +92,15 @@ resto (búsqueda + descarga item por item) es automático.
 
 ```bash
 # Ambos (recibidos + emitidos) con un solo captcha:
-uv run python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31
+.venv/bin/python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31
 
 # Solo uno: R = recibidos, E = emitidos
-uv run python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31 E
+.venv/bin/python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31 E
 ```
+
+> Los runners de scraping usan el intérprete del venv directo (no `uv run`):
+> Playwright se instala aparte (ver Requisitos) y `uv run` re-sincronizaría el
+> entorno quitándolo.
 
 Los XMLs se guardan en `cfdi_ciec_<RFC>/` (con subcarpetas `recibidos/` y `emitidos/` si
 pides ambos). Sujeto a la **cuota diaria** del portal (~2,000/día); si se agota, el cliente
@@ -108,7 +112,7 @@ Sin e-firma, vía CIEC. Abre un Chromium visible: resuelves el captcha y «Envia
 script da clic en «Generar Constancia» y guarda el PDF.
 
 ```bash
-uv run python prueba_constancia.py RFC CIEC
+.venv/bin/python prueba_constancia.py RFC CIEC
 # PDF en ./constancia_<RFC>/constancia_<RFC>_<fecha>.pdf
 ```
 
