@@ -9,33 +9,40 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Cliente Python para el **Web Service oficial de Descarga Masiva** del SAT (México).
-Descarga CFDIs en formato XML de forma programática usando e-firma (FIEL).
+Cliente Python para descargar CFDIs (XML) del SAT (México) de forma programática.
+Dos vías complementarias:
 
-## Por qué este cliente y no el portal web
+- **Web Service oficial** con e-firma (FIEL) — método recomendado, asíncrono y de alto volumen.
+- **Portal web** con CIEC (RFC + contraseña) — para contribuyentes **sin e-firma**, vía scraping.
 
-| | Portal web | Este cliente |
+## Por qué el Web Service (y cuándo usar CIEC)
+
+| | Portal web (CIEC) | Web Service oficial |
 |---|---|---|
-| Método | Scraping | Web Service oficial |
-| Límite | 2,000 CFDIs/día | 200,000 por solicitud |
-| Autenticación | CIEC o e-firma | Solo e-firma |
+| Método | Scraping (Playwright) | API SOAP oficial |
+| Límite | ~2,000 CFDIs/día | 200,000 por solicitud |
+| Autenticación | RFC + CIEC | e-firma (FIEL) |
 | Estabilidad | Cambia el HTML | API estable |
-| Proceso | Síncrono | Asíncrono (24-72 hrs) |
+| Proceso | Síncrono (resuelves captcha) | Asíncrono (24-72 hrs) |
+
+Este cliente prioriza el Web Service, pero incluye el modo **CIEC** para cuando el
+contribuyente no cuenta con e-firma.
 
 ## Requisitos
 
 - Python 3.9+
 - [uv](https://docs.astral.sh/uv/)
-- E-firma vigente (archivo `.cer` + `.key` + contraseña)
+- E-firma vigente (`.cer` + `.key` + contraseña) **para el Web Service**, o RFC + CIEC para el portal
 
 ```bash
 uv venv
 uv pip install -r requirements.txt
 ```
 
-Para el módulo CIEC (scraping del portal web):
+Para el módulo CIEC (scraping del portal web) se necesita además Playwright:
 
 ```bash
+uv pip install playwright pillow
 uv run playwright install chromium
 ```
 
@@ -76,6 +83,24 @@ uv run python sat_dm.py empresas list       # Listar empresas registradas
 uv run python sat_dm.py empresas default    # Marcar empresa por defecto
 uv run python sat_dm.py empresas remove     # Eliminar empresa
 ```
+
+## Descarga vía CIEC (sin e-firma)
+
+Cuando el contribuyente no tiene e-firma, se descarga del portal web con RFC + contraseña
+CIEC. Abre un Chromium **visible**: tú resuelves el captcha y haces clic en «Enviar», y el
+resto (búsqueda + descarga item por item) es automático.
+
+```bash
+# Ambos (recibidos + emitidos) con un solo captcha:
+uv run python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31
+
+# Solo uno: R = recibidos, E = emitidos
+uv run python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31 E
+```
+
+Los XMLs se guardan en `cfdi_ciec_<RFC>/` (con subcarpetas `recibidos/` y `emitidos/` si
+pides ambos). Sujeto a la **cuota diaria** del portal (~2,000/día); si se agota, el cliente
+se detiene y puedes retomar al día siguiente. Como librería: `sat_descarga.ciec.descargar_cfdi_ciec(...)`.
 
 ## Uso como librería Python
 
@@ -366,7 +391,7 @@ Los tests se corren automáticamente en cada push/PR vía GitHub Actions (Python
 
 ## Notas importantes
 
-- Solo funciona con **e-firma vigente** (`.cer` + `.key`). No funciona con CIEC.
+- El **Web Service** requiere **e-firma vigente** (`.cer` + `.key`). Sin e-firma, usa el modo **CIEC** (portal web), más limitado: ~2,000 CFDIs/día y resuelves el captcha manualmente.
 - Solo acceso a los **últimos 5 años fiscales** (vigente desde mayo 2025, versión 1.5 del servicio).
 - El procesamiento es asíncrono: el SAT puede tardar entre minutos y 72 horas.
 - Probado exitosamente con descarga real de ~950 CFDIs (emitidos + recibidos) del año 2025.

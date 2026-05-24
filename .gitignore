@@ -27,16 +27,11 @@ login_page.html
 
 # Scripts de prueba/debug (se quedan locales)
 prueba.py
-prueba_ciec.py
 consulta_metadata_2025.py
 descarga_2025.py
 debug_verificacion.py
 diagnostico_ciec.py
 inspeccionar_login.py
-
-# Módulos aún no listos para publicar
-sat_descarga/ciec.py
-sat_descarga/server.py
 
 # Notas internas de desarrollo
 CLAUDE.md
@@ -50,6 +45,14 @@ dist/
 build/
 *.egg
 
+# UI
+ui/node_modules/
+ui/.next/
+ui/out/
+ui/next-env.d.ts
+ui/tsconfig.tsbuildinfo
+ui/pnpm-lock.yaml
+
 # Virtual environment
 .venv/
 venv/
@@ -62,3 +65,6 @@ venv/
 *.swo
 *~
 .DS_Store
+
+# Salida de diagnóstico CIEC (screenshots/html/reporte, datos sensibles)
+diag_out/
