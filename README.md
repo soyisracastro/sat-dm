@@ -92,15 +92,37 @@ resto (búsqueda + descarga item por item) es automático.
 
 ```bash
 # Ambos (recibidos + emitidos) con un solo captcha:
-uv run python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31
+.venv/bin/python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31
 
 # Solo uno: R = recibidos, E = emitidos
-uv run python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31 E
+.venv/bin/python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31 E
 ```
+
+> Los runners de scraping usan el intérprete del venv directo (no `uv run`):
+> Playwright se instala aparte (ver Requisitos) y `uv run` re-sincronizaría el
+> entorno quitándolo.
 
 Los XMLs se guardan en `cfdi_ciec_<RFC>/` (con subcarpetas `recibidos/` y `emitidos/` si
 pides ambos). Sujeto a la **cuota diaria** del portal (~2,000/día); si se agota, el cliente
 se detiene y puedes retomar al día siguiente. Como librería: `sat_descarga.ciec.descargar_cfdi_ciec(...)`.
+
+## Descargar Constancia de Situación Fiscal (CSF)
+
+Se da clic en «Generar Constancia» y se guarda el PDF. Dos métodos de login:
+
+```bash
+# Con CIEC (resuelves el captcha en el browser):
+.venv/bin/python prueba_constancia.py RFC CIEC
+
+# Con e.firma (FIEL) — 100% automático, SIN captcha:
+.venv/bin/python prueba_constancia_fiel.py ruta.cer ruta.key "CONTRASEÑA"
+# PDF en ./constancia_<RFC>/constancia_<RFC>_<fecha>.pdf
+```
+
+Con **e.firma** el flujo es totalmente desatendido (no hay captcha), ideal para
+automatización. Como librería: `descargar_constancia_ciec(rfc, ciec)` o
+`descargar_constancia_fiel(cer, key, password)` (en `sat_descarga.constancia`).
+También por API: `POST /constancia/descargar`.
 
 ## Uso como librería Python
 
@@ -265,7 +287,8 @@ uv run uvicorn sat_descarga.server:app --port 8787
 | `POST /validar` | No | Validar estatus CFDI ante SAT |
 | `POST /descarga-completa` | FIEL | Flujo completo (bloquea) |
 | `POST /descarga-inteligente` | FIEL | Auto-elige CIEC o Web Service |
-| `POST /ciec/descargar` | CIEC | Descarga via portal web |
+| `POST /ciec/descargar` | CIEC | Descarga CFDIs via portal web |
+| `POST /constancia/descargar` | CIEC | Descarga la Constancia de Situación Fiscal (PDF) |
 
 > `POST /validar` no requiere FIEL — cualquier app puede llamarlo para verificar CFDIs.
 

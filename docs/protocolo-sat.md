@@ -86,3 +86,27 @@ el browser; el resto es automático. Portal `portalcfdi.facturaelectronica.sat.g
   adjunto). La paginación es client-side (todas las filas en el DOM, máx 500/consulta).
 - **Cuota diaria:** el portal limita descargas (`hfDescarga` = CuotaParcial/CuotaCompleta);
   el cliente se detiene tras 3 fallos seguidos.
+
+## Constancia de Situación Fiscal (CSF) — `sat_descarga/constancia.py`
+
+Mismo login CIEC reutilizado (`iniciar_sesion_ciec`), solo cambia entrada + navegación.
+
+- **Entrada estable:** el "lanzador" `wwwmat.sat.gob.mx/app/seg/faces/pages/lanzador.jsf
+  ?url=/operacion/43824/reimprime-tus-acuses-del-rfc&tipoLogeo=c&target=principal&hostServer=...`
+  (es el href del enlace «servicio» del trámite). `tipoLogeo=c` = CIEC. NO reusar las URLs
+  NIDP ya logueadas: traen parámetros de sesión efímeros (cargan en blanco).
+- **Login:** redirige al NIDP (captcha), aterriza en `wwwmat.sat.gob.mx/operacion/43824`.
+- **Botón "Generar Constancia"**: JSF/PrimeFaces (id dinámico), vive **dentro de un iframe**
+  servido por `rfcampc.siat.sat.gob.mx/PTSC/...` → buscarlo en todos los frames por texto.
+- **Descarga:** el onclick hace AJAX + `window.open('/PTSC/IdcSiat/IdcGeneraConstancia.jsf')`
+  → un **popup con el PDF**.
+- **TLS débil:** `rfcampc.siat.sat.gob.mx` usa una clave Diffie-Hellman muy pequeña; el
+  `APIRequestContext` de Playwright (Node/OpenSSL) la rechaza (`dh key too small`). Solución:
+  capturar el PDF **desde el navegador** (Chromium la tolera) con un listener `response` en
+  el popup que guarda los bytes (`%PDF-`), en vez de re-pedir la URL aparte.
+
+## Opinión de Cumplimiento 32-D (pendiente)
+
+Mismo patrón. Entrada OAuth2/OIDC (PKCE) → `ptsc32d.clouda.sat.gob.mx/#/reporteOpinion32DContribuyente`;
+el PDF se abre directo al aterrizar (sin botón). Los params PKCE/state son efímeros: entrar por
+la página del trámite que inicia el SSO fresco.

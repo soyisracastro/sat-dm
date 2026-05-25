@@ -163,6 +163,12 @@ class CIECDescargaRequest(BaseModel):
     max_registros: int = 500
 
 
+class ConstanciaRequest(BaseModel):
+    rfc: str
+    ciec: str
+    directorio_salida: str = "./constancia/"
+
+
 class DescargaInteligente(BaseModel):
     fecha_inicio: date
     fecha_fin: date
@@ -717,6 +723,46 @@ def descargar_ciec(req: CIECDescargaRequest):
         )
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/constancia/descargar")
+def descargar_constancia(req: ConstanciaRequest):
+    """
+    Descarga la Constancia de Situación Fiscal (CSF) via el portal del SAT (CIEC).
+
+    Abre una ventana de browser para que el usuario resuelva el captcha; luego da
+    clic en «Generar Constancia» y captura el PDF de la ventana que abre el SAT.
+
+    Requiere: pip install playwright && playwright install chromium
+    """
+    from .constancia import descargar_constancia_ciec
+
+    try:
+        pdf = descargar_constancia_ciec(
+            rfc=req.rfc,
+            ciec=req.ciec,
+            directorio_salida=req.directorio_salida,
+        )
+        if not pdf:
+            raise HTTPException(
+                status_code=502,
+                detail="No se pudo generar/descargar la constancia.",
+            )
+        return {"ok": True, "archivo": str(pdf)}
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"playwright no instalado: {e}\n"
+                "Ejecuta: pip install playwright && playwright install chromium"
+            ),
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -12,6 +12,7 @@ password.txt
 
 # CFDIs descargados
 cfdi_*/
+constancia*/
 descargas/
 metadata/
 *.zip
@@ -31,6 +32,7 @@ consulta_metadata_2025.py
 descarga_2025.py
 debug_verificacion.py
 diagnostico_ciec.py
+diagnostico_constancia.py
 inspeccionar_login.py
 
 # Notas internas de desarrollo
@@ -66,5 +68,6 @@ venv/
 *~
 .DS_Store
 
-# Salida de diagnóstico CIEC (screenshots/html/reporte, datos sensibles)
+# Salida de diagnóstico CIEC / CSF (screenshots/html/reporte, datos sensibles)
 diag_out/
+diag_csf/
