@@ -1,7 +1,7 @@
 """Tests para sat_descarga/metadata.py"""
 
 import pytest
-from sat_descarga.metadata import parse_metadata_csv, MetadataCFDI
+from sat_descarga.utils.metadata import parse_metadata_csv, MetadataCFDI
 
 
 class TestParseMetadataCsv:

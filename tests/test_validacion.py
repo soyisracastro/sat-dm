@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from sat_descarga.validacion import (
+from sat_descarga.utils.validacion import (
     _build_soap_envelope,
     _parse_response,
     validar_cfdi,
@@ -85,7 +85,7 @@ class TestParseResponse:
 
 
 class TestValidarCfdi:
-    @patch("sat_descarga.validacion.make_request")
+    @patch("sat_descarga.utils.validacion.make_request")
     def test_returns_estado_cfdi(self, mock_request):
         mock_request.return_value = (
             b'<r><a:Estado>Vigente</a:Estado>'
@@ -105,7 +105,7 @@ class TestValidarCfdi:
         assert result.es_cancelable == "Cancelable sin aceptacion"
         assert result.error is None
 
-    @patch("sat_descarga.validacion.make_request")
+    @patch("sat_descarga.utils.validacion.make_request")
     def test_handles_error(self, mock_request):
         mock_request.side_effect = RuntimeError("Connection failed")
         result = validar_cfdi(
@@ -119,7 +119,7 @@ class TestValidarCfdi:
 
 
 class TestValidarMasivo:
-    @patch("sat_descarga.validacion.make_request")
+    @patch("sat_descarga.utils.validacion.make_request")
     def test_multiple_cfdis(self, mock_request):
         mock_request.return_value = b'<r><a:Estado>Vigente</a:Estado></r>'
 

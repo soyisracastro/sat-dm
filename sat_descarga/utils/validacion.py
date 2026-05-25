@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .http_client import _build_session, make_request
+from ..core.http_client import _build_session, make_request
 
 logger = logging.getLogger(__name__)
 

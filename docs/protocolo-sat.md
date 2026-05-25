@@ -70,7 +70,7 @@ Devuelve WRAP token URL-encoded (`JWT%26wrap_subject%3dSERIAL`) que va en el hea
 - Respuesta de descarga: el `<Paquete>` (ZIP Base64) está en
   `<RespuestaDescargaMasivaTercerosSalida>`.
 
-## Portal CIEC (scraping, sin FIEL) — `sat_descarga/ciec.py`
+## Portal CIEC (scraping, sin FIEL) — `sat_descarga/portal/cfdi.py`
 
 Para contribuyentes sin e-firma. Playwright headful: el usuario resuelve el captcha en
 el browser; el resto es automático. Portal `portalcfdi.facturaelectronica.sat.gob.mx`.
@@ -87,7 +87,7 @@ el browser; el resto es automático. Portal `portalcfdi.facturaelectronica.sat.g
 - **Cuota diaria:** el portal limita descargas (`hfDescarga` = CuotaParcial/CuotaCompleta);
   el cliente se detiene tras 3 fallos seguidos.
 
-## Constancia de Situación Fiscal (CSF) — `sat_descarga/constancia.py`
+## Constancia de Situación Fiscal (CSF) — `sat_descarga/portal/constancia.py`
 
 Mismo login CIEC reutilizado (`iniciar_sesion_ciec`), solo cambia entrada + navegación.
 

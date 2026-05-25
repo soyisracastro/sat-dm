@@ -20,13 +20,13 @@ from datetime import date
 from pathlib import Path
 from typing import List, Optional
 
-from .fiel import FIEL
+from ..core.fiel import FIEL
 from .auth import obtener_token
 from .solicitud import solicitar_descarga, solicitar_descarga_folio
 from .verificacion import verificar_solicitud
 from .descarga import descargar_todos
-from .metadata import extraer_metadata_de_directorio, MetadataCFDI
-from .config import TIPO_CFDI, TIPO_METADATA, TIPO_EMITIDO
+from ..utils.metadata import extraer_metadata_de_directorio, MetadataCFDI
+from ..core.config import TIPO_CFDI, TIPO_METADATA, TIPO_EMITIDO
 
 logger = logging.getLogger(__name__)
 

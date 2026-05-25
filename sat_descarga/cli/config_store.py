@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sat_descarga.fiel import FIEL
+from sat_descarga.core.fiel import FIEL
 
 CONFIG_DIR = Path.home() / ".sat-descarga"
 EFIRMA_DIR = Path("efirma")

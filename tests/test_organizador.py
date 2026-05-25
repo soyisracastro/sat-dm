@@ -1,7 +1,7 @@
 """Tests para sat_descarga/organizador.py"""
 
 import pytest
-from sat_descarga.organizador import (
+from sat_descarga.utils.organizador import (
     organizar,
     renombrar,
     eliminar_duplicados,

@@ -3,7 +3,7 @@
 import os
 import pytest
 import tempfile
-from sat_descarga.xml_reader import leer_cfdi, leer_directorio, CfdiHeader
+from sat_descarga.utils.xml_reader import leer_cfdi, leer_directorio, CfdiHeader
 
 
 SAMPLE_CFDI_40 = """<?xml version="1.0" encoding="utf-8"?>

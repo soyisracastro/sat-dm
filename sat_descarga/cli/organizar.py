@@ -24,7 +24,7 @@ def organizar_group():
 @click.option("--copiar", is_flag=True, help="Copiar en lugar de mover")
 def organizar_carpetas(origen, destino, estructura, copiar):
     """Organiza XMLs en carpetas basándose en su contenido."""
-    from sat_descarga.organizador import organizar, ESTRUCTURAS
+    from sat_descarga.utils.organizador import organizar, ESTRUCTURAS
 
     print_header("Organizador de XML en carpetas")
 
@@ -61,7 +61,7 @@ def organizar_carpetas(origen, destino, estructura, copiar):
 )
 def renombrar_cmd(directorio, patron):
     """Renombra masivamente XMLs basándose en su contenido."""
-    from sat_descarga.organizador import renombrar, PATRONES_NOMBRE
+    from sat_descarga.utils.organizador import renombrar, PATRONES_NOMBRE
 
     print_header("Renombrado masivo de XML")
 
@@ -88,7 +88,7 @@ def renombrar_cmd(directorio, patron):
 @click.option("--dry-run", is_flag=True, help="Solo reportar, no eliminar")
 def deduplicar_cmd(directorio, dry_run):
     """Elimina archivos XML duplicados (por UUID)."""
-    from sat_descarga.organizador import eliminar_duplicados
+    from sat_descarga.utils.organizador import eliminar_duplicados
 
     print_header("Eliminación de duplicados")
 

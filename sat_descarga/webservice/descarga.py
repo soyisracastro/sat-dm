@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import List
 from lxml import etree
 
-from .config import ENDPOINTS, SOAP_ACTIONS
-from .fiel import FIEL
-from .http_client import make_request
+from ..core.config import ENDPOINTS, SOAP_ACTIONS
+from ..core.fiel import FIEL
+from ..core.http_client import make_request
 
 logger = logging.getLogger(__name__)
 

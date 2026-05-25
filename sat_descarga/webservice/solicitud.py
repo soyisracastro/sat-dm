@@ -19,9 +19,9 @@ from io import BytesIO
 from typing import Optional
 from lxml import etree
 
-from .config import ENDPOINTS, SOAP_ACTIONS, TIPO_CFDI, TIPO_EMITIDO
-from .fiel import FIEL
-from .http_client import make_request
+from ..core.config import ENDPOINTS, SOAP_ACTIONS, TIPO_CFDI, TIPO_EMITIDO
+from ..core.fiel import FIEL
+from ..core.http_client import make_request
 
 
 _SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"

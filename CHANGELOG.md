@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.2.0 (2026-05-25)
+
+Reorganización del proyecto **por canal de acceso** y **CLI unificado**.
+
+### Cambios
+
+- **Estructura por subpaquetes** en `sat_descarga/`: `core/` (config, fiel, http_client),
+  `webservice/` (auth, solicitud, verificacion, descarga, client), `portal/`
+  (login, cfdi, constancia), `utils/` (xml_reader, metadata, organizador, validacion),
+  `api/` (server, hosted). El paquete `cli/` se movió dentro de `sat_descarga/cli/`.
+- **Login SSO extraído** a `portal/login.py` (`iniciar_sesion_ciec` / `iniciar_sesion_fiel`),
+  compartido por todos los scrapers del portal.
+- **CLI unificado**: las descargas son subcomandos del grupo `descargar`:
+  `sat-dm descargar cfdi` (Web Service), `sat-dm descargar ciec` (portal CFDIs) y
+  `sat-dm descargar constancia --metodo ciec|fiel`. Se eliminaron los scripts
+  `prueba_*.py` de la raíz (eran los runners reales, no tests).
+- **API pública estable** re-exportada en `sat_descarga/__init__.py`:
+  `descargar_cfdi`, `FIEL`, `descargar_cfdi_ciec`, `descargar_constancia_ciec/fiel`, etc.
+- **Tests**: actualizados a las nuevas rutas + nuevos tests de portal (lógica pura) y CLI.
+
+### Cambios incompatibles
+
+- `sat-dm descargar` ahora es un **grupo**: usar `sat-dm descargar cfdi` para el flujo
+  anterior de Web Service.
+- Los imports por submódulo cambian (p. ej. `sat_descarga.ciec` → `sat_descarga.portal.cfdi`,
+  `sat_descarga.validacion` → `sat_descarga.utils.validacion`). La API por la raíz
+  (`from sat_descarga import ...`) se mantiene.
+
+---
+
 ## v1.1.0 (2026-05-25)
 
 Descarga de la **Constancia de Situación Fiscal (CSF)** vía el portal del SAT, con
