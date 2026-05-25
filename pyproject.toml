@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sat-descarga-masiva"
+version = "1.1.0"
+description = "Cliente Python para descarga masiva de CFDIs del SAT"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+    "cryptography>=41.0.0",
+    "lxml>=4.9.0",
+    "urllib3>=2.0.0",
+    "click>=8.0.0",
+]
+
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.0.0",
+    "supabase>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+dev = [
+    "pytest>=8.0.0",
+]
+ciec = [
+    "playwright>=1.40.0",
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+sat-dm = "cli.main:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sat_descarga", "cli"]
