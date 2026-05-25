@@ -13,6 +13,8 @@ from sat_descarga import (
     descargar_cfdi_ciec,
     descargar_constancia_ciec,
     descargar_constancia_fiel,
+    descargar_opinion_ciec,
+    descargar_opinion_fiel,
 )
 
 
@@ -132,7 +134,7 @@ def _ejecutar_descarga(
 
 @click.group()
 def descargar():
-    """Descargas masivas del SAT: CFDIs (cfdi/ciec) y documentos (constancia)."""
+    """Descargas del SAT: CFDIs (cfdi/ciec) y documentos (constancia, opinion)."""
 
 
 @descargar.command(name="cfdi")
@@ -235,6 +237,49 @@ def descargar_constancia_cmd(metodo, rfc, ciec, cer, key, password, salida, head
         print_success(f"Constancia descargada: {pdf}")
     else:
         print_error("No se pudo descargar la constancia (revisa el log).")
+        raise click.Abort()
+
+
+@descargar.command(name="opinion")
+@click.option("--metodo", type=click.Choice(["ciec", "fiel"]), default="ciec",
+              help="Autenticación: ciec (captcha) o fiel (e.firma, automático)")
+@click.option("--rfc", default=None, help="(metodo ciec) RFC")
+@click.option("--ciec", default=None, help="(metodo ciec) Contraseña CIEC")
+@click.option("--cer", type=click.Path(exists=True), default=None, help="(metodo fiel) archivo .cer")
+@click.option("--key", type=click.Path(exists=True), default=None, help="(metodo fiel) archivo .key")
+@click.option("--password", default=None, help="(metodo fiel) contraseña de la clave privada")
+@click.option("--salida", default=None, help="Directorio de salida")
+@click.option("--headless", is_flag=True, default=False)
+def descargar_opinion_cmd(metodo, rfc, ciec, cer, key, password, salida, headless):
+    """Reporte de Opinión de Cumplimiento 32-D (PDF) vía CIEC o e.firma."""
+    if metodo == "ciec":
+        if not rfc:
+            rfc = click.prompt("  RFC")
+        rfc = rfc.strip().upper()
+        if not ciec:
+            ciec = click.prompt("  Contraseña CIEC", hide_input=True)
+        salida = salida or f"./opinion_{rfc}/"
+        print_header(f"Opinión 32-D (CIEC) — {rfc}")
+        pdf = descargar_opinion_ciec(
+            rfc=rfc, ciec=ciec, directorio_salida=salida, headless=headless,
+        )
+    else:  # fiel
+        if not cer or not key:
+            print_error("Con --metodo fiel debes pasar --cer y --key.")
+            raise click.Abort()
+        if not password:
+            password = click.prompt("  Contraseña de la clave privada", hide_input=True)
+        salida = salida or "./opinion_fiel/"
+        print_header("Opinión 32-D (e.firma)")
+        pdf = descargar_opinion_fiel(
+            cer_path=cer, key_path=key, password=password,
+            directorio_salida=salida, headless=headless,
+        )
+
+    if pdf:
+        print_success(f"Opinión 32-D descargada: {pdf}")
+    else:
+        print_error("No se pudo descargar la opinión 32-D (revisa el log).")
         raise click.Abort()
 
 
