@@ -36,93 +36,83 @@ contribuyente no cuenta con e-firma.
 
 ```bash
 uv venv
-uv pip install -r requirements.txt
+uv pip install -e .          # instala deps + el comando `sat-dm`
 ```
 
-Para el módulo CIEC (scraping del portal web) se necesita además Playwright:
+Para las descargas vía portal (CIEC / e.firma) se necesita además Playwright (extra `ciec`):
 
 ```bash
-uv pip install playwright pillow
+uv pip install -e ".[ciec]"  # playwright + pillow
 uv run playwright install chromium
 ```
 
-## Uso rápido — CLI multi-empresa
+## Uso rápido — CLI `sat-dm`
+
+Todo se hace con un solo comando, `sat-dm` (se instala con `uv pip install -e .`).
+Las descargas viven bajo el grupo `descargar`: `cfdi` (Web Service), `ciec` (portal) y
+`constancia` (documento).
 
 ### 1. Registrar una empresa
 
 ```bash
-uv run python sat_dm.py empresas add
-# Pide: nombre, ruta .cer, ruta .key, contraseña
-# Valida la e-firma y extrae el RFC automáticamente
+sat-dm empresas add
+# Pide: nombre, ruta .cer, ruta .key, contraseña. Valida la e-firma y extrae el RFC.
 ```
 
-### 2. Descargar CFDIs (interactivo)
+### 2. Descargar CFDIs por Web Service (FIEL)
 
 ```bash
-uv run python sat_dm.py descargar
-# Selecciona empresa, rango de fechas, tipo (E/R/Ambos)
+sat-dm descargar cfdi                 # interactivo (empresa, fechas, tipo E/R/Ambos)
+sat-dm descargar cfdi --rfc XAXX010101000 --desde 2025-01-01 --hasta 2025-12-31 --tipo A --estado V
 # Los XMLs se guardan en ./descargas/{RFC}/emitidos/ y .../recibidos/
 ```
 
-### 3. Descargar CFDIs (directo)
+### 3. Retomar solicitud interrumpida
 
 ```bash
-uv run python sat_dm.py descargar --rfc XAXX010101000 --desde 2025-01-01 --hasta 2025-12-31 --tipo A --estado V
-```
-
-### 4. Retomar solicitud interrumpida
-
-```bash
-uv run python sat_dm.py retomar <RequestID> --rfc XAXX010101000
+sat-dm retomar <RequestID> --rfc XAXX010101000
 ```
 
 ### Otros comandos
 
 ```bash
-uv run python sat_dm.py empresas list       # Listar empresas registradas
-uv run python sat_dm.py empresas default    # Marcar empresa por defecto
-uv run python sat_dm.py empresas remove     # Eliminar empresa
+sat-dm empresas list | default | remove   # gestionar empresas
+sat-dm validar ./xmls/                     # validar estatus ante el SAT
+sat-dm metadata --desde 2025-01-01 --hasta 2025-01-31   # metadata (resumen rápido)
+sat-dm organizar carpetas | renombrar | deduplicar      # organizar XMLs
 ```
 
-## Descarga vía CIEC (sin e-firma)
+## Descargar CFDIs vía CIEC (sin e-firma)
 
-Cuando el contribuyente no tiene e-firma, se descarga del portal web con RFC + contraseña
-CIEC. Abre un Chromium **visible**: tú resuelves el captcha y haces clic en «Enviar», y el
-resto (búsqueda + descarga item por item) es automático.
+Para contribuyentes sin e-firma: scraping del portal con RFC + contraseña CIEC. Abre un
+Chromium **visible**, resuelves el captcha y «Enviar», y el resto (búsqueda + descarga
+item por item) es automático.
 
 ```bash
-# Ambos (recibidos + emitidos) con un solo captcha:
-.venv/bin/python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31
-
-# Solo uno: R = recibidos, E = emitidos
-.venv/bin/python prueba_ciec.py RFC CIEC 2025-01-01 2025-01-31 E
+sat-dm descargar ciec --rfc RFC --desde 2025-01-01 --hasta 2025-01-31           # ambos (RE)
+sat-dm descargar ciec --rfc RFC --desde 2025-01-01 --hasta 2025-01-31 --tipo E  # solo emitidos
+# Pide la contraseña CIEC de forma oculta. XMLs en ./cfdi_ciec_<RFC>/ (subcarpetas R/E).
 ```
 
-> Los runners de scraping usan el intérprete del venv directo (no `uv run`):
-> Playwright se instala aparte (ver Requisitos) y `uv run` re-sincronizaría el
-> entorno quitándolo.
-
-Los XMLs se guardan en `cfdi_ciec_<RFC>/` (con subcarpetas `recibidos/` y `emitidos/` si
-pides ambos). Sujeto a la **cuota diaria** del portal (~2,000/día); si se agota, el cliente
-se detiene y puedes retomar al día siguiente. Como librería: `sat_descarga.ciec.descargar_cfdi_ciec(...)`.
+Sujeto a la **cuota diaria** del portal (~2,000/día); si se agota, se detiene y retomas al
+día siguiente. Como librería: `from sat_descarga import descargar_cfdi_ciec`.
 
 ## Descargar Constancia de Situación Fiscal (CSF)
 
-Se da clic en «Generar Constancia» y se guarda el PDF. Dos métodos de login:
+Genera y guarda el PDF de la constancia. Dos métodos de login:
 
 ```bash
 # Con CIEC (resuelves el captcha en el browser):
-.venv/bin/python prueba_constancia.py RFC CIEC
+sat-dm descargar constancia --metodo ciec --rfc RFC
 
 # Con e.firma (FIEL) — 100% automático, SIN captcha:
-.venv/bin/python prueba_constancia_fiel.py ruta.cer ruta.key "CONTRASEÑA"
-# PDF en ./constancia_<RFC>/constancia_<RFC>_<fecha>.pdf
+sat-dm descargar constancia --metodo fiel --cer ruta.cer --key ruta.key
+# PDF en ./constancia_<RFC>/ (o ./constancia_fiel/)
 ```
 
 Con **e.firma** el flujo es totalmente desatendido (no hay captcha), ideal para
-automatización. Como librería: `descargar_constancia_ciec(rfc, ciec)` o
-`descargar_constancia_fiel(cer, key, password)` (en `sat_descarga.constancia`).
-También por API: `POST /constancia/descargar`.
+automatización. Como librería: `from sat_descarga import descargar_constancia_ciec,
+descargar_constancia_fiel`. También por API: `POST /constancia/descargar`.
 
 ## Uso como librería Python
 
@@ -148,19 +138,19 @@ Verifica si tus CFDIs están **Vigentes**, **Cancelados** o **No Encontrados** �
 
 ```bash
 # Validar todos los XMLs de un directorio
-uv run python sat_dm.py validar ./descargas/
+sat-dm validar ./descargas/
 
 # Con export a CSV
-uv run python sat_dm.py validar ./descargas/ -o resultado_validacion.csv
+sat-dm validar ./descargas/ -o resultado_validacion.csv
 
 # Ajustar concurrencia (default: 10 hilos)
-uv run python sat_dm.py validar ./xmls/ -c 20
+sat-dm validar ./xmls/ -c 20
 ```
 
 Desde Python:
 
 ```python
-from sat_descarga.validacion import validar_cfdi, validar_masivo
+from sat_descarga.utils.validacion import validar_cfdi, validar_masivo
 
 # Un solo CFDI
 resultado = validar_cfdi(
@@ -192,10 +182,10 @@ La metadata es un resumen de tus CFDIs (UUID, RFC, monto, estatus) que el SAT pr
 
 ```bash
 # Descargar metadata de emitidos
-uv run python sat_dm.py metadata --desde 2025-01-01 --hasta 2025-12-31
+sat-dm metadata --desde 2025-01-01 --hasta 2025-12-31
 
 # Recibidos, con export a CSV
-uv run python sat_dm.py metadata --desde 2025-01-01 --hasta 2025-12-31 -t R --csv-export reporte.csv
+sat-dm metadata --desde 2025-01-01 --hasta 2025-12-31 -t R --csv-export reporte.csv
 ```
 
 ### Casos de uso de metadata
@@ -211,7 +201,7 @@ uv run python sat_dm.py metadata --desde 2025-01-01 --hasta 2025-12-31 -t R --cs
 Descarga CFDIs individuales por su UUID, sin importar periodo. Útil después de filtrar con metadata.
 
 ```python
-from sat_descarga.client import descargar_por_uuid
+from sat_descarga.webservice.client import descargar_por_uuid
 
 descargar_por_uuid(
     cer_path="mi_fiel.cer",
@@ -230,13 +220,13 @@ Herramientas para organizar, renombrar y deduplicar los XMLs descargados.
 
 ```bash
 # Por RFC emisor / año / mes (default)
-uv run python sat_dm.py organizar carpetas ./descargas/ -d ./organizado/
+sat-dm organizar carpetas ./descargas/ -d ./organizado/
 
 # Por tipo de comprobante / año / mes
-uv run python sat_dm.py organizar carpetas ./descargas/ -d ./organizado/ -e tipo/anio/mes
+sat-dm organizar carpetas ./descargas/ -d ./organizado/ -e tipo/anio/mes
 
 # Copiar en lugar de mover
-uv run python sat_dm.py organizar carpetas ./descargas/ -d ./organizado/ --copiar
+sat-dm organizar carpetas ./descargas/ -d ./organizado/ --copiar
 ```
 
 Estructuras disponibles: `rfc_emisor/anio/mes`, `rfc_emisor/anio`, `anio/mes/rfc_emisor`, `anio/mes`, `anio/mes/dia`, `tipo/anio/mes`, `rfc_emisor/tipo/anio/mes`, `rfc_receptor/anio/mes`, `plano`.
@@ -245,11 +235,11 @@ Estructuras disponibles: `rfc_emisor/anio/mes`, `rfc_emisor/anio`, `anio/mes/rfc
 
 ```bash
 # Por emisor + fecha + total (default)
-uv run python sat_dm.py organizar renombrar ./xmls/
+sat-dm organizar renombrar ./xmls/
 # Resultado: AAA010101AAA_2025-06-15_1160.00_12345678.xml
 
 # Solo por UUID
-uv run python sat_dm.py organizar renombrar ./xmls/ -p uuid
+sat-dm organizar renombrar ./xmls/ -p uuid
 ```
 
 Patrones: `emisor_fecha_total`, `receptor_fecha_total`, `uuid`, `fecha_emisor_total`, `fecha_uuid`.
@@ -258,10 +248,10 @@ Patrones: `emisor_fecha_total`, `receptor_fecha_total`, `uuid`, `fecha_emisor_to
 
 ```bash
 # Ver duplicados sin eliminar
-uv run python sat_dm.py organizar deduplicar ./xmls/ --dry-run
+sat-dm organizar deduplicar ./xmls/ --dry-run
 
 # Eliminar duplicados (por UUID)
-uv run python sat_dm.py organizar deduplicar ./xmls/
+sat-dm organizar deduplicar ./xmls/
 ```
 
 ## Servidor local (FastAPI)
@@ -269,7 +259,7 @@ uv run python sat_dm.py organizar deduplicar ./xmls/
 El servidor en `localhost:8787` permite que aplicaciones web (como [todoconta](https://apps.todoconta.com)) interactúen con el SAT sin que la e-firma salga de tu máquina.
 
 ```bash
-uv run uvicorn sat_descarga.server:app --port 8787
+uv run uvicorn sat_descarga.api.server:app --port 8787
 ```
 
 ### Endpoints disponibles
@@ -294,33 +284,35 @@ uv run uvicorn sat_descarga.server:app --port 8787
 
 ## Estructura del proyecto
 
+Organizado **por canal de acceso**:
+
 ```
-sat_descarga/              # Core: protocolo SOAP del SAT (sin I/O de terminal)
-├── config.py              # Endpoints, constantes, timeouts
-├── fiel.py                # Carga e-firma y firma RSA-SHA1
-├── http_client.py         # HTTP con 6 reintentos y TLS 1.2
-├── auth.py                # Autenticación SOAP → token
-├── solicitud.py           # SolicitaDescarga → RequestID
-├── verificacion.py        # Polling del estado → PackageIDs
-├── descarga.py            # Descarga ZIPs y extrae XMLs
-├── client.py              # Orquestador principal
-├── server.py              # FastAPI (localhost:8787)
-├── validacion.py          # Validación estatus CFDI ante SAT
-├── metadata.py            # Parser de metadata CSV del SAT
-├── xml_reader.py          # Parser ligero de XML CFDI (headers)
-└── organizador.py         # Organizar, renombrar, deduplicar XMLs
+sat_descarga/
+├── __init__.py            # API pública (re-exporta Web Service + portal)
+├── core/                  # Base compartida
+│   ├── config.py          # Endpoints, constantes, timeouts
+│   ├── fiel.py            # Carga e-firma y firma RSA-SHA1
+│   └── http_client.py     # HTTP con reintentos y TLS 1.2
+├── webservice/            # Web Service oficial (FIEL/SOAP, asíncrono) — CFDIs
+│   ├── auth.py            # Autenticación SOAP → token
+│   ├── solicitud.py       # SolicitaDescarga → RequestID
+│   ├── verificacion.py    # Polling del estado → PackageIDs
+│   ├── descarga.py        # Descarga ZIPs y extrae XMLs
+│   └── client.py          # Orquestador del flujo WS
+├── portal/                # Scraping del portal (Playwright)
+│   ├── login.py           # Login SSO: CIEC y e.firma (compartido)
+│   ├── cfdi.py            # CFDIs por portal (CIEC)
+│   └── constancia.py      # Constancia de Situación Fiscal (CIEC/e.firma)
+├── utils/                 # xml_reader · metadata · organizador · validacion
+├── api/                   # server.py (local) · hosted.py (nube)
+└── cli/                   # CLI `sat-dm` (click)
+    ├── main.py            # Grupo principal
+    ├── descargar.py       # descargar {cfdi, ciec, constancia} + retomar
+    ├── empresas.py · validar.py · metadata_cmd.py · organizar.py
+    └── config_store.py · display.py
 
-cli/                       # CLI multi-empresa (click)
-├── main.py                # Grupo principal de comandos
-├── empresas.py            # Gestión de empresas/FIELs
-├── descargar.py           # Flujo de descarga + retomar
-├── validar.py             # Validación masiva contra SAT
-├── metadata_cmd.py        # Descarga de metadata
-├── organizar.py           # Organizar/renombrar/deduplicar
-├── config_store.py        # Persistencia (~/.sat-descarga/)
-└── display.py             # Formato de salida
-
-sat_dm.py                  # Entry point: python sat_dm.py
+sat_dm.py                  # Shim de entrada (equivale al comando `sat-dm`)
+tools/                     # Diagnósticos locales del portal (gitignored)
 ```
 
 ## Flujo de 3 pasos
@@ -350,7 +342,7 @@ sat_dm.py                  # Entry point: python sat_dm.py
 Si el proceso se cortó durante el polling (puede durar hasta 72 hrs):
 
 ```bash
-uv run python sat_dm.py retomar <RequestID> --rfc XAXX010101000
+sat-dm retomar <RequestID> --rfc XAXX010101000
 ```
 
 O desde Python:

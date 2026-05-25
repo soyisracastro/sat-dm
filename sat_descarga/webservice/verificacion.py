@@ -17,13 +17,13 @@ from io import BytesIO
 from typing import List
 from lxml import etree
 
-from .config import (
+from ..core.config import (
     ENDPOINTS, SOAP_ACTIONS,
     POLL_INTERVAL_INITIAL, POLL_INTERVAL_MAX,
     POLL_BACKOFF_FACTOR, POLL_MAX_ATTEMPTS,
 )
-from .fiel import FIEL
-from .http_client import make_request
+from ..core.fiel import FIEL
+from ..core.http_client import make_request
 from . import auth as _auth
 
 logger = logging.getLogger(__name__)

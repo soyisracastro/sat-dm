@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from cli import config_store
+from sat_descarga.cli import config_store
 
 
 @pytest.fixture(autouse=True)

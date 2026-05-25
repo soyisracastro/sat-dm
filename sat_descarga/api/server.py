@@ -11,7 +11,7 @@ Arquitectura:
                                                          [e-firma local]
 
 Uso:
-    uvicorn sat_descarga.server:app --port 8787 --host 127.0.0.1
+    uvicorn sat_descarga.api.server:app --port 8787 --host 127.0.0.1
 
     O desde código:
         from sat_descarga.server import start
@@ -42,12 +42,12 @@ except ImportError:
         "  pip install fastapi uvicorn[standard]"
     )
 
-from .fiel import FIEL
-from .auth import obtener_token
-from .solicitud import solicitar_descarga
-from .verificacion import verificar_solicitud
-from .validacion import validar_masivo, EstadoCFDI
-from .config import TIPO_CFDI, TIPO_METADATA, TIPO_EMITIDO, TIPO_RECIBIDO
+from ..core.fiel import FIEL
+from ..webservice.auth import obtener_token
+from ..webservice.solicitud import solicitar_descarga
+from ..webservice.verificacion import verificar_solicitud
+from ..utils.validacion import validar_masivo, EstadoCFDI
+from ..core.config import TIPO_CFDI, TIPO_METADATA, TIPO_EMITIDO, TIPO_RECIBIDO
 
 # ---------------------------------------------------------------------------
 # App
@@ -363,7 +363,7 @@ def descargar(
 
     Llama primero a /verificar para confirmar que la solicitud está lista.
     """
-    from .descarga import descargar_todos
+    from ..webservice.descarga import descargar_todos
 
     fiel = _get_fiel()
     token = _renovar_token()
@@ -423,7 +423,7 @@ def descarga_completa(req: DescargaCompletaRequest):
     Para uso interactivo en la UI, usar /solicitar + /verificar + /descargar
     de forma separada.
     """
-    from .client import descargar_cfdi
+    from ..webservice.client import descargar_cfdi
 
     try:
         zips = descargar_cfdi(
@@ -458,7 +458,7 @@ def solicitar_folio(req: SolicitudFolioRequest):
     Útil para auditorías de folios específicos. Flujo asíncrono igual
     que /solicitar: retorna RequestID → /verificar → /descargar.
     """
-    from .client import descargar_por_uuid
+    from ..webservice.client import descargar_por_uuid
 
     _get_fiel()
 
@@ -493,8 +493,8 @@ def descargar_metadata_endpoint(req: SolicitudRequest):
     La metadata es un resumen rápido (UUID, RFC, monto, estatus) procesado
     en segundos/minutos (vs 24-72 hrs para CFDIs completos).
     """
-    from .client import descargar_metadata
-    from .metadata import metadata_to_dicts
+    from ..webservice.client import descargar_metadata
+    from ..utils.metadata import metadata_to_dicts
 
     fiel = _get_fiel()
 
@@ -590,7 +590,7 @@ class DeduplicarRequest(BaseModel):
 @app.post("/organizar")
 def organizar_endpoint(req: OrganizarRequest):
     """Organiza archivos XML en carpetas basándose en su contenido."""
-    from .organizador import organizar
+    from ..utils.organizador import organizar
 
     try:
         result = organizar(req.origen, req.destino, req.estructura, req.copiar)
@@ -607,7 +607,7 @@ def organizar_endpoint(req: OrganizarRequest):
 @app.post("/renombrar")
 def renombrar_endpoint(req: RenombrarRequest):
     """Renombra masivamente archivos XML basándose en su contenido."""
-    from .organizador import renombrar
+    from ..utils.organizador import renombrar
 
     try:
         result = renombrar(req.directorio, req.patron)
@@ -624,7 +624,7 @@ def renombrar_endpoint(req: RenombrarRequest):
 @app.post("/deduplicar")
 def deduplicar_endpoint(req: DeduplicarRequest):
     """Elimina archivos XML duplicados basándose en el UUID."""
-    from .organizador import eliminar_duplicados
+    from ..utils.organizador import eliminar_duplicados
 
     try:
         result = eliminar_duplicados(req.directorio, dry_run=req.dry_run)
@@ -660,7 +660,7 @@ def descarga_inteligente(req: DescargaInteligente):
           ... (resultado del método elegido)
         }
     """
-    from .client import descargar_cfdi_inteligente
+    from ..webservice.client import descargar_cfdi_inteligente
 
     _get_fiel()  # Verificar que hay e-firma
 
@@ -695,7 +695,7 @@ def descargar_ciec(req: CIECDescargaRequest):
 
     Requiere: pip install playwright && playwright install chromium
     """
-    from .ciec import descargar_cfdi_ciec
+    from ..portal.cfdi import descargar_cfdi_ciec
 
     try:
         archivos = descargar_cfdi_ciec(
@@ -737,7 +737,7 @@ def descargar_constancia(req: ConstanciaRequest):
 
     Requiere: pip install playwright && playwright install chromium
     """
-    from .constancia import descargar_constancia_ciec
+    from ..portal.constancia import descargar_constancia_ciec
 
     try:
         pdf = descargar_constancia_ciec(

@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .ciec import iniciar_sesion_ciec, iniciar_sesion_fiel
+from .login import iniciar_sesion_ciec, iniciar_sesion_fiel
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,7 @@ def descargar_constancia_fiel(
     # El RFC para nombrar el PDF se extrae del certificado.
     rfc = ""
     try:
-        from .fiel import FIEL
+        from ..core.fiel import FIEL
         rfc = FIEL(cer_path, key_path, password).rfc
     except Exception as e:
         logger.warning("[FIEL] no se pudo leer el RFC del .cer: %s", e)

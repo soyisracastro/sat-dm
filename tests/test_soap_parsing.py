@@ -6,9 +6,9 @@ import zipfile
 
 import pytest
 
-from sat_descarga.solicitud import _parse_request_id
-from sat_descarga.verificacion import _parse_estado, ESTADO_TERMINADA
-from sat_descarga.descarga import _extraer_zip_del_response
+from sat_descarga.webservice.solicitud import _parse_request_id
+from sat_descarga.webservice.verificacion import _parse_estado, ESTADO_TERMINADA
+from sat_descarga.webservice.descarga import _extraer_zip_del_response
 
 
 _DES_NS = "http://DescargaMasivaTerceros.sat.gob.mx"

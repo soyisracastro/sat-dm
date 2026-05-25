@@ -36,7 +36,7 @@ def metadata(rfc, desde, hasta, tipo, salida, csv_path, local):
 
     Usa --local para re-procesar metadata ya descargada sin contactar al SAT.
     """
-    from sat_descarga.metadata import extraer_metadata_de_directorio
+    from sat_descarga.utils.metadata import extraer_metadata_de_directorio
 
     print_header("Descarga de Metadata del SAT")
 
@@ -46,7 +46,7 @@ def metadata(rfc, desde, hasta, tipo, salida, csv_path, local):
         click.echo()
         records = extraer_metadata_de_directorio(salida)
     else:
-        from sat_descarga.client import descargar_metadata
+        from sat_descarga.webservice.client import descargar_metadata
 
         try:
             if rfc:

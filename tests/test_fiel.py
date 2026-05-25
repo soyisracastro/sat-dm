@@ -1,10 +1,10 @@
-"""Tests para sat_descarga.fiel — carga de e-firma, RFC, firma RSA-SHA1."""
+"""Tests para sat_descarga.core.fiel — carga de e-firma, RFC, firma RSA-SHA1."""
 
 import base64
 from datetime import datetime, timezone
 
 import pytest
-from sat_descarga.fiel import FIEL
+from sat_descarga.core.fiel import FIEL
 
 
 class TestFIELLoad:

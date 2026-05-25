@@ -32,7 +32,7 @@ def validar(origen, concurrencia, salida):
 
     No requiere e-firma — usa el servicio público del SAT.
     """
-    from sat_descarga.validacion import validar_masivo
+    from sat_descarga.utils.validacion import validar_masivo
 
     print_header("Validación de CFDI ante el SAT")
 
@@ -102,7 +102,7 @@ def validar(origen, concurrencia, salida):
 
 def _recopilar_cfdis(origen: str) -> list[dict]:
     """Lee XMLs del origen y extrae los datos necesarios para validar."""
-    from sat_descarga.xml_reader import leer_cfdi, leer_directorio
+    from sat_descarga.utils.xml_reader import leer_cfdi, leer_directorio
 
     cfdis = []
 

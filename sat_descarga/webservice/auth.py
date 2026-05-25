@@ -10,9 +10,9 @@ import base64
 import hashlib
 from lxml import etree
 
-from .fiel import FIEL
-from .config import ENDPOINTS, SOAP_ACTIONS
-from .http_client import make_request
+from ..core.fiel import FIEL
+from ..core.config import ENDPOINTS, SOAP_ACTIONS
+from ..core.http_client import make_request
 
 
 # ---------------------------------------------------------------------------
