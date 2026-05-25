@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .ciec import iniciar_sesion_ciec
+from .ciec import iniciar_sesion_ciec, iniciar_sesion_fiel
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,10 @@ CSF_URL_ENTRADA = (
     "?url=/operacion/43824/reimprime-tus-acuses-del-rfc"
     "&tipoLogeo=c&target=principal&hostServer=https://wwwmat.sat.gob.mx"
 )
+# e.firma entra por el MISMO lanzador (tipoLogeo=c → "Acceso por contraseña"); de
+# ahí el login FIEL hace clic en #buttonFiel para cambiar a e.firma. (tipoLogeo=e da
+# pantalla en blanco.)
+CSF_URL_ENTRADA_FIEL = CSF_URL_ENTRADA
 # Tras el login se aterriza en esta pantalla (predicado de éxito).
 CSF_LANDING = "wwwmat.sat.gob.mx/operacion/43824"
 # Botón JSF/PrimeFaces "Generar Constancia" (id dinámico → matchear por texto).
@@ -44,8 +48,8 @@ CSF_BTN = 'button:has-text("Generar Constancia")'
 class ConstanciaClient:
     """Cliente para descargar la Constancia de Situación Fiscal (portal CIEC)."""
 
-    def __init__(self, rfc: str, ciec: str, headless: bool = False):
-        self.rfc = rfc.strip().upper()
+    def __init__(self, rfc: str = "", ciec: str = "", headless: bool = False):
+        self.rfc = (rfc or "").strip().upper()
         self.ciec = ciec
         self.headless = headless
 
@@ -53,14 +57,19 @@ class ConstanciaClient:
         self,
         directorio_salida: str = "./constancia/",
         url_entrada: str = CSF_URL_ENTRADA,
+        login=None,
+        rfc_nombre: Optional[str] = None,
     ) -> Optional[Path]:
         """
         Genera y descarga la Constancia de Situación Fiscal.
 
         Args:
-            url_entrada: URL por donde inicia el login. Por defecto la del trámite
-                de acuses del RFC; configurable porque las URLs SSO del SAT pueden
-                traer parámetros de sesión.
+            url_entrada: URL por donde inicia el login (configurable: las URLs SSO
+                del SAT pueden traer parámetros de sesión).
+            login: callable(page) que autentica y aterriza en la pantalla de la
+                constancia. Por defecto usa CIEC (RFC + contraseña). Para e.firma se
+                inyecta un login FIEL. La navegación/descarga es agnóstica al método.
+            rfc_nombre: RFC para nombrar el PDF (útil en FIEL, donde se extrae del .cer).
 
         Returns:
             Path al PDF descargado, o None si no se pudo capturar.
@@ -78,7 +87,8 @@ class ConstanciaClient:
         out_dir = Path(directorio_salida)
         out_dir.mkdir(parents=True, exist_ok=True)
         fecha = datetime.date.today().strftime("%Y%m%d")
-        dest = out_dir / f"constancia_{self.rfc}_{fecha}.pdf"
+        rfc_nombre = (rfc_nombre or self.rfc or "constancia").strip().upper()
+        dest = out_dir / f"constancia_{rfc_nombre}_{fecha}.pdf"
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless, slow_mo=80)
@@ -92,11 +102,14 @@ class ConstanciaClient:
             )
             page = context.new_page()
             try:
-                iniciar_sesion_ciec(
-                    page, self.rfc, self.ciec,
-                    url_entrada=url_entrada,
-                    exito=lambda url: CSF_LANDING in url,
-                )
+                if login is None:
+                    iniciar_sesion_ciec(
+                        page, self.rfc, self.ciec,
+                        url_entrada=url_entrada,
+                        exito=lambda url: CSF_LANDING in url,
+                    )
+                else:
+                    login(page)
                 try:
                     page.wait_for_load_state("networkidle", timeout=20_000)
                 except PWTimeout:
@@ -240,3 +253,36 @@ def descargar_constancia_ciec(
     """
     client = ConstanciaClient(rfc=rfc, ciec=ciec, headless=headless)
     return client.descargar(directorio_salida=directorio_salida, url_entrada=url_entrada)
+
+
+def descargar_constancia_fiel(
+    cer_path: str,
+    key_path: str,
+    password: str,
+    directorio_salida: str = "./constancia/",
+    headless: bool = False,
+) -> Optional[Path]:
+    """
+    Descarga la Constancia de Situación Fiscal usando e.firma (FIEL) en vez de CIEC.
+
+    El browser es VISIBLE: si el autollenado de la pestaña e.firma falla, selecciona
+    .cer/.key + contraseña a mano (no hay captcha). El resto (navegación + «Generar
+    Constancia» + captura del PDF) se reutiliza igual que con CIEC.
+    """
+    # El RFC para nombrar el PDF se extrae del certificado.
+    rfc = ""
+    try:
+        from .fiel import FIEL
+        rfc = FIEL(cer_path, key_path, password).rfc
+    except Exception as e:
+        logger.warning("[FIEL] no se pudo leer el RFC del .cer: %s", e)
+
+    client = ConstanciaClient(rfc=rfc, headless=headless)
+    login = lambda page: iniciar_sesion_fiel(
+        page, cer_path, key_path, password,
+        url_entrada=CSF_URL_ENTRADA_FIEL,
+        exito=lambda url: CSF_LANDING in url,
+    )
+    return client.descargar(
+        directorio_salida=directorio_salida, login=login, rfc_nombre=rfc,
+    )

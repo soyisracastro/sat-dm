@@ -108,16 +108,21 @@ se detiene y puedes retomar al día siguiente. Como librería: `sat_descarga.cie
 
 ## Descargar Constancia de Situación Fiscal (CSF)
 
-Sin e-firma, vía CIEC. Abre un Chromium visible: resuelves el captcha y «Enviar», y el
-script da clic en «Generar Constancia» y guarda el PDF.
+Se da clic en «Generar Constancia» y se guarda el PDF. Dos métodos de login:
 
 ```bash
+# Con CIEC (resuelves el captcha en el browser):
 .venv/bin/python prueba_constancia.py RFC CIEC
+
+# Con e.firma (FIEL) — 100% automático, SIN captcha:
+.venv/bin/python prueba_constancia_fiel.py ruta.cer ruta.key "CONTRASEÑA"
 # PDF en ./constancia_<RFC>/constancia_<RFC>_<fecha>.pdf
 ```
 
-Como librería: `sat_descarga.constancia.descargar_constancia_ciec(rfc, ciec)`. También por
-API: `POST /constancia/descargar`.
+Con **e.firma** el flujo es totalmente desatendido (no hay captcha), ideal para
+automatización. Como librería: `descargar_constancia_ciec(rfc, ciec)` o
+`descargar_constancia_fiel(cer, key, password)` (en `sat_descarga.constancia`).
+También por API: `POST /constancia/descargar`.
 
 ## Uso como librería Python
 
