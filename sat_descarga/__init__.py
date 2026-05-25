@@ -14,6 +14,7 @@ API pública estable:
     from sat_descarga import descargar_cfdi, FIEL                       # Web Service
     from sat_descarga import descargar_cfdi_ciec                        # portal CIEC (CFDIs)
     from sat_descarga import descargar_constancia_ciec, descargar_constancia_fiel
+    from sat_descarga import descargar_opinion_ciec, descargar_opinion_fiel
 """
 
 from .webservice.client import descargar_cfdi, verificar_solicitud_existente
@@ -27,6 +28,7 @@ from .webservice.descarga import descargar_paquete, descargar_todos
 # así que re-exportarlas aquí NO requiere el extra `ciec`.
 from .portal.cfdi import descargar_cfdi_ciec
 from .portal.constancia import descargar_constancia_ciec, descargar_constancia_fiel
+from .portal.opinion import descargar_opinion_ciec, descargar_opinion_fiel
 
 __all__ = [
     "descargar_cfdi",
@@ -40,4 +42,6 @@ __all__ = [
     "descargar_cfdi_ciec",
     "descargar_constancia_ciec",
     "descargar_constancia_fiel",
+    "descargar_opinion_ciec",
+    "descargar_opinion_fiel",
 ]

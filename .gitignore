@@ -13,6 +13,7 @@ password.txt
 # CFDIs descargados
 cfdi_*/
 constancia*/
+opinion*/
 descargas/
 metadata/
 *.zip

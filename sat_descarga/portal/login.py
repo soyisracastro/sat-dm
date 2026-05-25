@@ -115,6 +115,10 @@ def _login_efirma(page, cer_path: str, key_path: str, password: str):
     La entrada (lanzador, tipoLogeo=c) cae en "Acceso por contraseña"; se cambia a
     e.firma con #buttonFiel, se suben .cer/.key (inputs file ocultos → state=attached)
     y la contraseña, y se envía con #submit (onclick="firmar(event)", firma client-side).
+
+    OJO: el form e.firma comparte el id `#submit` con el de "Acceso por contraseña"
+    (que queda OCULTO al cambiar a e.firma). Por eso se hace clic en el `#submit`
+    VISIBLE: clavarse en el oculto provocaría timeout (visto en loginda / opinión 32-D).
     """
     from playwright.sync_api import TimeoutError as PWTimeout
 
@@ -131,5 +135,10 @@ def _login_efirma(page, cer_path: str, key_path: str, password: str):
     page.fill("#privateKeyPassword", password)
     logger.info("[FIEL] .cer/.key/contraseña llenados (auto).")
 
-    page.click("#submit")  # firmar(event)
+    # Clic en el #submit visible (el del form e.firma); el #submit del form de
+    # contraseña queda oculto y compartiría el id.
+    try:
+        page.click("#submit:visible", timeout=10_000)
+    except PWTimeout:
+        page.click("#submit")  # fallback: id sin filtrar
     logger.info("[FIEL] e.firma enviada.")
