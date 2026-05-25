@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.1.0 (2026-05-25)
+
+Descarga de la **Constancia de Situación Fiscal (CSF)** vía el portal del SAT, con
+login CIEC o e.firma.
+
+### Nuevas funcionalidades
+
+- **Constancia de Situación Fiscal**: descarga el PDF de la constancia mediante
+  scraping del portal (sin Web Service), con dos métodos de login:
+  - **CIEC** (RFC + contraseña; el usuario resuelve el captcha).
+  - **e.firma / FIEL** (`.cer` + `.key` + contraseña): **100% automático, sin
+    captcha** — ideal para automatización/desatendido.
+  - API: `descargar_constancia_ciec(rfc, ciec)` y `descargar_constancia_fiel(cer, key, password)`.
+  - Endpoint `POST /constancia/descargar`; runners `prueba_constancia.py` y `prueba_constancia_fiel.py`.
+- **Login SSO reutilizable**: `iniciar_sesion_ciec()` e `iniciar_sesion_fiel()` en
+  `sat_descarga/ciec.py`, compartidos por los scrapers (CFDI, constancia y futuros).
+  El flujo CFDI delega en el helper sin cambiar su comportamiento.
+
+### Notas técnicas
+
+- El botón "Generar Constancia" es JSF/PrimeFaces dentro de un iframe (`rfcampc.siat`);
+  el PDF abre en un popup (`IdcGeneraConstancia.jsf`). e.firma entra por el lanzador
+  (`tipoLogeo=c`) + botón `#buttonFiel`.
+- El servidor del SAT usa TLS con clave DH muy pequeña que Node rechaza; el PDF se
+  captura desde el navegador (Chromium) en vez de una petición HTTP separada.
+
+### Archivos nuevos
+
+- `sat_descarga/constancia.py` — cliente de la CSF (CIEC + e.firma)
+- `prueba_constancia.py` / `prueba_constancia_fiel.py` — runners
+
+---
+
 ## v1.0.0 (2026-05-24)
 
 Interfaz web (UI + API), descarga vía CIEC sin e-firma, y madurez del proyecto.
