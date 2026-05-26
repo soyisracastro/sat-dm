@@ -130,9 +130,13 @@ def leer_directorio(directorio: str, recursive: bool = True) -> list[CfdiHeader]
 
 
 def _find_local(elem, local_name: str):
-    """Busca un descendiente por local-name, ignorando namespace."""
+    """Busca un descendiente por local-name, ignorando namespace.
+
+    Salta nodos que no son elementos (comentarios, PIs): su `.tag` no es un str
+    y `etree.QName()` los rechaza con ValueError.
+    """
     for child in elem.iter():
-        if etree.QName(child).localname == local_name:
+        if isinstance(child.tag, str) and etree.QName(child).localname == local_name:
             return child
     return None
 
