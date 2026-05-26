@@ -59,6 +59,7 @@ class ConstanciaClient:
         url_entrada: str = CSF_URL_ENTRADA,
         login=None,
         rfc_nombre: Optional[str] = None,
+        pedir_captcha=None,
     ) -> Optional[Path]:
         """
         Genera y descarga la Constancia de Situación Fiscal.
@@ -107,6 +108,7 @@ class ConstanciaClient:
                         page, self.rfc, self.ciec,
                         url_entrada=url_entrada,
                         exito=lambda url: CSF_LANDING in url,
+                        pedir_captcha=pedir_captcha,
                     )
                 else:
                     login(page)
@@ -243,6 +245,7 @@ def descargar_constancia_ciec(
     directorio_salida: str = "./constancia/",
     headless: bool = True,
     url_entrada: str = CSF_URL_ENTRADA,
+    pedir_captcha=None,
 ) -> Optional[Path]:
     """
     Descarga la Constancia de Situación Fiscal del portal del SAT (autenticación CIEC).
@@ -250,10 +253,14 @@ def descargar_constancia_ciec(
     El browser corre HEADLESS: solo aparece una mini-ventana con la imagen del captcha
     para teclearlo (hasta 3 intentos). El resto (navegación + «Generar constancia» +
     captura del PDF) es automático. `headless=False` solo para depurar.
+    `pedir_captcha` permite inyectar otra UI de captcha (p. ej. el bridge del agente).
     `url_entrada` permite ajustar la URL de inicio del login si el SAT la cambia.
     """
     client = ConstanciaClient(rfc=rfc, ciec=ciec, headless=headless)
-    return client.descargar(directorio_salida=directorio_salida, url_entrada=url_entrada)
+    return client.descargar(
+        directorio_salida=directorio_salida, url_entrada=url_entrada,
+        pedir_captcha=pedir_captcha,
+    )
 
 
 def descargar_constancia_fiel(

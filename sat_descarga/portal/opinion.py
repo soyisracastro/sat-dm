@@ -77,6 +77,7 @@ class OpinionClient:
         url_entrada: str = OPINION_URL_ENTRADA,
         login=None,
         rfc_nombre: Optional[str] = None,
+        pedir_captcha=None,
     ) -> Optional[Path]:
         """
         Descarga el Reporte de Opinión de Cumplimiento 32-D (PDF).
@@ -132,6 +133,7 @@ class OpinionClient:
                         page, self.rfc, self.ciec,
                         url_entrada=url_entrada,
                         exito=_es_landing_opinion,
+                        pedir_captcha=pedir_captcha,
                     )
                 else:
                     login(page)
@@ -260,17 +262,22 @@ def descargar_opinion_ciec(
     directorio_salida: str = "./opinion/",
     headless: bool = True,
     url_entrada: str = OPINION_URL_ENTRADA,
+    pedir_captcha=None,
 ) -> Optional[Path]:
     """
     Descarga el Reporte de Opinión de Cumplimiento 32-D del portal del SAT (CIEC).
 
     El browser corre HEADLESS: solo aparece una mini-ventana con la imagen del captcha
     para teclearlo (hasta 3 intentos). El resto (navegación + captura del PDF) es
-    automático. `headless=False` solo para depurar. `url_entrada` permite ajustar la
-    URL de inicio del login si el SAT la cambia.
+    automático. `headless=False` solo para depurar. `pedir_captcha` permite inyectar otra
+    UI de captcha (p. ej. el bridge del agente). `url_entrada` permite ajustar la URL de
+    inicio del login si el SAT la cambia.
     """
     client = OpinionClient(rfc=rfc, ciec=ciec, headless=headless)
-    return client.descargar(directorio_salida=directorio_salida, url_entrada=url_entrada)
+    return client.descargar(
+        directorio_salida=directorio_salida, url_entrada=url_entrada,
+        pedir_captcha=pedir_captcha,
+    )
 
 
 def descargar_opinion_fiel(
