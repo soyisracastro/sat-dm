@@ -241,14 +241,15 @@ def descargar_constancia_ciec(
     rfc: str,
     ciec: str,
     directorio_salida: str = "./constancia/",
-    headless: bool = False,
+    headless: bool = True,
     url_entrada: str = CSF_URL_ENTRADA,
 ) -> Optional[Path]:
     """
     Descarga la Constancia de Situación Fiscal del portal del SAT (autenticación CIEC).
 
-    El browser es VISIBLE: resuelve el captcha y haz clic en «Enviar». El resto
-    (navegación + «Generar constancia» + captura del PDF) es automático.
+    El browser corre HEADLESS: solo aparece una mini-ventana con la imagen del captcha
+    para teclearlo (hasta 3 intentos). El resto (navegación + «Generar constancia» +
+    captura del PDF) es automático. `headless=False` solo para depurar.
     `url_entrada` permite ajustar la URL de inicio del login si el SAT la cambia.
     """
     client = ConstanciaClient(rfc=rfc, ciec=ciec, headless=headless)

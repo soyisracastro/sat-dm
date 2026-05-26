@@ -12,54 +12,112 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-LOGIN_TIMEOUT_MS = 180_000  # 3 min para resolver captcha + login
+LOGIN_TIMEOUT_MS = 180_000        # 3 min para el login FIEL (e.firma, sin captcha)
+MAX_INTENTOS_CAPTCHA = 3          # CIEC: 1 + 2 reintentos; tras agotarse → cancelar
+EXITO_TIMEOUT_MS = 25_000         # espera de aterrizaje tras enviar el captcha
 
 
-def iniciar_sesion_ciec(page, rfc: str, ciec: str, url_entrada: str, exito, timeout_ms: int = LOGIN_TIMEOUT_MS):
+def _login_ciec_con_reintentos(rellenar_form, leer_captcha_img, pedir_captcha,
+                               enviar, max_intentos=MAX_INTENTOS_CAPTCHA):
     """
-    Login CIEC genérico reutilizable por cualquier portal del SAT que use el SSO NIDP.
+    Política de reintentos del captcha CIEC (pura, sin Playwright → testeable).
 
-    Abre `url_entrada`, pre-llena RFC + contraseña, espera a que el USUARIO resuelva
-    el captcha y dé «Enviar» en el browser visible, y luego espera hasta que
-    `exito(url)` sea True (predicado sobre la URL para detectar el aterrizaje
-    post-login; cada portal redirige a un destino distinto).
+    Por cada intento: rellena el form, lee la imagen del captcha, la muestra al
+    usuario (`pedir_captcha`) y envía. Hasta `max_intentos`.
 
-    Reutilizado por el portal CFDI (CIECClient) y por los scrapers de constancia /
-    opinión, que solo cambian `url_entrada` y `exito`.
+    Args:
+        rellenar_form(): rellena RFC+contraseña (idempotente; la página puede haberse
+            recargado tras un captcha incorrecto).
+        leer_captcha_img() -> bytes: imagen del captcha vigente.
+        pedir_captcha(img, intento, max) -> Optional[str]: UI; None = el usuario canceló.
+        enviar(texto) -> bool: envía y devuelve True si el login tuvo éxito.
+
+    Raises:
+        RuntimeError: si el usuario cancela o si se agotan los intentos (la operación
+            se cancela para no bloquear/abusar del portal del SAT).
+    """
+    for intento in range(1, max_intentos + 1):
+        rellenar_form()
+        img = leer_captcha_img()
+        texto = pedir_captcha(img, intento, max_intentos)
+        if texto is None:
+            raise RuntimeError("Captcha cancelado por el usuario; operación abortada.")
+        logger.info("[CIEC] Captcha enviado (intento %d/%d)...", intento, max_intentos)
+        if enviar(texto):
+            return
+        logger.warning("[CIEC] Intento %d/%d falló (¿captcha incorrecto?).",
+                       intento, max_intentos)
+    raise RuntimeError(
+        f"Login CIEC no completado tras {max_intentos} intentos; operación cancelada "
+        "para no bloquear el portal del SAT. Reintenta más tarde."
+    )
+
+
+def iniciar_sesion_ciec(page, rfc: str, ciec: str, url_entrada: str, exito,
+                        max_intentos: int = MAX_INTENTOS_CAPTCHA, pedir_captcha=None):
+    """
+    Login CIEC headless con el captcha vía mini-ventana (NO se muestra el browser).
+
+    Abre `url_entrada` en un browser headless. Por cada intento: rellena RFC+contraseña,
+    extrae la imagen del captcha y la muestra en una mini-ventana para que el usuario la
+    teclee; envía y verifica el aterrizaje con `exito(url)`. Hasta `max_intentos`
+    (default 3 = 1 + 2 reintentos); si todos fallan o el usuario cancela, lanza
+    RuntimeError (operación cancelada).
+
+    `pedir_captcha(img_bytes, intento, max) -> Optional[str]` es inyectable (default: la
+    mini-ventana tkinter de `portal/captcha.py`); None ⇒ el usuario canceló.
+
+    Reutilizado por el portal CFDI (CIECClient) y los scrapers de constancia / opinión:
+    solo cambian `url_entrada` y `exito`.
     """
     from playwright.sync_api import TimeoutError as PWTimeout
+    from .captcha import bytes_de_data_uri
 
+    if pedir_captcha is None:
+        from .captcha import pedir_captcha as pedir_captcha
+
+    rfc = rfc.strip().upper()
     page.goto(url_entrada, wait_until="domcontentloaded")
-    try:
-        page.wait_for_load_state("networkidle", timeout=15_000)
-    except PWTimeout:
-        pass
 
-    # Pre-llenar RFC + contraseña (el usuario solo resuelve el captcha).
-    for sel in ("input#rfc", 'input[id*="rfc" i]'):
-        if page.query_selector(sel):
-            page.fill(sel, rfc.strip().upper())
-            break
-    for sel in ("input#password", 'input[type="password"]'):
-        if page.query_selector(sel):
-            page.fill(sel, ciec)
-            break
+    def rellenar_form():
+        # Espera el form de login (cfdiau/loginda: #rfc, #userCaptcha, #submit). Tras
+        # un captcha incorrecto la página se recarga, así que se re-rellena cada vez.
+        page.wait_for_selector("input#userCaptcha", timeout=30_000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=8_000)
+        except PWTimeout:
+            pass
+        for sel in ("input#rfc", 'input[id*="rfc" i]'):
+            if page.query_selector(sel):
+                page.fill(sel, rfc)
+                break
+        for sel in ("input#password", 'input[type="password"]'):
+            if page.query_selector(sel):
+                page.fill(sel, ciec)
+                break
 
-    logger.info(
-        "[CIEC] Resuelve el captcha y haz clic en «Enviar» en el browser. "
-        "Esperando login (hasta %d s)...", timeout_ms // 1000
+    def leer_captcha_img() -> bytes:
+        el = page.query_selector('img[src^="data:image"]')
+        if el is None:
+            raise RuntimeError("No se encontró la imagen del captcha en el login.")
+        return bytes_de_data_uri(el.get_attribute("src") or "")
+
+    def enviar(texto: str) -> bool:
+        page.fill("input#userCaptcha", texto)
+        page.click("input#submit")
+        try:
+            page.wait_for_url(exito, timeout=EXITO_TIMEOUT_MS)
+        except PWTimeout:
+            return False
+        try:
+            page.wait_for_load_state("networkidle", timeout=15_000)
+        except PWTimeout:
+            pass
+        return True
+
+    _login_ciec_con_reintentos(
+        rellenar_form, leer_captcha_img, pedir_captcha, enviar, max_intentos
     )
-    try:
-        page.wait_for_url(exito, timeout=timeout_ms)
-    except PWTimeout:
-        raise RuntimeError(
-            f"Login no completado. URL actual: {page.url}. "
-            "¿Captcha incorrecto o sesión previa abierta?"
-        )
-    try:
-        page.wait_for_load_state("networkidle", timeout=15_000)
-    except PWTimeout:
-        pass
     logger.info("[CIEC] Login exitoso.")
 
 
