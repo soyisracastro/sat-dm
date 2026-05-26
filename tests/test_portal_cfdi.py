@@ -6,7 +6,18 @@ captura de PDF) se prueba manualmente con credenciales.
 
 from datetime import date
 
+from sat_descarga.portal import cfdi
 from sat_descarga.portal.cfdi import _normalizar_tipos, _es_uuid, _dias
+
+
+def test_login_pasa_pedir_captcha(monkeypatch):
+    # El callback de captcha (bridge del agente) debe llegar a iniciar_sesion_ciec.
+    capturado = {}
+    monkeypatch.setattr(cfdi, "iniciar_sesion_ciec", lambda *a, **k: capturado.update(k))
+    cliente = cfdi.CIECClient("CAUI890921DAA", "ciec")
+    centinela = object()
+    cliente._login(object(), pedir_captcha=centinela)
+    assert capturado.get("pedir_captcha") is centinela
 
 
 def test_normalizar_tipos():

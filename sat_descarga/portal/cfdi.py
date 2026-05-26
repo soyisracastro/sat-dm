@@ -65,6 +65,7 @@ class CIECClient:
         tipo_comprobante: str = "RE",
         directorio_salida: str = "./cfdi/",
         max_registros: int = 2000,
+        pedir_captcha=None,
     ) -> List[Path]:
         """
         Descarga CFDIs del portal del SAT con un solo login.
@@ -109,7 +110,7 @@ class CIECClient:
             page = context.new_page()
 
             try:
-                self._login(page)  # un solo captcha para todos los tipos
+                self._login(page, pedir_captcha)  # un solo captcha para todos los tipos
                 for tipo in tipos:
                     if len(descargados) >= max_registros:
                         break
@@ -199,13 +200,14 @@ class CIECClient:
     # Login (captcha resuelto por el usuario en el browser visible)
     # ------------------------------------------------------------------
 
-    def _login(self, page):
+    def _login(self, page, pedir_captcha=None):
         # El portal CFDI aterriza de vuelta en portalcfdi (saliendo de cfdiau).
         iniciar_sesion_ciec(
             page, self.rfc, self.ciec,
             url_entrada=f"{PORTAL_URL}/",
             exito=lambda url: "portalcfdi.facturaelectronica.sat.gob.mx" in url
                               and "cfdiau" not in url,
+            pedir_captcha=pedir_captcha,
         )
 
     # ------------------------------------------------------------------
@@ -457,6 +459,7 @@ def descargar_cfdi_ciec(
     directorio_salida: str = "./cfdi/",
     max_registros: int = 2000,
     headless: bool = True,
+    pedir_captcha=None,
 ) -> List[Path]:
     """
     Descarga CFDIs del portal del SAT usando autenticación CIEC.
@@ -473,4 +476,5 @@ def descargar_cfdi_ciec(
         tipo_comprobante=tipo_comprobante,
         directorio_salida=directorio_salida,
         max_registros=max_registros,
+        pedir_captcha=pedir_captcha,
     )

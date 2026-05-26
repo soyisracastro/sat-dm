@@ -35,12 +35,15 @@ logger = logging.getLogger(__name__)
 try:
     from fastapi import FastAPI, HTTPException, UploadFile, File, Form
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import StreamingResponse
     from pydantic import BaseModel
 except ImportError:
     raise ImportError(
         "fastapi no está instalado. Ejecuta:\n"
         "  pip install fastapi uvicorn[standard]"
     )
+
+from . import jobs
 
 from ..core.fiel import FIEL
 from ..webservice.auth import obtener_token
@@ -167,6 +170,16 @@ class ConstanciaRequest(BaseModel):
     rfc: str
     ciec: str
     directorio_salida: str = "./constancia/"
+
+
+class OpinionRequest(BaseModel):
+    rfc: str
+    ciec: str
+
+
+class CaptchaSolution(BaseModel):
+    # solution=None significa que el usuario canceló (cierra el modal del captcha).
+    solution: Optional[str] = None
 
 
 class DescargaInteligente(BaseModel):
@@ -761,6 +774,183 @@ def descargar_constancia(req: ConstanciaRequest):
         )
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Endpoints: jobs CIEC con captcha in-app (para el desktop)
+# ---------------------------------------------------------------------------
+#
+# A diferencia de /ciec/descargar y /constancia/descargar (síncronos, que abren
+# la ventana tkinter local), estos endpoints corren el scrape en un worker thread
+# y resuelven el captcha por HTTP: el front escucha GET /events/{job_id} (SSE), ve
+# la imagen del captcha y responde con POST /jobs/{job_id}/captcha. Así el browser
+# corre headless y el captcha se muestra dentro de la UI (Electron). Ver api/jobs.py.
+
+
+def _lanzar_ciec(fn_factory):
+    """
+    Crea un job CIEC, inyecta el callback de captcha del bridge y lo corre en un
+    worker thread. `fn_factory(pedir_captcha)` devuelve el callable del scrape.
+    Solo un job CIEC a la vez (la sesión del agente es de un usuario).
+    """
+    if jobs.registry.hay_activo():
+        raise HTTPException(
+            status_code=409,
+            detail="Ya hay una operación en curso. Espera a que termine o cancélala.",
+        )
+    job = jobs.registry.crear()
+    pedir_captcha = jobs.registry.pedir_captcha_callback(job)
+    jobs.registry.ejecutar(job, fn_factory(pedir_captcha))
+    return {"job_id": job.id}
+
+
+@app.post("/ciec/cfdi")
+def ciec_cfdi(req: CIECDescargaRequest):
+    """Descarga CFDIs vía CIEC como job (captcha in-app por SSE). → {job_id}."""
+    from ..portal.cfdi import descargar_cfdi_ciec
+    from ..core import paths
+
+    salida = str(paths.dir_cfdi_base(req.rfc))
+
+    def factory(pedir_captcha):
+        def run():
+            archivos = descargar_cfdi_ciec(
+                rfc=req.rfc, ciec=req.ciec,
+                fecha_inicio=req.fecha_inicio, fecha_fin=req.fecha_fin,
+                tipo_comprobante=req.tipo_comprobante,
+                directorio_salida=salida, max_registros=req.max_registros,
+                pedir_captcha=pedir_captcha,
+            )
+            return {"metodo": "ciec", "total": len(archivos),
+                    "archivos": [str(a) for a in archivos]}
+        return run
+
+    return _lanzar_ciec(factory)
+
+
+@app.post("/ciec/constancia")
+def ciec_constancia(req: ConstanciaRequest):
+    """Descarga la Constancia de Situación Fiscal vía CIEC como job. → {job_id}."""
+    from ..portal.constancia import descargar_constancia_ciec
+    from ..core import paths
+
+    salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, req.rfc))
+
+    def factory(pedir_captcha):
+        def run():
+            pdf = descargar_constancia_ciec(
+                rfc=req.rfc, ciec=req.ciec,
+                directorio_salida=salida, pedir_captcha=pedir_captcha,
+            )
+            if not pdf:
+                raise RuntimeError("No se pudo generar/descargar la constancia.")
+            return {"archivo": str(pdf)}
+        return run
+
+    return _lanzar_ciec(factory)
+
+
+@app.post("/ciec/opinion")
+def ciec_opinion(req: OpinionRequest):
+    """Descarga la Opinión de Cumplimiento 32-D vía CIEC como job. → {job_id}."""
+    from ..portal.opinion import descargar_opinion_ciec
+    from ..core import paths
+
+    salida = str(paths.dir_documento(paths.TIPO_OPINION, req.rfc))
+
+    def factory(pedir_captcha):
+        def run():
+            pdf = descargar_opinion_ciec(
+                rfc=req.rfc, ciec=req.ciec,
+                directorio_salida=salida, pedir_captcha=pedir_captcha,
+            )
+            if not pdf:
+                raise RuntimeError("No se pudo generar/descargar la opinión 32-D.")
+            return {"archivo": str(pdf)}
+        return run
+
+    return _lanzar_ciec(factory)
+
+
+@app.post("/jobs/{job_id}/captcha")
+def responder_captcha_job(job_id: str, body: CaptchaSolution):
+    """Entrega la solución del captcha (o solution=null para cancelar el job)."""
+    job = jobs.registry.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job no encontrado")
+    jobs.registry.responder_captcha(job, body.solution)
+    return {"ok": True}
+
+
+@app.get("/jobs/{job_id}")
+def estado_job(job_id: str):
+    """Estado actual del job (estado, resultado, error)."""
+    job = jobs.registry.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job no encontrado")
+    return {
+        "id": job.id,
+        "estado": job.estado,
+        "resultado": jobs._serializable(job.resultado),
+        "error": job.error,
+    }
+
+
+@app.get("/events/{job_id}")
+def eventos_job(job_id: str):
+    """Stream SSE del progreso del job (incluye `captcha_required`)."""
+    job = jobs.registry.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job no encontrado")
+    return StreamingResponse(jobs.registry.stream(job), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Endpoints: documentos vía e.firma (FIEL en sesión; sin captcha)
+# ---------------------------------------------------------------------------
+
+@app.post("/constancia/fiel")
+def constancia_fiel_endpoint():
+    """Constancia de Situación Fiscal con la e.firma cargada en sesión."""
+    from ..portal.constancia import descargar_constancia_fiel
+    from ..core import paths
+
+    _get_fiel()
+    salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, _session["rfc"] or ""))
+    try:
+        pdf = descargar_constancia_fiel(
+            cer_path=_session["cer_path"], key_path=_session["key_path"],
+            password=_session["password"], directorio_salida=salida,
+        )
+        if not pdf:
+            raise HTTPException(status_code=502, detail="No se pudo descargar la constancia.")
+        return {"ok": True, "archivo": str(pdf)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/opinion/fiel")
+def opinion_fiel_endpoint():
+    """Opinión de Cumplimiento 32-D con la e.firma cargada en sesión."""
+    from ..portal.opinion import descargar_opinion_fiel
+    from ..core import paths
+
+    _get_fiel()
+    salida = str(paths.dir_documento(paths.TIPO_OPINION, _session["rfc"] or ""))
+    try:
+        pdf = descargar_opinion_fiel(
+            cer_path=_session["cer_path"], key_path=_session["key_path"],
+            password=_session["password"], directorio_salida=salida,
+        )
+        if not pdf:
+            raise HTTPException(status_code=502, detail="No se pudo descargar la opinión 32-D.")
+        return {"ok": True, "archivo": str(pdf)}
     except HTTPException:
         raise
     except Exception as e:
