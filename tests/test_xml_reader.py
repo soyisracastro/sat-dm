@@ -52,6 +52,31 @@ SAMPLE_CFDI_33 = """<?xml version="1.0" encoding="utf-8"?>
 NOT_A_CFDI = """<?xml version="1.0"?><html><body>Not a CFDI</body></html>"""
 
 
+# CFDI con nodos comentario intercalados: antes tronaba en _find_local porque
+# etree.QName() no acepta nodos comentario (su .tag no es str).
+SAMPLE_CFDI_CON_COMENTARIOS = """<?xml version="1.0" encoding="utf-8"?>
+<!-- comentario antes del comprobante -->
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Fecha="2025-06-15T10:30:00"
+    SubTotal="1000.00"
+    Total="1160.00"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+    <!-- comentario antes del emisor -->
+    <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Empresa Emisora SA" RegimenFiscal="601"/>
+    <cfdi:Receptor Rfc="BBB020202BBB" Nombre="Cliente Receptor SA" UsoCFDI="G03"/>
+    <cfdi:Complemento>
+        <!-- comentario antes del timbre -->
+        <tfd:TimbreFiscalDigital
+            UUID="12345678-ABCD-EFGH-IJKL-123456789012"
+            FechaTimbrado="2025-06-15T10:31:00"/>
+    </cfdi:Complemento>
+</cfdi:Comprobante>"""
+
+
 @pytest.fixture
 def cfdi_40_file(tmp_path):
     f = tmp_path / "cfdi_40.xml"
@@ -101,6 +126,15 @@ class TestLeerCfdi:
     def test_not_cfdi_raises(self, not_cfdi_file):
         with pytest.raises(ValueError, match="No es un CFDI"):
             leer_cfdi(not_cfdi_file)
+
+    def test_cfdi_con_comentarios(self, tmp_path):
+        # Regresión: nodos comentario hacían que _find_local tronara con QName.
+        f = tmp_path / "cfdi_comentarios.xml"
+        f.write_text(SAMPLE_CFDI_CON_COMENTARIOS)
+        h = leer_cfdi(str(f))
+        assert h.uuid == "12345678-ABCD-EFGH-IJKL-123456789012"
+        assert h.emisor_rfc == "AAA010101AAA"
+        assert h.receptor_rfc == "BBB020202BBB"
 
 
 class TestLeerDirectorio:
