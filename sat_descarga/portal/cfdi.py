@@ -47,10 +47,11 @@ DOWNLOAD_TIMEOUT_MS = 30_000
 class CIECClient:
     """Cliente para descargar CFDIs vía el portal web del SAT (CIEC)."""
 
-    def __init__(self, rfc: str, ciec: str, headless: bool = False):
+    def __init__(self, rfc: str, ciec: str, headless: bool = True):
         self.rfc = rfc.strip().upper()
         self.ciec = ciec
-        # headless=False por defecto: el usuario resuelve el captcha en el browser.
+        # headless=True: el captcha se teclea en una mini-ventana (portal/captcha.py),
+        # no se muestra el navegador. headless=False solo para depurar.
         self.headless = headless
 
     # ------------------------------------------------------------------
@@ -455,14 +456,15 @@ def descargar_cfdi_ciec(
     tipo_comprobante: str = "RE",
     directorio_salida: str = "./cfdi/",
     max_registros: int = 2000,
-    headless: bool = False,
+    headless: bool = True,
 ) -> List[Path]:
     """
     Descarga CFDIs del portal del SAT usando autenticación CIEC.
 
     tipo_comprobante: "R" (recibidos), "E" (emitidos) o "RE"/ambos (default).
-    El browser es VISIBLE: resuelve el captcha y haz clic en «Enviar».
-    El resto (búsqueda + descarga item por item) es automático.
+    El browser corre HEADLESS: solo aparece una mini-ventana con la imagen del captcha
+    para teclearlo (hasta 3 intentos); el resto (búsqueda + descarga) es automático.
+    `headless=False` solo para depurar (muestra el navegador).
     """
     client = CIECClient(rfc=rfc, ciec=ciec, headless=headless)
     return client.descargar(

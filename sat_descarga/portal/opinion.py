@@ -258,14 +258,15 @@ def descargar_opinion_ciec(
     rfc: str,
     ciec: str,
     directorio_salida: str = "./opinion/",
-    headless: bool = False,
+    headless: bool = True,
     url_entrada: str = OPINION_URL_ENTRADA,
 ) -> Optional[Path]:
     """
     Descarga el Reporte de Opinión de Cumplimiento 32-D del portal del SAT (CIEC).
 
-    El browser es VISIBLE: resuelve el captcha y haz clic en «Enviar». El resto
-    (navegación + captura del PDF) es automático. `url_entrada` permite ajustar la
+    El browser corre HEADLESS: solo aparece una mini-ventana con la imagen del captcha
+    para teclearlo (hasta 3 intentos). El resto (navegación + captura del PDF) es
+    automático. `headless=False` solo para depurar. `url_entrada` permite ajustar la
     URL de inicio del login si el SAT la cambia.
     """
     client = OpinionClient(rfc=rfc, ciec=ciec, headless=headless)
