@@ -7,6 +7,8 @@ from . import config_store
 from .empresas import _seleccionar_empresa
 from .display import print_header, print_success, print_warning, print_error
 
+from sat_descarga.core import paths
+
 from sat_descarga import (
     descargar_cfdi,
     verificar_solicitud_existente,
@@ -24,6 +26,15 @@ ESTADOS = {"V": "Vigente", "C": "Cancelado", "T": "Todos"}
 
 def _parse_fecha(text: str) -> date:
     return datetime.strptime(text, "%Y-%m-%d").date()
+
+
+def _rfc_de_cert(cer: str, key: str, password: str) -> str:
+    """RFC del .cer (para componer la ruta en FIEL); '' si no se puede leer."""
+    try:
+        from sat_descarga.core.fiel import FIEL
+        return FIEL(cer, key, password).rfc
+    except Exception:
+        return ""
 
 
 def _prompt_rfc(rfc: str | None) -> str | None:
@@ -95,7 +106,9 @@ def _ejecutar_descarga(
     """Ejecuta una descarga individual (emitidos o recibidos)."""
     rfc = empresa["rfc"]
     label = TIPOS[tipo_comprobante]
-    directorio = f"{salida}/{rfc}/{label.lower()}/"
+    directorio = str(paths.dir_cfdi(
+        rfc, tipo_comprobante, fecha_inicio, fecha_fin, salida_base=salida,
+    ))
 
     print_header(f"{label} — {rfc} ({fecha_inicio} a {fecha_fin})")
 
@@ -143,7 +156,7 @@ def descargar():
 @click.option("--hasta", default=None, help="Fecha fin (YYYY-MM-DD)")
 @click.option("--tipo", default=None, help="E=emitidos, R=recibidos, A=ambos")
 @click.option("--estado", default=None, help="V=vigente, C=cancelado, T=todos")
-@click.option("--salida", default="./descargas", help="Directorio base de salida")
+@click.option("--salida", default=None, help="Directorio base de salida (default: descargas/)")
 def descargar_cfdi_cmd(rfc, desde, hasta, tipo, estado, salida):
     """CFDIs vía el Web Service oficial (e-firma / FIEL)."""
     rfc = _prompt_rfc(rfc)
@@ -172,7 +185,7 @@ def descargar_cfdi_cmd(rfc, desde, hasta, tipo, estado, salida):
 @click.option("--desde", default=None, help="Fecha inicio (YYYY-MM-DD)")
 @click.option("--hasta", default=None, help="Fecha fin (YYYY-MM-DD)")
 @click.option("--tipo", default="RE", help="R=recibidos, E=emitidos, RE=ambos")
-@click.option("--salida", default=None, help="Directorio de salida (default ./cfdi_ciec_<RFC>/)")
+@click.option("--salida", default=None, help="Directorio base de salida (default descargas/cfdi/<RFC>/)")
 @click.option("--max-registros", default=2000, type=int, help="Tope de XMLs (cuota diaria del portal)")
 @click.option("--headless", is_flag=True, default=False, help="Browser invisible (no recomendado: hay captcha)")
 def descargar_ciec_cmd(rfc, ciec, desde, hasta, tipo, salida, max_registros, headless):
@@ -183,7 +196,8 @@ def descargar_ciec_cmd(rfc, ciec, desde, hasta, tipo, salida, max_registros, hea
     if not ciec:
         ciec = click.prompt("  Contraseña CIEC", hide_input=True)
     fecha_inicio, fecha_fin = _prompt_fechas(desde, hasta)
-    salida = salida or f"./cfdi_ciec_{rfc}/"
+    # Base por RFC; la función CIEC anida {emitidos|recibidos}/{rango}/ debajo.
+    salida = str(paths.dir_cfdi_base(rfc, salida_base=salida))
 
     print_header(f"Descarga CIEC — {rfc} ({fecha_inicio} a {fecha_fin}, tipo {tipo.upper()})")
     archivos = descargar_cfdi_ciec(
@@ -205,7 +219,7 @@ def descargar_ciec_cmd(rfc, ciec, desde, hasta, tipo, salida, max_registros, hea
 @click.option("--cer", type=click.Path(exists=True), default=None, help="(metodo fiel) archivo .cer")
 @click.option("--key", type=click.Path(exists=True), default=None, help="(metodo fiel) archivo .key")
 @click.option("--password", default=None, help="(metodo fiel) contraseña de la clave privada")
-@click.option("--salida", default=None, help="Directorio de salida")
+@click.option("--salida", default=None, help="Directorio base de salida (default descargas/<tipo>/<RFC>/)")
 @click.option("--headless", is_flag=True, default=False)
 def descargar_constancia_cmd(metodo, rfc, ciec, cer, key, password, salida, headless):
     """Constancia de Situación Fiscal (PDF) vía CIEC o e.firma."""
@@ -215,7 +229,7 @@ def descargar_constancia_cmd(metodo, rfc, ciec, cer, key, password, salida, head
         rfc = rfc.strip().upper()
         if not ciec:
             ciec = click.prompt("  Contraseña CIEC", hide_input=True)
-        salida = salida or f"./constancia_{rfc}/"
+        salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, rfc, salida_base=salida))
         print_header(f"Constancia (CIEC) — {rfc}")
         pdf = descargar_constancia_ciec(
             rfc=rfc, ciec=ciec, directorio_salida=salida, headless=headless,
@@ -226,7 +240,8 @@ def descargar_constancia_cmd(metodo, rfc, ciec, cer, key, password, salida, head
             raise click.Abort()
         if not password:
             password = click.prompt("  Contraseña de la clave privada", hide_input=True)
-        salida = salida or "./constancia_fiel/"
+        rfc = _rfc_de_cert(cer, key, password)  # ruta por RFC, igual que CIEC
+        salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, rfc, salida_base=salida))
         print_header("Constancia (e.firma)")
         pdf = descargar_constancia_fiel(
             cer_path=cer, key_path=key, password=password,
@@ -248,7 +263,7 @@ def descargar_constancia_cmd(metodo, rfc, ciec, cer, key, password, salida, head
 @click.option("--cer", type=click.Path(exists=True), default=None, help="(metodo fiel) archivo .cer")
 @click.option("--key", type=click.Path(exists=True), default=None, help="(metodo fiel) archivo .key")
 @click.option("--password", default=None, help="(metodo fiel) contraseña de la clave privada")
-@click.option("--salida", default=None, help="Directorio de salida")
+@click.option("--salida", default=None, help="Directorio base de salida (default descargas/<tipo>/<RFC>/)")
 @click.option("--headless", is_flag=True, default=False)
 def descargar_opinion_cmd(metodo, rfc, ciec, cer, key, password, salida, headless):
     """Reporte de Opinión de Cumplimiento 32-D (PDF) vía CIEC o e.firma."""
@@ -258,7 +273,7 @@ def descargar_opinion_cmd(metodo, rfc, ciec, cer, key, password, salida, headles
         rfc = rfc.strip().upper()
         if not ciec:
             ciec = click.prompt("  Contraseña CIEC", hide_input=True)
-        salida = salida or f"./opinion_{rfc}/"
+        salida = str(paths.dir_documento(paths.TIPO_OPINION, rfc, salida_base=salida))
         print_header(f"Opinión 32-D (CIEC) — {rfc}")
         pdf = descargar_opinion_ciec(
             rfc=rfc, ciec=ciec, directorio_salida=salida, headless=headless,
@@ -269,7 +284,8 @@ def descargar_opinion_cmd(metodo, rfc, ciec, cer, key, password, salida, headles
             raise click.Abort()
         if not password:
             password = click.prompt("  Contraseña de la clave privada", hide_input=True)
-        salida = salida or "./opinion_fiel/"
+        rfc = _rfc_de_cert(cer, key, password)  # ruta por RFC, igual que CIEC
+        salida = str(paths.dir_documento(paths.TIPO_OPINION, rfc, salida_base=salida))
         print_header("Opinión 32-D (e.firma)")
         pdf = descargar_opinion_fiel(
             cer_path=cer, key_path=key, password=password,
@@ -286,7 +302,7 @@ def descargar_opinion_cmd(metodo, rfc, ciec, cer, key, password, salida, headles
 @click.command()
 @click.argument("id_solicitud")
 @click.option("--rfc", default=None, help="RFC de la empresa")
-@click.option("--salida", default="./descargas", help="Directorio base de salida")
+@click.option("--salida", default=None, help="Directorio base de salida (default: descargas/)")
 def retomar(id_solicitud, rfc, salida):
     """Retomar una solicitud previa por RequestID."""
     rfc = _prompt_rfc(rfc)
@@ -301,7 +317,8 @@ def retomar(id_solicitud, rfc, salida):
 
     print_header(f"Retomando solicitud {id_solicitud}")
 
-    directorio = f"{salida}/{rfc}/"
+    # Sin tipo/fechas conocidos (no se persisten hoy) → descargas/cfdi/{RFC}/.
+    directorio = str(paths.dir_cfdi_base(rfc, salida_base=salida))
 
     try:
         zips = verificar_solicitud_existente(

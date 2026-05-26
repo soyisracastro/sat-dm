@@ -37,3 +37,10 @@ def test_reexports_raiz_disponibles():
         "descargar_opinion_ciec", "descargar_opinion_fiel",
     ):
         assert hasattr(sat_descarga, nombre), f"falta re-export: {nombre}"
+
+
+def test_help_anuncia_layout_descargas():
+    # Los --salida deben anunciar el nuevo layout unificado descargas/.
+    r = CliRunner()
+    assert "descargas" in r.invoke(cli, ["descargar", "cfdi", "--help"]).output
+    assert "descargas/cfdi" in r.invoke(cli, ["descargar", "ciec", "--help"]).output

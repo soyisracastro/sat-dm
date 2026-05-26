@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .login import iniciar_sesion_ciec
+from ..core import paths
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +71,11 @@ class CIECClient:
         Args:
             fecha_inicio / fecha_fin: rango del periodo.
             tipo_comprobante: "R" (recibidos), "E" (emitidos) o "RE"/ambos
-                (default). Si se piden ambos, cada tipo va a su subcarpeta
-                (recibidos/ y emitidos/); si es uno solo, va directo a la carpeta.
-            directorio_salida: carpeta destino de los XMLs.
+                (default). Cada tipo va siempre a su subcarpeta (emitidos/ y
+                recibidos/), aunque se pida uno solo (layout uniforme con el WS).
+            directorio_salida: carpeta base. Los XMLs caen en
+                {base}/{emitidos|recibidos}/[{desde}_a_{hasta}]/ (la carpeta por
+                solicitud se omite si core.paths.AGRUPAR_POR_EVENTO es False).
             max_registros: tope TOTAL de XMLs a descargar (protege contra la cuota).
 
         Returns:
@@ -110,8 +113,12 @@ class CIECClient:
                     if len(descargados) >= max_registros:
                         break
                     etiqueta = "Emitidos" if tipo == "E" else "Recibidos"
-                    # Subcarpeta por tipo solo si se pidió más de uno.
-                    out_dir = (base_dir / etiqueta.lower()) if len(tipos) > 1 else base_dir
+                    # Cada tipo va a su subcarpeta (emitidos/ recibidos/) y, si está
+                    # activada la agrupación por solicitud, a una carpeta por rango,
+                    # debajo del tipo. Layout uniforme con el Web Service.
+                    out_dir = base_dir / etiqueta.lower()
+                    if paths.AGRUPAR_POR_EVENTO:
+                        out_dir = out_dir / paths.etiqueta_rango(fecha_inicio, fecha_fin)
                     out_dir.mkdir(parents=True, exist_ok=True)
                     logger.info("[CIEC] === %s → %s ===", etiqueta, out_dir)
                     descargados.extend(self._descargar_tipo(
