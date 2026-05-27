@@ -1,6 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import {
+  ChevronRightIcon,
   DownloadIcon,
   PackageIcon,
   FileIcon,
@@ -13,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -23,7 +26,12 @@ interface PackageListProps {
   onDescargar: () => void;
   isDownloading: boolean;
   archivosDescargados: string[];
+  /** CFDIs encontrados (para el resumen: "N CFDIs en M paquetes"). */
+  numeroCfdis?: number | null;
 }
+
+// Máximo de archivos a renderizar en la lista (una descarga grande puede traer miles).
+const MAX_ARCHIVOS_VISIBLES = 200;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -34,11 +42,17 @@ export function PackageList({
   onDescargar,
   isDownloading,
   archivosDescargados,
+  numeroCfdis,
 }: PackageListProps) {
+  const [verIds, setVerIds] = useState(false);
+
   const hasPaquetes = packageIds.length > 0;
   const hasArchivos = archivosDescargados.length > 0;
 
   if (!hasPaquetes && !hasArchivos) return null;
+
+  const nPaquetes = packageIds.length;
+  const plural = nPaquetes !== 1;
 
   return (
     <Card>
@@ -49,34 +63,17 @@ export function PackageList({
         </CardTitle>
         {!hasArchivos && (
           <CardDescription>
-            {packageIds.length} paquete{packageIds.length !== 1 ? 's' : ''} listo
-            {packageIds.length !== 1 ? 's' : ''} para descargar.
+            {numeroCfdis != null && numeroCfdis > 0
+              ? `${numeroCfdis.toLocaleString('es-MX')} CFDIs en ${nPaquetes} paquete${plural ? 's' : ''}. `
+              : `${nPaquetes} paquete${plural ? 's' : ''} listo${plural ? 's' : ''}. `}
+            El SAT divide la descarga en varios paquetes; se descargan todos juntos.
           </CardDescription>
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Package IDs */}
+        {/* Paquetes listos: acción primero (siempre visible), IDs colapsados */}
         {hasPaquetes && !hasArchivos && (
           <>
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">
-                IDs de paquetes
-              </p>
-              <ScrollArea className="max-h-40">
-                <div className="space-y-1">
-                  {packageIds.map((id) => (
-                    <div
-                      key={id}
-                      className="flex items-center gap-2 rounded bg-muted px-3 py-1.5"
-                    >
-                      <PackageIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                      <code className="font-mono text-xs">{id}</code>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </div>
-
             <Button
               onClick={onDescargar}
               disabled={isDownloading}
@@ -90,10 +87,38 @@ export function PackageList({
               ) : (
                 <>
                   <DownloadIcon className="size-4" />
-                  Descargar Todo
+                  Descargar Todo ({nPaquetes})
                 </>
               )}
             </Button>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setVerIds((v) => !v)}
+                className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                <ChevronRightIcon
+                  className={cn('size-4 transition-transform', verIds && 'rotate-90')}
+                />
+                {verIds ? 'Ocultar' : 'Ver'} IDs de paquetes ({nPaquetes})
+              </button>
+              {verIds && (
+                <ScrollArea className="h-48 rounded-md border">
+                  <div className="space-y-1 p-2">
+                    {packageIds.map((id) => (
+                      <div
+                        key={id}
+                        className="flex items-center gap-2 rounded bg-muted px-3 py-1.5"
+                      >
+                        <PackageIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                        <code className="truncate font-mono text-xs">{id}</code>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
           </>
         )}
 
@@ -104,7 +129,7 @@ export function PackageList({
               <div className="flex items-center gap-2">
                 <CheckCircle2Icon className="size-4 text-green-600 dark:text-green-400" />
                 <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                  Se descargaron {archivosDescargados.length} archivo
+                  Se descargaron {archivosDescargados.length.toLocaleString('es-MX')} archivo
                   {archivosDescargados.length !== 1 ? 's' : ''} exitosamente.
                 </p>
               </div>
@@ -116,9 +141,9 @@ export function PackageList({
               <p className="text-sm font-medium text-muted-foreground">
                 Archivos descargados
               </p>
-              <ScrollArea className="max-h-60">
-                <div className="space-y-1">
-                  {archivosDescargados.map((archivo) => (
+              <ScrollArea className="h-60 rounded-md border">
+                <div className="space-y-1 p-2">
+                  {archivosDescargados.slice(0, MAX_ARCHIVOS_VISIBLES).map((archivo) => (
                     <div
                       key={archivo}
                       className="flex items-center gap-2 rounded px-3 py-1.5 text-sm hover:bg-muted"
@@ -130,6 +155,12 @@ export function PackageList({
                       </Badge>
                     </div>
                   ))}
+                  {archivosDescargados.length > MAX_ARCHIVOS_VISIBLES && (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">
+                      … y {(archivosDescargados.length - MAX_ARCHIVOS_VISIBLES).toLocaleString('es-MX')} archivo
+                      {archivosDescargados.length - MAX_ARCHIVOS_VISIBLES !== 1 ? 's' : ''} más.
+                    </p>
+                  )}
                 </div>
               </ScrollArea>
             </div>

@@ -112,6 +112,7 @@ export default function DescargaPage() {
           onDescargar={descargar}
           isDownloading={state === 'downloading'}
           archivosDescargados={archivosDescargados}
+          numeroCfdis={numeroCfdis}
         />
       )}
     </div>
