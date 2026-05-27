@@ -182,6 +182,121 @@ export interface DescargaInteligente {
   umbral_ciec?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Jobs CIEC (captcha in-app por SSE) — agente desktop
+// ---------------------------------------------------------------------------
+
+export type JobEstado =
+  | 'pending'
+  | 'running'
+  | 'captcha'
+  | 'done'
+  | 'error'
+  | 'cancelled';
+
+// POST /ciec/cfdi (el agente computa el directorio de salida)
+export interface CiecCfdiRequest {
+  rfc: string;
+  ciec: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  tipo_comprobante?: string;
+  max_registros?: number;
+}
+
+// POST /ciec/constancia y /ciec/opinion
+export interface CiecDocRequest {
+  rfc: string;
+  ciec: string;
+}
+
+// Respuesta al iniciar cualquier job (/ciec/*)
+export interface JobIniciado {
+  job_id: string;
+}
+
+// GET /jobs/{id}
+export interface JobEstadoResponse {
+  id: string;
+  estado: JobEstado;
+  resultado: unknown;
+  error: string | null;
+}
+
+// Evento del stream SSE GET /events/{id}
+export interface JobEvent {
+  event:
+    | 'estado'
+    | 'captcha_required'
+    | 'captcha_timeout'
+    | 'done'
+    | 'error'
+    | 'cancelled'
+    | string;
+  estado?: string; // event=estado
+  imagen?: string; // event=captcha_required (data:image/jpeg;base64,...)
+  intento?: number;
+  max?: number;
+  resultado?: unknown; // event=done
+  mensaje?: string; // event=error|cancelled
+}
+
+// ---------------------------------------------------------------------------
+// Empresas (catálogo persistente del agente; credenciales en keychain del SO)
+// ---------------------------------------------------------------------------
+
+export type MetodoEmpresa = 'fiel' | 'ciec';
+
+// GET /empresas → { empresas: Empresa[] }
+export interface Empresa {
+  rfc: string;
+  nombre: string;
+  metodo: MetodoEmpresa;
+  cer_path?: string | null;
+  vencimiento?: string;
+  default: boolean;
+}
+
+export interface EmpresasResponse {
+  empresas: Empresa[];
+}
+
+// POST /empresas/ciec
+export interface EmpresaCiecRequest {
+  rfc: string;
+  nombre: string;
+  ciec: string;
+}
+
+// POST /empresas/{rfc}/activar
+export interface ActivarEmpresaResponse {
+  ok: boolean;
+  rfc: string;
+  metodo: MetodoEmpresa;
+  efirma_lista: boolean;
+}
+
+// GET /empresas/{rfc}/solicitudes (Historial)
+export interface Solicitud {
+  id_solicitud: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  tipo: string;
+  estado: string;
+  timestamp: string;
+  package_ids?: string[];
+}
+
+export interface SolicitudesResponse {
+  solicitudes: Solicitud[];
+}
+
+// {ok, archivo} — descarga de un PDF (constancia/opinión vía e.firma)
+export interface DocumentoResponse {
+  ok: boolean;
+  archivo: string;
+}
+
 // Generic API error shape
 export interface ApiErrorDetail {
   detail: string;

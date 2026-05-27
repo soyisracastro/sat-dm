@@ -18,6 +18,16 @@ import type {
   RenombrarRequest,
   DeduplicarRequest,
   DeduplicarResult,
+  CiecCfdiRequest,
+  CiecDocRequest,
+  JobIniciado,
+  JobEstadoResponse,
+  JobEvent,
+  EmpresasResponse,
+  EmpresaCiecRequest,
+  ActivarEmpresaResponse,
+  SolicitudesResponse,
+  DocumentoResponse,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -78,13 +88,22 @@ export class SatApiClient {
 
   private async post<T>(
     path: string,
-    body: Record<string, unknown>,
+    body: Record<string, unknown> = {},
   ): Promise<T> {
     return this.request<T>(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+  }
+
+  private async del<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' });
+  }
+
+  /** URL absoluta para un path del agente (p. ej. para EventSource). */
+  url(path: string): string {
+    return `${this.baseUrl}${path}`;
   }
 
   // -----------------------------------------------------------------------
@@ -239,5 +258,118 @@ export class SatApiClient {
    */
   async deduplicar(req: DeduplicarRequest): Promise<DeduplicarResult> {
     return this.post<DeduplicarResult>('/deduplicar', req as unknown as Record<string, unknown>);
+  }
+
+  // -----------------------------------------------------------------------
+  // Jobs CIEC (captcha in-app por SSE) — agente desktop
+  // -----------------------------------------------------------------------
+
+  /** Inicia una descarga de CFDIs vía CIEC. Devuelve { job_id }. */
+  async ciecCfdi(req: CiecCfdiRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/ciec/cfdi', req as unknown as Record<string, unknown>);
+  }
+
+  /** Inicia la descarga de la Constancia de Situación Fiscal vía CIEC. */
+  async ciecConstancia(req: CiecDocRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/ciec/constancia', req as unknown as Record<string, unknown>);
+  }
+
+  /** Inicia la descarga de la Opinión de Cumplimiento 32-D vía CIEC. */
+  async ciecOpinion(req: CiecDocRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/ciec/opinion', req as unknown as Record<string, unknown>);
+  }
+
+  /** Entrega la solución del captcha (o `null` para cancelar el job). */
+  async responderCaptcha(jobId: string, solution: string | null): Promise<{ ok: boolean }> {
+    return this.post<{ ok: boolean }>(`/jobs/${jobId}/captcha`, { solution });
+  }
+
+  /** Estado actual de un job. */
+  async getJob(jobId: string): Promise<JobEstadoResponse> {
+    return this.request<JobEstadoResponse>(`/jobs/${jobId}`);
+  }
+
+  /**
+   * Suscribe al stream SSE de progreso de un job (incluye `captcha_required`).
+   * Devuelve el `EventSource`; el caller debe llamar `.close()` al terminar.
+   * Solo en navegador/Electron (usa la API EventSource).
+   */
+  subscribeJob(
+    jobId: string,
+    onEvent: (ev: JobEvent) => void,
+    onError?: (e: Event) => void,
+  ): EventSource {
+    const es = new EventSource(this.url(`/events/${jobId}`));
+    es.onmessage = (e) => {
+      try {
+        onEvent(JSON.parse(e.data) as JobEvent);
+      } catch {
+        /* ignorar líneas no-JSON */
+      }
+    };
+    if (onError) es.onerror = onError;
+    return es;
+  }
+
+  // -----------------------------------------------------------------------
+  // Documentos vía e.firma (FIEL en sesión; sin captcha)
+  // -----------------------------------------------------------------------
+
+  async constanciaFiel(): Promise<DocumentoResponse> {
+    return this.post<DocumentoResponse>('/constancia/fiel');
+  }
+
+  async opinionFiel(): Promise<DocumentoResponse> {
+    return this.post<DocumentoResponse>('/opinion/fiel');
+  }
+
+  // -----------------------------------------------------------------------
+  // Empresas (catálogo persistente; credenciales en keychain del SO)
+  // -----------------------------------------------------------------------
+
+  async listEmpresas(): Promise<EmpresasResponse> {
+    return this.request<EmpresasResponse>('/empresas');
+  }
+
+  /** Registra una empresa por e.firma (multipart .cer/.key/password/nombre). */
+  async addEmpresaFiel(
+    cerFile: File,
+    keyFile: File,
+    password: string,
+    nombre: string,
+  ): Promise<{ ok: boolean; rfc: string }> {
+    const formData = new FormData();
+    formData.append('cer_file', cerFile);
+    formData.append('key_file', keyFile);
+    formData.append('password', password);
+    formData.append('nombre', nombre);
+    return this.request<{ ok: boolean; rfc: string }>('/empresas/fiel', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  /** Registra una empresa por CIEC (RFC + nombre + contraseña CIEC). */
+  async addEmpresaCiec(req: EmpresaCiecRequest): Promise<{ ok: boolean; rfc: string }> {
+    return this.post<{ ok: boolean; rfc: string }>(
+      '/empresas/ciec',
+      req as unknown as Record<string, unknown>,
+    );
+  }
+
+  async removeEmpresa(rfc: string): Promise<{ ok: boolean }> {
+    return this.del<{ ok: boolean }>(`/empresas/${encodeURIComponent(rfc)}`);
+  }
+
+  /** Activa una empresa para la sesión (FIEL → carga la e.firma en memoria). */
+  async activarEmpresa(rfc: string): Promise<ActivarEmpresaResponse> {
+    return this.post<ActivarEmpresaResponse>(`/empresas/${encodeURIComponent(rfc)}/activar`);
+  }
+
+  /** Historial de solicitudes de una empresa. */
+  async listSolicitudes(rfc: string): Promise<SolicitudesResponse> {
+    return this.request<SolicitudesResponse>(
+      `/empresas/${encodeURIComponent(rfc)}/solicitudes`,
+    );
   }
 }
