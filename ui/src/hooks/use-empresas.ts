@@ -16,6 +16,7 @@ interface UseEmpresasState {
     key: File,
     password: string,
     nombre: string,
+    rfcEsperado?: string,
   ) => Promise<void>;
   remove: (rfc: string) => Promise<void>;
   /** Marca la empresa como activa (predeterminada); si tiene FIEL, carga la e.firma. */
@@ -67,8 +68,8 @@ export function useEmpresas(): UseEmpresasState {
   );
 
   const addFiel = useCallback(
-    async (cer: File, key: File, password: string, nombre: string) => {
-      await apiClient.addEmpresaFiel(cer, key, password, nombre);
+    async (cer: File, key: File, password: string, nombre: string, rfcEsperado?: string) => {
+      await apiClient.addEmpresaFiel(cer, key, password, nombre, rfcEsperado);
       refresh();
     },
     [apiClient, refresh],

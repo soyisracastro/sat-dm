@@ -337,12 +337,15 @@ export class SatApiClient {
     keyFile: File,
     password: string,
     nombre: string,
+    rfcEsperado?: string,
   ): Promise<{ ok: boolean; rfc: string }> {
     const formData = new FormData();
     formData.append('cer_file', cerFile);
     formData.append('key_file', keyFile);
     formData.append('password', password);
     formData.append('nombre', nombre);
+    // Al agregar e.firma a una empresa existente, valida que el RFC del cert coincida.
+    if (rfcEsperado) formData.append('rfc_esperado', rfcEsperado);
     return this.request<{ ok: boolean; rfc: string }>('/empresas/fiel', {
       method: 'POST',
       body: formData,

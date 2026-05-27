@@ -65,6 +65,20 @@ class TestEmpresas:
         # Una sola empresa en el catálogo (se fusionó, no se duplicó).
         assert len(config_store.list_empresas()) == 1
 
+    def test_add_fiel_rfc_esperado_rechaza_ajena(self, test_cer, test_key, test_password):
+        # Subir una e.firma cuyo RFC no coincide con el esperado → se rechaza.
+        with pytest.raises(ValueError, match="corresponde al RFC"):
+            config_store.add_empresa(
+                "X", test_cer, test_key, test_password, rfc_esperado="OTRO000000XX1",
+            )
+        assert config_store.list_empresas() == []  # no quedó registrada
+
+    def test_add_fiel_rfc_esperado_coincide(self, test_cer, test_key, test_password, test_rfc):
+        rfc = config_store.add_empresa(
+            "X", test_cer, test_key, test_password, rfc_esperado=test_rfc,
+        )
+        assert rfc == test_rfc
+
     def test_remove_borra_credenciales(self, test_cer, test_key, test_password, test_rfc):
         from sat_descarga.core import secretos
         config_store.add_empresa("Test", test_cer, test_key, test_password)

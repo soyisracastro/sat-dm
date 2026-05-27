@@ -15,7 +15,9 @@ class TestFIELLoad:
         assert fiel.rfc is not None
 
     def test_password_incorrecto(self, test_cer, test_key):
-        with pytest.raises(Exception):
+        # Rechaza una contraseña incorrecta con un mensaje claro (no el críptico
+        # "Unable to load PEM file").
+        with pytest.raises(ValueError, match="contraseña de la clave privada"):
             FIEL(test_cer, test_key, "password_malo")
 
     def test_archivo_no_existe(self, test_key, test_password):

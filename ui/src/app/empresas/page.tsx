@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Building2, KeyRound, Loader2, Lock, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { Building2, KeyRound, Loader2, Lock, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 
 import { useEmpresas } from '@/hooks/use-empresas';
 import { PageHeading } from '@/components/layout/page-heading';
@@ -184,6 +185,11 @@ function EmpresaRow({
               Usar
             </Button>
           )}
+          <Button asChild variant="ghost" size="icon" title="Editar / credenciales">
+            <Link href={`/empresas/${encodeURIComponent(empresa.rfc)}`}>
+              <Pencil className="size-4" />
+            </Link>
+          </Button>
           <Button variant="ghost" size="icon" onClick={onRemove} disabled={busy} title="Eliminar">
             <Trash2 className="size-4" />
           </Button>

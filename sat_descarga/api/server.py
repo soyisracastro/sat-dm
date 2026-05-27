@@ -1020,8 +1020,13 @@ async def empresas_add_fiel(
     key_file: UploadFile = File(...),
     password: str = Form(...),
     nombre: str = Form(...),
+    rfc_esperado: Optional[str] = Form(None),
 ):
-    """Registra una empresa por e.firma. La contraseña se guarda en el keychain."""
+    """
+    Registra una empresa por e.firma. La contraseña se guarda en el keychain.
+    Si se manda `rfc_esperado` (al agregar e.firma a una empresa existente), se valida
+    que el RFC del certificado coincida y se rechaza si es de otro contribuyente.
+    """
     from ..cli import config_store
 
     cer_data = await cer_file.read()
@@ -1031,7 +1036,9 @@ async def empresas_add_fiel(
     try:
         cer_tmp.write(cer_data); cer_tmp.flush(); cer_tmp.close()
         key_tmp.write(key_data); key_tmp.flush(); key_tmp.close()
-        rfc = config_store.add_empresa(nombre, cer_tmp.name, key_tmp.name, password)
+        rfc = config_store.add_empresa(
+            nombre, cer_tmp.name, key_tmp.name, password, rfc_esperado=rfc_esperado,
+        )
         return {"ok": True, "rfc": rfc}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No se pudo registrar la empresa: {e}")
@@ -1114,8 +1121,9 @@ def empresas_solicitudes(rfc: str):
 
 @app.get("/config/descargas-dir")
 def get_descargas_dir_endpoint():
-    """Carpeta base donde se guardan las descargas."""
-    return {"dir": _descargas_base()}
+    """Carpeta base donde se guardan las descargas (se crea si no existe)."""
+    from ..cli import config_store
+    return {"dir": config_store.asegurar_descargas_dir()}
 
 
 @app.put("/config/descargas-dir")

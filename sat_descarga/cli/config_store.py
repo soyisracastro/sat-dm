@@ -64,17 +64,28 @@ def _metodos(info: dict) -> list[str]:
     return ["fiel"] if info.get("cer_path") else []
 
 
-def add_empresa(nombre: str, cer_path: str, key_path: str, password: str) -> str:
+def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
+                rfc_esperado: Optional[str] = None) -> str:
     """
     Registra una empresa por e.firma (FIEL) — o le AGREGA el método e.firma si el RFC
     ya existía (p. ej. con CIEC), sin quitar el otro método. Valida la FIEL, copia
     .cer/.key a ./efirma/{RFC}/ y guarda la contraseña en el keychain. Retorna el RFC.
+
+    Si se pasa `rfc_esperado` (al agregar e.firma a una empresa existente), se valida
+    que el RFC del certificado coincida; si no, se rechaza (evita subir la e.firma de
+    otro contribuyente).
     """
     cer_src = Path(cer_path).expanduser().resolve()
     key_src = Path(key_path).expanduser().resolve()
 
     fiel = FIEL(str(cer_src), str(key_src), password)
     rfc = fiel.rfc
+
+    if rfc_esperado and rfc != rfc_esperado.strip().upper():
+        raise ValueError(
+            f"La e.firma corresponde al RFC {rfc}, no a {rfc_esperado.strip().upper()}. "
+            "Sube la e.firma de este contribuyente."
+        )
 
     dest = _efirma_dir(rfc)
     cer_dest = dest / "fiel.cer"
@@ -293,9 +304,17 @@ def get_descargas_dir() -> str:
     return _load_settings().get("descargas_dir") or descargas_dir_default()
 
 
+def asegurar_descargas_dir() -> str:
+    """Devuelve la carpeta de descargas, creándola si no existe."""
+    d = get_descargas_dir()
+    Path(d).mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def set_descargas_dir(path: str) -> str:
-    """Fija la carpeta base de descargas. Retorna la ruta (absoluta) guardada."""
+    """Fija la carpeta base de descargas (y la crea). Retorna la ruta absoluta."""
     p = str(Path(path).expanduser())
+    Path(p).mkdir(parents=True, exist_ok=True)
     data = _load_settings()
     data["descargas_dir"] = p
     _save_settings(data)
