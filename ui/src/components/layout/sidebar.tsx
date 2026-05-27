@@ -18,7 +18,8 @@ import { FielStatus } from '@/components/fiel/fiel-status';
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/empresas', label: 'Empresas', icon: Building2 },
-  { href: '/descarga', label: 'Descarga', icon: Download },
+  { href: '/nueva-descarga', label: 'Nueva descarga', icon: Download },
+  { href: '/descarga', label: 'Descarga WS', icon: Download },
   { href: '/metadata', label: 'Metadata', icon: Database },
   { href: '/validacion', label: 'Validacion', icon: ShieldCheck },
   { href: '/organizador', label: 'Organizador', icon: FolderTree },
