@@ -87,6 +87,15 @@ def test_default_cambia_predeterminada(client):
     assert client.post("/empresas/NOEXISTE000/default").status_code == 404
 
 
+def test_descargas_dir_get_y_set(client, tmp_path):
+    # Default = ~/Documents/TodoConta (termina en TodoConta).
+    assert client.get("/config/descargas-dir").json()["dir"].endswith("TodoConta")
+    # Cambiar y releer.
+    nueva = str(tmp_path / "MisDescargas")
+    assert client.put("/config/descargas-dir", json={"dir": nueva}).json()["dir"] == nueva
+    assert client.get("/config/descargas-dir").json()["dir"] == nueva
+
+
 def test_solicitudes_historial(client):
     config_store.add_empresa_ciec("CAUI890921DAA", "X", "ciec")
     config_store.save_solicitud(

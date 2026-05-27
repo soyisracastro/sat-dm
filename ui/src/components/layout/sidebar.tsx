@@ -9,6 +9,7 @@ import {
   FileText,
   FolderTree,
   LayoutDashboard,
+  Settings,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { href: '/metadata', label: 'Metadata', icon: Database },
   { href: '/validacion', label: 'Validacion', icon: ShieldCheck },
   { href: '/organizador', label: 'Organizador', icon: FolderTree },
+  { href: '/ajustes', label: 'Ajustes', icon: Settings },
 ] as const;
 
 export function Sidebar() {

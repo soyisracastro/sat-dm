@@ -20,7 +20,7 @@
  *   SAT_RENDERER_URL   URL del renderer (default http://localhost:3001).
  */
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const net = require('net');
@@ -120,6 +120,14 @@ function createWindow() {
   const rendererUrl = process.env.SAT_RENDERER_URL || 'http://localhost:3001';
   win.loadURL(rendererUrl);
 }
+
+// Selector de carpeta nativo (lo usa Ajustes para elegir dónde guardar descargas).
+ipcMain.handle('elegir-carpeta', async () => {
+  const r = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
+});
 
 app.whenReady().then(async () => {
   try {
