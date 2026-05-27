@@ -16,6 +16,8 @@ interface ServerHealthState {
   rfcCargado: string | null;
   /** Whether the server has a FIEL loaded and ready. */
   efirmaLista: boolean;
+  /** Vencimiento de la e.firma en sesión ("YYYY-MM-DD") o null. */
+  efirmaVencimiento: string | null;
   /** Manually trigger an immediate health check. */
   refresh: () => void;
 }
@@ -42,6 +44,7 @@ export function useServerHealth(
   const [isConnected, setIsConnected] = useState(false);
   const [rfcCargado, setRfcCargado] = useState<string | null>(null);
   const [efirmaLista, setEfirmaLista] = useState(false);
+  const [efirmaVencimiento, setEfirmaVencimiento] = useState<string | null>(null);
 
   // Ref to track whether we should still process the result (component mounted).
   const mountedRef = useRef(true);
@@ -57,12 +60,14 @@ export function useServerHealth(
       setIsConnected(true);
       setRfcCargado(data.rfc_cargado);
       setEfirmaLista(data.efirma_lista);
+      setEfirmaVencimiento(data.efirma_vencimiento ?? null);
     } catch {
       if (!mountedRef.current) return;
 
       setIsConnected(false);
       setRfcCargado(null);
       setEfirmaLista(false);
+      setEfirmaVencimiento(null);
     }
   }, [apiClient]);
 
@@ -87,5 +92,5 @@ export function useServerHealth(
     setRefreshCounter((c) => c + 1);
   }, []);
 
-  return { isConnected, rfcCargado, efirmaLista, refresh };
+  return { isConnected, rfcCargado, efirmaLista, efirmaVencimiento, refresh };
 }

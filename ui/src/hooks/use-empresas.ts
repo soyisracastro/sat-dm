@@ -21,6 +21,8 @@ interface UseEmpresasState {
   remove: (rfc: string) => Promise<void>;
   /** Marca la empresa como activa (predeterminada); si tiene FIEL, carga la e.firma. */
   seleccionar: (rfc: string, metodos: MetodoEmpresa[]) => Promise<void>;
+  /** Carga la e.firma de la empresa en la sesión (sin cambiar la predeterminada). */
+  activarSesion: (rfc: string) => Promise<void>;
 }
 
 /**
@@ -88,6 +90,10 @@ export function useEmpresas(): UseEmpresasState {
       await apiClient.setDefaultEmpresa(rfc); // marca activa (persistente)
       if (metodos.includes('fiel')) {
         await apiClient.activarEmpresa(rfc); // carga la e.firma en sesión
+      } else {
+        // Empresa solo-CIEC: descarga la e.firma anterior para que la sesión
+        // (cabecera/Inicio) refleje la empresa activa y no una desincronizada.
+        await apiClient.descargarFiel();
       }
       refresh();
       refreshHealth();
@@ -95,5 +101,16 @@ export function useEmpresas(): UseEmpresasState {
     [apiClient, refresh, refreshHealth],
   );
 
-  return { empresas, loading, error, refresh, addCiec, addFiel, remove, seleccionar };
+  const activarSesion = useCallback(
+    async (rfc: string) => {
+      await apiClient.activarEmpresa(rfc); // carga la e.firma en sesión
+      refreshHealth();
+    },
+    [apiClient, refreshHealth],
+  );
+
+  return {
+    empresas, loading, error, refresh,
+    addCiec, addFiel, remove, seleccionar, activarSesion,
+  };
 }

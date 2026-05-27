@@ -21,6 +21,7 @@ Uso:
 import logging
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import List, Optional
@@ -56,6 +57,15 @@ from ..core.config import TIPO_CFDI, TIPO_METADATA, TIPO_EMITIDO, TIPO_RECIBIDO
 # App
 # ---------------------------------------------------------------------------
 
+@asynccontextmanager
+async def lifespan(app: "FastAPI"):
+    # Al arrancar el agente, carga la e.firma de la empresa activa para que
+    # "empresa activa" y "e.firma en sesión" estén sincronizadas desde el inicio
+    # (si no, la cabecera/Dashboard muestran "Sin e-firma" hasta cargarla a mano).
+    _autocargar_empresa_default()
+    yield
+
+
 app = FastAPI(
     title="SAT Descarga Masiva — Agente Local",
     description=(
@@ -63,6 +73,7 @@ app = FastAPI(
         "La e-firma nunca sale de tu máquina."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Orígenes permitidos: la app web en producción y en desarrollo local
@@ -209,11 +220,18 @@ class DescargaInteligente(BaseModel):
 
 @app.get("/health")
 def health():
-    """Verifica que el servidor está corriendo y si hay e-firma cargada."""
+    """Verifica que el servidor está corriendo y si hay e-firma cargada.
+
+    Incluye la vigencia de la e-firma en sesión (`efirma_vencimiento` ISO y
+    `efirma_vigente`) para que la UI muestre el semáforo de vencimiento.
+    """
+    fiel = _session["fiel"]
     return {
         "status": "ok",
         "rfc_cargado": _session["rfc"],
-        "efirma_lista": _session["fiel"] is not None,
+        "efirma_lista": fiel is not None,
+        "efirma_vencimiento": fiel.not_valid_after.date().isoformat() if fiel else None,
+        "efirma_vigente": fiel.vigente if fiel else None,
     }
 
 
@@ -307,6 +325,47 @@ def _limpiar_session():
         "password": None,
         "es_temp": False,
     })
+
+
+def _cargar_fiel_empresa(empresa: dict) -> bool:
+    """
+    Carga la e.firma de una empresa del catálogo en `_session`.
+
+    `empresa` es el dict de `config_store.get_empresa` (con cer_path/key_path/password).
+    Devuelve True si cargó la e.firma; False si la empresa no tiene método FIEL.
+    Lanza ValueError si la e.firma está incompleta o no se pudo abrir (cert/llave/contraseña).
+    """
+    if "fiel" not in empresa.get("metodos", []):
+        return False
+    cer, key, pwd = empresa.get("cer_path"), empresa.get("key_path"), empresa.get("password")
+    if not (cer and key and pwd):
+        raise ValueError("La empresa no tiene e.firma completa.")
+    fiel = FIEL(cer, key, pwd)  # nota: carga aunque el cert esté vencido (la UI avisa)
+    _limpiar_session()
+    _session.update({
+        "fiel": fiel, "rfc": fiel.rfc, "cer_path": cer,
+        "key_path": key, "password": pwd, "es_temp": False,
+    })
+    return True
+
+
+def _autocargar_empresa_default() -> None:
+    """Carga al arranque la e.firma de la empresa predeterminada (si tiene FIEL).
+
+    Se llama desde el lifespan del agente. Tolerante a fallos: si la empresa no
+    tiene e.firma, o el cert/llave no se pueden abrir, solo se registra y se sigue
+    (la UI permite cargarla a mano)."""
+    if _session["fiel"] is not None:
+        return
+    try:
+        from ..cli import config_store
+        rfc = config_store.get_default()
+        if not rfc:
+            return
+        if _cargar_fiel_empresa(config_store.get_empresa(rfc)):
+            logger.info("e.firma de la empresa activa (%s) cargada al arranque.", rfc)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("No se pudo autocargar la e.firma de la empresa activa: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -1079,22 +1138,13 @@ def empresas_activar(rfc: str):
         raise HTTPException(status_code=404, detail="empresa no encontrada")
 
     metodos = empresa.get("metodos", [])
-    if "fiel" in metodos:
-        cer, key, pwd = empresa.get("cer_path"), empresa.get("key_path"), empresa.get("password")
-        if not (cer and key and pwd):
-            raise HTTPException(status_code=400, detail="La empresa no tiene e.firma completa.")
-        try:
-            fiel = FIEL(cer, key, pwd)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"No se pudo cargar la e.firma: {e}")
-        _limpiar_session()
-        _session.update({
-            "fiel": fiel, "rfc": fiel.rfc, "cer_path": cer,
-            "key_path": key, "password": pwd, "es_temp": False,
-        })
-        return {"ok": True, "rfc": rfc, "metodos": metodos, "efirma_lista": True}
-
-    return {"ok": True, "rfc": rfc, "metodos": metodos, "efirma_lista": False}
+    try:
+        cargada = _cargar_fiel_empresa(empresa)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001 — cert/llave/contraseña ilegibles
+        raise HTTPException(status_code=400, detail=f"No se pudo cargar la e.firma: {e}")
+    return {"ok": True, "rfc": rfc, "metodos": metodos, "efirma_lista": cargada}
 
 
 @app.post("/empresas/{rfc}/default")

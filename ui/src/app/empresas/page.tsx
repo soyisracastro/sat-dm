@@ -5,8 +5,10 @@ import Link from 'next/link';
 import { Building2, KeyRound, Loader2, Lock, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 
 import { useEmpresas } from '@/hooks/use-empresas';
+import { useServer } from '@/providers/server-provider';
 import { PageHeading } from '@/components/layout/page-heading';
 import { EmpresaAddDialog } from '@/components/empresas/empresa-add-dialog';
+import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -37,14 +39,20 @@ function colorDe(rfc: string): string {
 }
 
 export default function EmpresasPage() {
-  const { empresas, loading, error, addFiel, addCiec, remove, seleccionar } = useEmpresas();
+  const { empresas, loading, error, addFiel, addCiec, remove, seleccionar, activarSesion } =
+    useEmpresas();
+  const { fielStatus } = useServer();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null); // rfc en proceso
+  const [accionError, setAccionError] = useState<string | null>(null);
 
   async function withBusy(rfc: string, fn: () => Promise<void>) {
     setBusy(rfc);
+    setAccionError(null);
     try {
       await fn();
+    } catch (e) {
+      setAccionError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -66,9 +74,9 @@ export default function EmpresasPage() {
         }
       />
 
-      {error && (
+      {(error || accionError) && (
         <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{accionError || error}</AlertDescription>
         </Alert>
       )}
 
@@ -106,7 +114,9 @@ export default function EmpresasPage() {
                   key={e.rfc}
                   empresa={e}
                   busy={busy === e.rfc}
+                  efirmaCargada={fielStatus.loaded && fielStatus.rfc === e.rfc}
                   onSeleccionar={() => withBusy(e.rfc, () => seleccionar(e.rfc, e.metodos))}
+                  onCargarEfirma={() => withBusy(e.rfc, () => activarSesion(e.rfc))}
                   onRemove={() => withBusy(e.rfc, () => remove(e.rfc))}
                 />
               ))}
@@ -132,14 +142,21 @@ export default function EmpresasPage() {
 function EmpresaRow({
   empresa,
   busy,
+  efirmaCargada,
   onSeleccionar,
+  onCargarEfirma,
   onRemove,
 }: {
   empresa: Empresa;
   busy: boolean;
+  efirmaCargada: boolean;
   onSeleccionar: () => void;
+  onCargarEfirma: () => void;
   onRemove: () => void;
 }) {
+  // Empresa activa con e.firma pero sin cargar en sesión → ofrecer cargarla.
+  const puedeCargarEfirma =
+    empresa.default && empresa.metodos.includes('fiel') && !efirmaCargada;
   return (
     <TableRow className={empresa.default ? 'bg-accent/60' : undefined}>
       <TableCell>
@@ -164,7 +181,7 @@ function EmpresaRow({
       <TableCell className="font-mono text-xs text-muted-foreground">{empresa.rfc}</TableCell>
       <TableCell>
         {/* Una empresa puede tener ambos métodos. */}
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           {empresa.metodos.includes('fiel') && (
             <Badge variant="secondary" className="gap-1">
               <ShieldCheck className="size-3" /> e.firma
@@ -175,16 +192,24 @@ function EmpresaRow({
               <KeyRound className="size-3" /> CIEC
             </Badge>
           )}
+          {empresa.metodos.includes('fiel') && (
+            <VencimientoBadge vencimiento={empresa.vencimiento} />
+          )}
         </div>
       </TableCell>
       <TableCell className="text-right">
         <div className="inline-flex items-center gap-1">
-          {!empresa.default && (
+          {!empresa.default ? (
             <Button variant="ghost" size="sm" onClick={onSeleccionar} disabled={busy}>
               {busy ? <Loader2 className="size-3 animate-spin" /> : null}
               Usar
             </Button>
-          )}
+          ) : puedeCargarEfirma ? (
+            <Button variant="ghost" size="sm" onClick={onCargarEfirma} disabled={busy}>
+              {busy ? <Loader2 className="size-3 animate-spin" /> : null}
+              Cargar e.firma
+            </Button>
+          ) : null}
           <Button asChild variant="ghost" size="icon" title="Editar / credenciales">
             <Link href={`/empresas/${encodeURIComponent(empresa.rfc)}`}>
               <Pencil className="size-4" />
