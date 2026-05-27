@@ -52,24 +52,33 @@ def _efirma_dir(rfc: str) -> Path:
     return d
 
 
+def _metodos(info: dict) -> list[str]:
+    """
+    Métodos de autenticación de una empresa, como lista (['ciec'], ['fiel'] o ambos).
+    Compat: migra el viejo campo `metodo` (string) y, si solo hay .cer, infiere 'fiel'.
+    """
+    if info.get("metodos"):
+        return list(info["metodos"])
+    if info.get("metodo"):
+        return [info["metodo"]]
+    return ["fiel"] if info.get("cer_path") else []
+
+
 def add_empresa(nombre: str, cer_path: str, key_path: str, password: str) -> str:
     """
-    Registra una empresa por e.firma (FIEL). Valida la FIEL, copia .cer/.key a
-    ./efirma/{RFC}/ y guarda la contraseña en el keychain del SO (NUNCA en texto
-    plano en disco). Retorna el RFC.
+    Registra una empresa por e.firma (FIEL) — o le AGREGA el método e.firma si el RFC
+    ya existía (p. ej. con CIEC), sin quitar el otro método. Valida la FIEL, copia
+    .cer/.key a ./efirma/{RFC}/ y guarda la contraseña en el keychain. Retorna el RFC.
     """
     cer_src = Path(cer_path).expanduser().resolve()
     key_src = Path(key_path).expanduser().resolve()
 
-    # Validar FIEL y extraer RFC
     fiel = FIEL(str(cer_src), str(key_src), password)
     rfc = fiel.rfc
 
-    # Copiar a ./efirma/{RFC}/fiel.{cer,key} (la contraseña va al keychain).
     dest = _efirma_dir(rfc)
     cer_dest = dest / "fiel.cer"
     key_dest = dest / "fiel.key"
-
     if cer_src.resolve() != cer_dest.resolve():
         shutil.copy2(cer_src, cer_dest)
     if key_src.resolve() != key_dest.resolve():
@@ -78,14 +87,16 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str) -> str
 
     data = load_empresas()
     existente = data["empresas"].get(rfc, {})
-    data["empresas"][rfc] = {
+    entry = {
         **existente,
-        "nombre": nombre,
-        "metodo": "fiel",
+        "nombre": existente.get("nombre") or nombre,
+        "metodos": sorted(set(_metodos(existente)) | {"fiel"}),
         "cer_path": str(cer_dest),
         "key_path": str(key_dest),
         "vencimiento": fiel.not_valid_after.strftime("%Y-%m-%d"),
     }
+    entry.pop("metodo", None)  # quitar campo legacy
+    data["empresas"][rfc] = entry
     if data["default_rfc"] is None:
         data["default_rfc"] = rfc
     save_empresas(data)
@@ -94,19 +105,21 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str) -> str
 
 def add_empresa_ciec(rfc: str, nombre: str, ciec: str) -> str:
     """
-    Registra (o actualiza) una empresa por CIEC. Guarda la contraseña CIEC en el
-    keychain del SO; en el catálogo solo queda RFC + nombre + método. Retorna el RFC.
+    Registra una empresa por CIEC — o le AGREGA el método CIEC si el RFC ya existía
+    (p. ej. con e.firma), sin quitar el otro. Guarda la contraseña CIEC en el keychain.
     """
     rfc = rfc.strip().upper()
     secretos.guardar(rfc, secretos.CIEC, ciec)
 
     data = load_empresas()
     existente = data["empresas"].get(rfc, {})
-    data["empresas"][rfc] = {
+    entry = {
         **existente,
-        "nombre": nombre,
-        "metodo": "ciec",
+        "nombre": existente.get("nombre") or nombre,
+        "metodos": sorted(set(_metodos(existente)) | {"ciec"}),
     }
+    entry.pop("metodo", None)
+    data["empresas"][rfc] = entry
     if data["default_rfc"] is None:
         data["default_rfc"] = rfc
     save_empresas(data)
@@ -133,7 +146,7 @@ def list_empresas() -> list[dict]:
         result.append({
             "rfc": rfc,
             "nombre": info["nombre"],
-            "metodo": info.get("metodo", "fiel"),
+            "metodos": _metodos(info),
             "cer_path": info.get("cer_path"),
             "vencimiento": info.get("vencimiento", ""),
             "default": rfc == default,
@@ -143,16 +156,17 @@ def list_empresas() -> list[dict]:
 
 def get_empresa(rfc: str) -> dict:
     """
-    Devuelve los datos de la empresa MÁS sus credenciales recuperadas del keychain:
-    `password` (FIEL) y/o `ciec` (CIEC), según estén guardadas. Compat: si quedó un
-    `password` en texto plano de una versión vieja del catálogo, se respeta.
+    Devuelve los datos de la empresa MÁS sus credenciales del keychain: `password`
+    (FIEL) y/o `ciec` (CIEC), según los métodos que tenga. `metodos` es una lista.
+    Compat: respeta un `password` en texto plano de un catálogo viejo.
     """
     data = load_empresas()
     empresa = data["empresas"].get(rfc)
     if empresa is None:
         raise KeyError(f"No se encontró empresa con RFC {rfc}")
     info = {"rfc": rfc, **empresa}
-    info.setdefault("metodo", "fiel")
+    info["metodos"] = _metodos(empresa)
+    info.pop("metodo", None)
 
     password = empresa.get("password") or secretos.obtener(rfc, secretos.FIEL)
     if password:

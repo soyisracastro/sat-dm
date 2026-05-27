@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
-import type { Empresa } from '@/lib/types';
+import type { Empresa, MetodoEmpresa } from '@/lib/types';
 
 interface UseEmpresasState {
   empresas: Empresa[];
@@ -18,7 +18,8 @@ interface UseEmpresasState {
     nombre: string,
   ) => Promise<void>;
   remove: (rfc: string) => Promise<void>;
-  activar: (rfc: string) => Promise<void>;
+  /** Marca la empresa como activa (predeterminada); si tiene FIEL, carga la e.firma. */
+  seleccionar: (rfc: string, metodos: MetodoEmpresa[]) => Promise<void>;
 }
 
 /**
@@ -81,13 +82,17 @@ export function useEmpresas(): UseEmpresasState {
     [apiClient, refresh],
   );
 
-  const activar = useCallback(
-    async (rfc: string) => {
-      await apiClient.activarEmpresa(rfc);
-      refreshHealth(); // por si cargó la e.firma en sesión
+  const seleccionar = useCallback(
+    async (rfc: string, metodos: MetodoEmpresa[]) => {
+      await apiClient.setDefaultEmpresa(rfc); // marca activa (persistente)
+      if (metodos.includes('fiel')) {
+        await apiClient.activarEmpresa(rfc); // carga la e.firma en sesión
+      }
+      refresh();
+      refreshHealth();
     },
-    [apiClient, refreshHealth],
+    [apiClient, refresh, refreshHealth],
   );
 
-  return { empresas, loading, error, refresh, addCiec, addFiel, remove, activar };
+  return { empresas, loading, error, refresh, addCiec, addFiel, remove, seleccionar };
 }

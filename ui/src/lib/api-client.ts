@@ -366,6 +366,13 @@ export class SatApiClient {
     return this.post<ActivarEmpresaResponse>(`/empresas/${encodeURIComponent(rfc)}/activar`);
   }
 
+  /** Marca una empresa como predeterminada (activa) del catálogo. */
+  async setDefaultEmpresa(rfc: string): Promise<{ ok: boolean; rfc: string }> {
+    return this.post<{ ok: boolean; rfc: string }>(
+      `/empresas/${encodeURIComponent(rfc)}/default`,
+    );
+  }
+
   /** Historial de solicitudes de una empresa. */
   async listSolicitudes(rfc: string): Promise<SolicitudesResponse> {
     return this.request<SolicitudesResponse>(

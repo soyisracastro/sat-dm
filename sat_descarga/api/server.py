@@ -1041,7 +1041,8 @@ def empresas_activar(rfc: str):
     except KeyError:
         raise HTTPException(status_code=404, detail="empresa no encontrada")
 
-    if empresa.get("metodo") == "fiel":
+    metodos = empresa.get("metodos", [])
+    if "fiel" in metodos:
         cer, key, pwd = empresa.get("cer_path"), empresa.get("key_path"), empresa.get("password")
         if not (cer and key and pwd):
             raise HTTPException(status_code=400, detail="La empresa no tiene e.firma completa.")
@@ -1054,10 +1055,20 @@ def empresas_activar(rfc: str):
             "fiel": fiel, "rfc": fiel.rfc, "cer_path": cer,
             "key_path": key, "password": pwd, "es_temp": False,
         })
-        return {"ok": True, "rfc": rfc, "metodo": "fiel", "efirma_lista": True}
+        return {"ok": True, "rfc": rfc, "metodos": metodos, "efirma_lista": True}
 
-    return {"ok": True, "rfc": rfc, "metodo": empresa.get("metodo", "ciec"),
-            "efirma_lista": False}
+    return {"ok": True, "rfc": rfc, "metodos": metodos, "efirma_lista": False}
+
+
+@app.post("/empresas/{rfc}/default")
+def empresas_default(rfc: str):
+    """Marca la empresa como predeterminada (activa) del catálogo."""
+    from ..cli import config_store
+    try:
+        config_store.set_default(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+    return {"ok": True, "rfc": rfc}
 
 
 @app.get("/empresas/{rfc}/solicitudes")
