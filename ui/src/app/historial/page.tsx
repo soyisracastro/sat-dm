@@ -1,0 +1,174 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { Database, Download, FileCheck2, FileText, History, Loader2, RefreshCw } from 'lucide-react';
+
+import { useHistorial } from '@/hooks/use-historial';
+import { PageHeading } from '@/components/layout/page-heading';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import type { CanalDescarga, HistorialItem, TipoDescarga } from '@/lib/types';
+
+const TIPO_META: Record<TipoDescarga, { label: string; icon: typeof Download }> = {
+  cfdi: { label: 'CFDIs', icon: Download },
+  metadata: { label: 'Metadata', icon: Database },
+  constancia: { label: 'Constancia', icon: FileText },
+  opinion: { label: 'Opinión 32-D', icon: FileCheck2 },
+};
+
+const CANAL_LABEL: Record<CanalDescarga, string> = {
+  ws: 'Web Service',
+  ciec: 'CIEC',
+  fiel: 'e.firma',
+};
+
+function fechaLegible(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export default function HistorialPage() {
+  const { descargas, loading, error, refresh } = useHistorial();
+  const [empresaFiltro, setEmpresaFiltro] = useState('todas');
+
+  // Empresas presentes en el historial (para el filtro).
+  const empresas = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of descargas) {
+      if (d.rfc) map.set(d.rfc, d.nombre || d.rfc);
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [descargas]);
+
+  const filtradas =
+    empresaFiltro === 'todas'
+      ? descargas
+      : descargas.filter((d) => d.rfc === empresaFiltro);
+
+  return (
+    <div className="space-y-6">
+      <PageHeading
+        title="Historial"
+        description="Descargas completadas (CFDIs, constancia, opinión) por empresa."
+        action={
+          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+            {loading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            Actualizar
+          </Button>
+        }
+      />
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {empresas.length > 1 && (
+        <div className="w-64">
+          <Select value={empresaFiltro} onValueChange={setEmpresaFiltro}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Filtrar por empresa" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas las empresas</SelectItem>
+              {empresas.map(([rfc, nombre]) => (
+                <SelectItem key={rfc} value={rfc}>
+                  {nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {filtradas.length === 0 ? (
+        <Card className="flex flex-col items-center gap-2 p-10 text-center">
+          <History className="size-8 text-muted-foreground" />
+          <p className="text-sm font-medium">Aún no hay descargas registradas</p>
+          <p className="text-sm text-muted-foreground">
+            Cuando completes una descarga (CIEC o Web Service) aparecerá aquí.
+          </p>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Empresa</TableHead>
+                <TableHead>Descarga</TableHead>
+                <TableHead className="text-right">CFDIs</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtradas.map((d, i) => (
+                <DescargaRow key={`${d.rfc}-${d.timestamp}-${i}`} d={d} />
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function DescargaRow({ d }: { d: HistorialItem }) {
+  const meta = TIPO_META[d.tipo] ?? { label: d.tipo, icon: Download };
+  const Icon = meta.icon;
+  return (
+    <TableRow>
+      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+        {fechaLegible(d.timestamp)}
+      </TableCell>
+      <TableCell>
+        <div className="font-medium leading-tight">{d.nombre || d.rfc}</div>
+        {d.rfc && <div className="font-mono text-xs text-muted-foreground">{d.rfc}</div>}
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="gap-1">
+              <Icon className="size-3" /> {meta.label}
+            </Badge>
+            <span className="text-xs text-muted-foreground">{CANAL_LABEL[d.canal] ?? d.canal}</span>
+          </div>
+          {d.descripcion && (
+            <span className="text-xs text-muted-foreground">{d.descripcion}</span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm">
+        {d.total ?? '—'}
+      </TableCell>
+    </TableRow>
+  );
+}

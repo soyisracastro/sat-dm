@@ -27,6 +27,7 @@ import type {
   EmpresaCiecRequest,
   ActivarEmpresaResponse,
   SolicitudesResponse,
+  HistorialResponse,
   DocumentoResponse,
 } from './types';
 
@@ -380,6 +381,18 @@ export class SatApiClient {
   async listSolicitudes(rfc: string): Promise<SolicitudesResponse> {
     return this.request<SolicitudesResponse>(
       `/empresas/${encodeURIComponent(rfc)}/solicitudes`,
+    );
+  }
+
+  /** Historial de descargas completadas de TODAS las empresas (recientes primero). */
+  async listHistorial(): Promise<HistorialResponse> {
+    return this.request<HistorialResponse>('/historial');
+  }
+
+  /** Historial de descargas completadas de una empresa. */
+  async listHistorialEmpresa(rfc: string): Promise<HistorialResponse> {
+    return this.request<HistorialResponse>(
+      `/empresas/${encodeURIComponent(rfc)}/historial`,
     );
   }
 

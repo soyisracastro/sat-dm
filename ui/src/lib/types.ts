@@ -297,6 +297,30 @@ export interface SolicitudesResponse {
   solicitudes: Solicitud[];
 }
 
+// ---------------------------------------------------------------------------
+// Historial de descargas completadas (GET /historial y /empresas/{rfc}/historial)
+// ---------------------------------------------------------------------------
+
+export type CanalDescarga = 'ws' | 'ciec' | 'fiel';
+export type TipoDescarga = 'cfdi' | 'metadata' | 'constancia' | 'opinion';
+
+export interface HistorialItem {
+  timestamp: string; // ISO datetime
+  canal: CanalDescarga;
+  tipo: TipoDescarga;
+  descripcion: string;
+  ruta: string;
+  total: number | null; // nº de CFDIs cuando aplica
+  estado: string; // "completada" | ...
+  // Presentes en /historial (todas las empresas); ausentes en el por-empresa.
+  rfc?: string;
+  nombre?: string;
+}
+
+export interface HistorialResponse {
+  descargas: HistorialItem[];
+}
+
 // {ok, archivo} — descarga de un PDF (constancia/opinión vía e.firma)
 export interface DocumentoResponse {
   ok: boolean;

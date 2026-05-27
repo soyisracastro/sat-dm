@@ -8,6 +8,7 @@ import {
   Download,
   FileText,
   FolderTree,
+  History,
   LayoutDashboard,
   Settings,
   ShieldCheck,
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { href: '/metadata', label: 'Metadata', icon: Database },
   { href: '/validacion', label: 'Validacion', icon: ShieldCheck },
   { href: '/organizador', label: 'Organizador', icon: FolderTree },
+  { href: '/historial', label: 'Historial', icon: History },
   { href: '/ajustes', label: 'Ajustes', icon: Settings },
 ] as const;
 
