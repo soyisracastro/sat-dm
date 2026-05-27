@@ -194,20 +194,21 @@ export type JobEstado =
   | 'error'
   | 'cancelled';
 
-// POST /ciec/cfdi (el agente computa el directorio de salida)
+// POST /ciec/cfdi (el agente computa el directorio de salida).
+// `ciec` es opcional: si falta, el agente la toma del catálogo (keychain).
 export interface CiecCfdiRequest {
   rfc: string;
-  ciec: string;
+  ciec?: string;
   fecha_inicio: string;
   fecha_fin: string;
   tipo_comprobante?: string;
   max_registros?: number;
 }
 
-// POST /ciec/constancia y /ciec/opinion
+// POST /ciec/constancia y /ciec/opinion (`ciec` opcional → del catálogo)
 export interface CiecDocRequest {
   rfc: string;
-  ciec: string;
+  ciec?: string;
 }
 
 // Respuesta al iniciar cualquier job (/ciec/*)

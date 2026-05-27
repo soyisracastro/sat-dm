@@ -1,0 +1,156 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { useServer } from '@/providers/server-provider';
+import type { JobEvent } from '@/lib/types';
+
+export type JobUiEstado =
+  | 'idle'
+  | 'iniciando'
+  | 'corriendo'
+  | 'captcha'
+  | 'done'
+  | 'error'
+  | 'cancelled';
+
+export interface CaptchaState {
+  imagen: string; // data:image/jpeg;base64,...
+  intento: number;
+  max: number;
+}
+
+export interface LogEntry {
+  t: string;
+  msg: string;
+  level?: 'info' | 'ok' | 'warn' | 'error';
+}
+
+interface UseCiecJob {
+  estado: JobUiEstado;
+  log: LogEntry[];
+  captcha: CaptchaState | null;
+  resultado: unknown;
+  error: string | null;
+  /** Arranca un job: `starter` llama al endpoint (ciecCfdi/…) y devuelve { job_id }. */
+  iniciar: (starter: () => Promise<{ job_id: string }>) => Promise<void>;
+  /** Entrega el captcha tecleado, o null para cancelar. */
+  responderCaptcha: (texto: string | null) => Promise<void>;
+  reset: () => void;
+}
+
+/**
+ * Orquesta un job CIEC del agente: lo arranca, se suscribe a su stream SSE
+ * (`/events/{id}`) y traduce los eventos (estado, captcha_required, done, error,
+ * cancelled) a estado de UI + un log estilo terminal. El captcha se resuelve por HTTP
+ * (`responderCaptcha`), que es lo que reanuda el scraping headless en el agente.
+ */
+export function useCiecJob(): UseCiecJob {
+  const { apiClient } = useServer();
+  const [estado, setEstado] = useState<JobUiEstado>('idle');
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [captcha, setCaptcha] = useState<CaptchaState | null>(null);
+  const [resultado, setResultado] = useState<unknown>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const jobIdRef = useRef<string | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+
+  const addLog = useCallback((msg: string, level: LogEntry['level'] = 'info') => {
+    setLog((l) => [...l, { t: new Date().toLocaleTimeString('es-MX'), msg, level }]);
+  }, []);
+
+  const cerrarStream = useCallback(() => {
+    esRef.current?.close();
+    esRef.current = null;
+  }, []);
+
+  // Cerrar el EventSource si el componente se desmonta.
+  useEffect(() => () => cerrarStream(), [cerrarStream]);
+
+  const reset = useCallback(() => {
+    cerrarStream();
+    jobIdRef.current = null;
+    setEstado('idle');
+    setLog([]);
+    setCaptcha(null);
+    setResultado(null);
+    setError(null);
+  }, [cerrarStream]);
+
+  const onEvent = useCallback(
+    (ev: JobEvent) => {
+      switch (ev.event) {
+        case 'estado':
+          setEstado('corriendo');
+          setCaptcha(null);
+          addLog(`estado: ${ev.estado}`);
+          break;
+        case 'captcha_required':
+          setEstado('captcha');
+          setCaptcha({
+            imagen: ev.imagen ?? '',
+            intento: ev.intento ?? 1,
+            max: ev.max ?? 3,
+          });
+          addLog(`captcha solicitado (intento ${ev.intento}/${ev.max})`, 'warn');
+          break;
+        case 'captcha_timeout':
+          addLog('captcha: tiempo agotado', 'warn');
+          break;
+        case 'done':
+          setEstado('done');
+          setResultado(ev.resultado ?? null);
+          setCaptcha(null);
+          addLog('descarga completada', 'ok');
+          cerrarStream();
+          break;
+        case 'error':
+          setEstado('error');
+          setError(ev.mensaje ?? 'Error');
+          setCaptcha(null);
+          addLog(`error: ${ev.mensaje}`, 'error');
+          cerrarStream();
+          break;
+        case 'cancelled':
+          setEstado('cancelled');
+          setCaptcha(null);
+          addLog(`cancelado: ${ev.mensaje ?? ''}`, 'warn');
+          cerrarStream();
+          break;
+      }
+    },
+    [addLog, cerrarStream],
+  );
+
+  const iniciar = useCallback(
+    async (starter: () => Promise<{ job_id: string }>) => {
+      reset();
+      setEstado('iniciando');
+      try {
+        const { job_id } = await starter();
+        jobIdRef.current = job_id;
+        setEstado('corriendo');
+        addLog('job iniciado');
+        esRef.current = apiClient.subscribeJob(job_id, onEvent);
+      } catch (e) {
+        setEstado('error');
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [apiClient, reset, addLog, onEvent],
+  );
+
+  const responderCaptcha = useCallback(
+    async (texto: string | null) => {
+      const id = jobIdRef.current;
+      if (!id) return;
+      setCaptcha(null);
+      if (texto !== null) setEstado('corriendo');
+      await apiClient.responderCaptcha(id, texto);
+    },
+    [apiClient],
+  );
+
+  return { estado, log, captcha, resultado, error, iniciar, responderCaptcha, reset };
+}

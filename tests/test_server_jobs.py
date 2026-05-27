@@ -15,12 +15,15 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from sat_descarga.api import jobs, server  # noqa: E402
+from sat_descarga.cli import config_store  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def fresh_registry(monkeypatch):
-    """Cada test arranca con un registry limpio (evita fugas entre tests)."""
+def fresh_registry(monkeypatch, tmp_path):
+    """Registry limpio + catálogo en tmp (no toca ~/.sat-descarga ni el real)."""
     monkeypatch.setattr(jobs, "registry", jobs.JobRegistry())
+    monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path / ".sat-descarga")
+    monkeypatch.setattr(config_store, "EFIRMA_DIR", tmp_path / "efirma")
 
 
 @pytest.fixture
@@ -83,3 +86,33 @@ def test_un_job_ciec_a_la_vez(client, monkeypatch):
             break
         time.sleep(0.05)
     assert client.get(f"/jobs/{job_id}").json()["estado"] == "done"
+
+
+def test_ciec_sin_password_usa_catalogo(client, monkeypatch):
+    # Empresa registrada con CIEC → /ciec/cfdi sin `ciec` toma la del keychain.
+    config_store.add_empresa_ciec("CAUI890921DAA", "Cliente", "miCiecGuardada")
+    recibido = {}
+
+    def stub(**kwargs):
+        recibido.update(kwargs)
+        return []
+
+    monkeypatch.setattr("sat_descarga.portal.cfdi.descargar_cfdi_ciec", stub)
+    r = client.post("/ciec/cfdi", json={
+        "rfc": "CAUI890921DAA",
+        "fecha_inicio": "2026-01-01", "fecha_fin": "2026-01-31",
+    })
+    assert r.status_code == 200 and "job_id" in r.json()
+    # El job corre en un thread; esperar a que use el stub.
+    fin = time.time() + 3
+    while time.time() < fin and "ciec" not in recibido:
+        time.sleep(0.02)
+    assert recibido.get("ciec") == "miCiecGuardada"
+
+
+def test_ciec_sin_password_ni_catalogo_400(client):
+    r = client.post("/ciec/cfdi", json={
+        "rfc": "ZZZ991231ZZZ",
+        "fecha_inicio": "2026-01-01", "fecha_fin": "2026-01-31",
+    })
+    assert r.status_code == 400

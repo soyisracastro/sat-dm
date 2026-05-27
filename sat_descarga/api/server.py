@@ -160,7 +160,7 @@ class ValidarRequest(BaseModel):
 
 class CIECDescargaRequest(BaseModel):
     rfc: str
-    ciec: str
+    ciec: Optional[str] = None  # si falta, se toma del catálogo (keychain)
     fecha_inicio: date
     fecha_fin: date
     tipo_comprobante: str = TIPO_RECIBIDO
@@ -170,13 +170,13 @@ class CIECDescargaRequest(BaseModel):
 
 class ConstanciaRequest(BaseModel):
     rfc: str
-    ciec: str
+    ciec: Optional[str] = None  # si falta, se toma del catálogo (keychain)
     directorio_salida: str = "./constancia/"
 
 
 class OpinionRequest(BaseModel):
     rfc: str
-    ciec: str
+    ciec: Optional[str] = None  # si falta, se toma del catálogo (keychain)
 
 
 class CaptchaSolution(BaseModel):
@@ -803,6 +803,23 @@ def descargar_constancia(req: ConstanciaRequest):
 # corre headless y el captcha se muestra dentro de la UI (Electron). Ver api/jobs.py.
 
 
+def _resolver_ciec(rfc: str, ciec: Optional[str]) -> str:
+    """Usa la CIEC dada o, si falta, la guardada en el catálogo (keychain del SO)."""
+    if ciec:
+        return ciec
+    from ..cli import config_store
+    try:
+        guardada = config_store.get_empresa(rfc).get("ciec")
+    except KeyError:
+        guardada = None
+    if not guardada:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay contraseña CIEC para este RFC. Regístrala en Empresas.",
+        )
+    return guardada
+
+
 def _lanzar_ciec(fn_factory):
     """
     Crea un job CIEC, inyecta el callback de captcha del bridge y lo corre en un
@@ -826,12 +843,13 @@ def ciec_cfdi(req: CIECDescargaRequest):
     from ..portal.cfdi import descargar_cfdi_ciec
     from ..core import paths
 
+    ciec = _resolver_ciec(req.rfc, req.ciec)
     salida = str(paths.dir_cfdi_base(req.rfc))
 
     def factory(pedir_captcha):
         def run():
             archivos = descargar_cfdi_ciec(
-                rfc=req.rfc, ciec=req.ciec,
+                rfc=req.rfc, ciec=ciec,
                 fecha_inicio=req.fecha_inicio, fecha_fin=req.fecha_fin,
                 tipo_comprobante=req.tipo_comprobante,
                 directorio_salida=salida, max_registros=req.max_registros,
@@ -850,12 +868,13 @@ def ciec_constancia(req: ConstanciaRequest):
     from ..portal.constancia import descargar_constancia_ciec
     from ..core import paths
 
+    ciec = _resolver_ciec(req.rfc, req.ciec)
     salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, req.rfc))
 
     def factory(pedir_captcha):
         def run():
             pdf = descargar_constancia_ciec(
-                rfc=req.rfc, ciec=req.ciec,
+                rfc=req.rfc, ciec=ciec,
                 directorio_salida=salida, pedir_captcha=pedir_captcha,
             )
             if not pdf:
@@ -872,12 +891,13 @@ def ciec_opinion(req: OpinionRequest):
     from ..portal.opinion import descargar_opinion_ciec
     from ..core import paths
 
+    ciec = _resolver_ciec(req.rfc, req.ciec)
     salida = str(paths.dir_documento(paths.TIPO_OPINION, req.rfc))
 
     def factory(pedir_captcha):
         def run():
             pdf = descargar_opinion_ciec(
-                rfc=req.rfc, ciec=req.ciec,
+                rfc=req.rfc, ciec=ciec,
                 directorio_salida=salida, pedir_captcha=pedir_captcha,
             )
             if not pdf:
