@@ -379,4 +379,22 @@ export class SatApiClient {
       `/empresas/${encodeURIComponent(rfc)}/solicitudes`,
     );
   }
+
+  // -----------------------------------------------------------------------
+  // Ajustes
+  // -----------------------------------------------------------------------
+
+  /** Carpeta base donde se guardan las descargas. */
+  async getDescargasDir(): Promise<{ dir: string }> {
+    return this.request<{ dir: string }>('/config/descargas-dir');
+  }
+
+  /** Cambia la carpeta base de descargas. */
+  async setDescargasDir(dir: string): Promise<{ dir: string }> {
+    return this.request<{ dir: string }>('/config/descargas-dir', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    });
+  }
 }

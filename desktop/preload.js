@@ -8,7 +8,7 @@
  * (.cer/.key), revelar archivos en el explorador, etc. El renderer NUNCA toca Node.
  */
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 function leerAgentUrl() {
   const arg = process.argv.find((a) => a.startsWith('--sat-agent-url='));
@@ -22,4 +22,9 @@ contextBridge.exposeInMainWorld('satAgent', {
   baseUrl: leerAgentUrl(),
   /** Marca para que el renderer sepa que corre dentro de Electron. */
   isDesktop: true,
+});
+
+contextBridge.exposeInMainWorld('satDesktop', {
+  /** Abre el selector de carpeta nativo del SO; devuelve la ruta o null. */
+  elegirCarpeta: () => ipcRenderer.invoke('elegir-carpeta'),
 });

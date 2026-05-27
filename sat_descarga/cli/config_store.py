@@ -262,3 +262,41 @@ def get_solicitud(rfc: str, id_solicitud: str) -> Optional[dict]:
         if s["id_solicitud"] == id_solicitud:
             return s
     return None
+
+
+# ---------------------------------------------------------------------------
+# Ajustes (settings.json) — p. ej. la carpeta base de descargas
+# ---------------------------------------------------------------------------
+
+def _settings_path() -> Path:
+    return get_config_dir() / "settings.json"
+
+
+def _load_settings() -> dict:
+    path = _settings_path()
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text())
+
+
+def _save_settings(data: dict):
+    _settings_path().write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def descargas_dir_default() -> str:
+    """Carpeta de descargas por defecto: la carpeta Documentos del usuario."""
+    return str(Path.home() / "Documents" / "TodoConta")
+
+
+def get_descargas_dir() -> str:
+    """Carpeta base donde se guardan las descargas (configurable)."""
+    return _load_settings().get("descargas_dir") or descargas_dir_default()
+
+
+def set_descargas_dir(path: str) -> str:
+    """Fija la carpeta base de descargas. Retorna la ruta (absoluta) guardada."""
+    p = str(Path(path).expanduser())
+    data = _load_settings()
+    data["descargas_dir"] = p
+    _save_settings(data)
+    return p

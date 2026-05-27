@@ -190,6 +190,10 @@ class EmpresaCiecRequest(BaseModel):
     ciec: str
 
 
+class DescargasDirRequest(BaseModel):
+    dir: str
+
+
 class DescargaInteligente(BaseModel):
     fecha_inicio: date
     fecha_fin: date
@@ -803,6 +807,12 @@ def descargar_constancia(req: ConstanciaRequest):
 # corre headless y el captcha se muestra dentro de la UI (Electron). Ver api/jobs.py.
 
 
+def _descargas_base() -> str:
+    """Carpeta base de descargas configurada (default ~/Documents/TodoConta)."""
+    from ..cli import config_store
+    return config_store.get_descargas_dir()
+
+
 def _resolver_ciec(rfc: str, ciec: Optional[str]) -> str:
     """Usa la CIEC dada o, si falta, la guardada en el catálogo (keychain del SO)."""
     if ciec:
@@ -844,7 +854,7 @@ def ciec_cfdi(req: CIECDescargaRequest):
     from ..core import paths
 
     ciec = _resolver_ciec(req.rfc, req.ciec)
-    salida = str(paths.dir_cfdi_base(req.rfc))
+    salida = str(paths.dir_cfdi_base(req.rfc, salida_base=_descargas_base()))
 
     def factory(pedir_captcha):
         def run():
@@ -869,7 +879,7 @@ def ciec_constancia(req: ConstanciaRequest):
     from ..core import paths
 
     ciec = _resolver_ciec(req.rfc, req.ciec)
-    salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, req.rfc))
+    salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, req.rfc, salida_base=_descargas_base()))
 
     def factory(pedir_captcha):
         def run():
@@ -892,7 +902,7 @@ def ciec_opinion(req: OpinionRequest):
     from ..core import paths
 
     ciec = _resolver_ciec(req.rfc, req.ciec)
-    salida = str(paths.dir_documento(paths.TIPO_OPINION, req.rfc))
+    salida = str(paths.dir_documento(paths.TIPO_OPINION, req.rfc, salida_base=_descargas_base()))
 
     def factory(pedir_captcha):
         def run():
@@ -952,7 +962,7 @@ def constancia_fiel_endpoint():
     from ..core import paths
 
     _get_fiel()
-    salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, _session["rfc"] or ""))
+    salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, _session["rfc"] or "", salida_base=_descargas_base()))
     try:
         pdf = descargar_constancia_fiel(
             cer_path=_session["cer_path"], key_path=_session["key_path"],
@@ -974,7 +984,7 @@ def opinion_fiel_endpoint():
     from ..core import paths
 
     _get_fiel()
-    salida = str(paths.dir_documento(paths.TIPO_OPINION, _session["rfc"] or ""))
+    salida = str(paths.dir_documento(paths.TIPO_OPINION, _session["rfc"] or "", salida_base=_descargas_base()))
     try:
         pdf = descargar_opinion_fiel(
             cer_path=_session["cer_path"], key_path=_session["key_path"],
@@ -1096,6 +1106,23 @@ def empresas_solicitudes(rfc: str):
     """Historial de solicitudes de descarga de la empresa (más recientes primero)."""
     from ..cli import config_store
     return {"solicitudes": config_store.list_solicitudes(rfc)}
+
+
+# ---------------------------------------------------------------------------
+# Endpoints: ajustes (carpeta de descargas)
+# ---------------------------------------------------------------------------
+
+@app.get("/config/descargas-dir")
+def get_descargas_dir_endpoint():
+    """Carpeta base donde se guardan las descargas."""
+    return {"dir": _descargas_base()}
+
+
+@app.put("/config/descargas-dir")
+def set_descargas_dir_endpoint(req: DescargasDirRequest):
+    """Cambia la carpeta base de descargas."""
+    from ..cli import config_store
+    return {"dir": config_store.set_descargas_dir(req.dir)}
 
 
 # ---------------------------------------------------------------------------
