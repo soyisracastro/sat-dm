@@ -293,9 +293,17 @@ def get_descargas_dir() -> str:
     return _load_settings().get("descargas_dir") or descargas_dir_default()
 
 
+def asegurar_descargas_dir() -> str:
+    """Devuelve la carpeta de descargas, creándola si no existe."""
+    d = get_descargas_dir()
+    Path(d).mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def set_descargas_dir(path: str) -> str:
-    """Fija la carpeta base de descargas. Retorna la ruta (absoluta) guardada."""
+    """Fija la carpeta base de descargas (y la crea). Retorna la ruta absoluta."""
     p = str(Path(path).expanduser())
+    Path(p).mkdir(parents=True, exist_ok=True)
     data = _load_settings()
     data["descargas_dir"] = p
     _save_settings(data)

@@ -1114,8 +1114,9 @@ def empresas_solicitudes(rfc: str):
 
 @app.get("/config/descargas-dir")
 def get_descargas_dir_endpoint():
-    """Carpeta base donde se guardan las descargas."""
-    return {"dir": _descargas_base()}
+    """Carpeta base donde se guardan las descargas (se crea si no existe)."""
+    from ..cli import config_store
+    return {"dir": config_store.asegurar_descargas_dir()}
 
 
 @app.put("/config/descargas-dir")

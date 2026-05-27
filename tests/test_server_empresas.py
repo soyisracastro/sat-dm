@@ -17,6 +17,8 @@ from sat_descarga.cli import config_store  # noqa: E402
 def aislar(tmp_path, monkeypatch):
     monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path / ".sat-descarga")
     monkeypatch.setattr(config_store, "EFIRMA_DIR", tmp_path / "efirma")
+    # Evita crear el ~/Documents/TodoConta real al asegurar la carpeta.
+    monkeypatch.setattr(config_store, "descargas_dir_default", lambda: str(tmp_path / "TodoConta"))
     yield
     server._limpiar_session()
 
