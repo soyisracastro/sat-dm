@@ -82,7 +82,7 @@ export default function EmpresaDetallePage() {
       <FielSection
         empresa={empresa}
         onGuardar={(cer, key, password) =>
-          addFiel(cer, key, password, empresa.nombre)
+          addFiel(cer, key, password, empresa.nombre, empresa.rfc)
         }
       />
     </div>
