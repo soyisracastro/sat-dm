@@ -18,7 +18,7 @@ import { useServer } from '@/providers/server-provider';
 import { FielStatus } from '@/components/fiel/fiel-status';
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/', label: 'Inicio', icon: LayoutDashboard },
   { href: '/empresas', label: 'Empresas', icon: Building2 },
   { href: '/nueva-descarga', label: 'Nueva descarga', icon: Download },
   { href: '/documentos', label: 'Documentos', icon: FileText },
