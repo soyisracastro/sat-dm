@@ -251,7 +251,8 @@ export type MetodoEmpresa = 'fiel' | 'ciec';
 export interface Empresa {
   rfc: string;
   nombre: string;
-  metodo: MetodoEmpresa;
+  /** Métodos de autenticación disponibles (una empresa puede tener ambos). */
+  metodos: MetodoEmpresa[];
   cer_path?: string | null;
   vencimiento?: string;
   default: boolean;
@@ -272,7 +273,7 @@ export interface EmpresaCiecRequest {
 export interface ActivarEmpresaResponse {
   ok: boolean;
   rfc: string;
-  metodo: MetodoEmpresa;
+  metodos: MetodoEmpresa[];
   efirma_lista: boolean;
 }
 

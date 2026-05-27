@@ -38,12 +38,12 @@ def test_alta_ciec_y_activar(client):
 
     empresas = client.get("/empresas").json()["empresas"]
     assert len(empresas) == 1
-    assert empresas[0]["rfc"] == "CAUI890921DAA" and empresas[0]["metodo"] == "ciec"
+    assert empresas[0]["rfc"] == "CAUI890921DAA" and empresas[0]["metodos"] == ["ciec"]
     # La contraseña CIEC NO viaja en el listado.
     assert "ciec" not in empresas[0] and "password" not in empresas[0]
 
     act = client.post("/empresas/CAUI890921DAA/activar").json()
-    assert act["metodo"] == "ciec" and act["efirma_lista"] is False
+    assert act["metodos"] == ["ciec"] and act["efirma_lista"] is False
 
 
 def test_alta_fiel_activar_y_baja(client, test_cer, test_key, test_password, test_rfc):
@@ -56,7 +56,7 @@ def test_alta_fiel_activar_y_baja(client, test_cer, test_key, test_password, tes
     assert r.status_code == 200 and r.json()["rfc"] == test_rfc
 
     empresas = client.get("/empresas").json()["empresas"]
-    assert empresas[0]["metodo"] == "fiel"
+    assert empresas[0]["metodos"] == ["fiel"]
 
     # Activar carga la e.firma en sesión.
     act = client.post(f"/empresas/{test_rfc}/activar").json()
@@ -71,6 +71,20 @@ def test_alta_fiel_activar_y_baja(client, test_cer, test_key, test_password, tes
 
 def test_activar_inexistente_404(client):
     assert client.post("/empresas/RFCNOEXISTE000/activar").status_code == 404
+
+
+def test_default_cambia_predeterminada(client):
+    client.post("/empresas/ciec", json={"rfc": "AAA010101AAA", "nombre": "A", "ciec": "x"})
+    client.post("/empresas/ciec", json={"rfc": "BBB020202BBB", "nombre": "B", "ciec": "y"})
+    # La primera registrada es la predeterminada.
+    empresas = {e["rfc"]: e["default"] for e in client.get("/empresas").json()["empresas"]}
+    assert empresas["AAA010101AAA"] is True and empresas["BBB020202BBB"] is False
+    # Cambiar la predeterminada a la segunda.
+    assert client.post("/empresas/BBB020202BBB/default").status_code == 200
+    empresas = {e["rfc"]: e["default"] for e in client.get("/empresas").json()["empresas"]}
+    assert empresas["BBB020202BBB"] is True and empresas["AAA010101AAA"] is False
+    # Inexistente → 404.
+    assert client.post("/empresas/NOEXISTE000/default").status_code == 404
 
 
 def test_solicitudes_historial(client):

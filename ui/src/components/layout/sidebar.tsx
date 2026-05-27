@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  Building2,
   Database,
   Download,
   FolderTree,
@@ -16,6 +17,7 @@ import { FielStatus } from '@/components/fiel/fiel-status';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/empresas', label: 'Empresas', icon: Building2 },
   { href: '/descarga', label: 'Descarga', icon: Download },
   { href: '/metadata', label: 'Metadata', icon: Database },
   { href: '/validacion', label: 'Validacion', icon: ShieldCheck },

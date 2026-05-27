@@ -49,9 +49,21 @@ class TestEmpresas:
         rfc = config_store.add_empresa_ciec("CAUI890921DAA", "Cliente CIEC", "miCiec123")
         assert rfc == "CAUI890921DAA"
         empresa = config_store.get_empresa(rfc)
-        assert empresa["metodo"] == "ciec"
+        assert empresa["metodos"] == ["ciec"]
         assert empresa["ciec"] == "miCiec123"
-        assert config_store.list_empresas()[0]["metodo"] == "ciec"
+        assert config_store.list_empresas()[0]["metodos"] == ["ciec"]
+
+    def test_empresa_puede_tener_ambos_metodos(self, test_cer, test_key, test_password, test_rfc):
+        # Primero CIEC, luego e.firma para el MISMO RFC → conserva ambos.
+        config_store.add_empresa_ciec(test_rfc, "Mi Empresa", "miCiec")
+        config_store.add_empresa("Mi Empresa", test_cer, test_key, test_password)
+        empresa = config_store.get_empresa(test_rfc)
+        assert sorted(empresa["metodos"]) == ["ciec", "fiel"]
+        assert empresa["ciec"] == "miCiec"           # credencial CIEC sigue ahí
+        assert empresa["password"] == test_password  # + la de la e.firma
+        assert "cer_path" in empresa
+        # Una sola empresa en el catálogo (se fusionó, no se duplicó).
+        assert len(config_store.list_empresas()) == 1
 
     def test_remove_borra_credenciales(self, test_cer, test_key, test_password, test_rfc):
         from sat_descarga.core import secretos
