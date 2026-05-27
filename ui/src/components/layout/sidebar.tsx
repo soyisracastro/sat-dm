@@ -28,13 +28,7 @@ export function Sidebar() {
 
   return (
     <aside className="hidden w-64 shrink-0 border-r bg-card md:flex md:flex-col">
-      {/* Logo / Brand */}
-      <div className="flex h-14 items-center border-b px-4">
-        <span className="text-sm font-semibold tracking-tight">
-          SAT Descarga Masiva
-        </span>
-      </div>
-
+      {/* La marca vive ahora en el Titlebar (franja superior). */}
       {/* FIEL status */}
       <div className="border-b px-4 py-3">
         <FielStatus />
