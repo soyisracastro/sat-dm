@@ -13,12 +13,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
+import { semaforoVencimiento } from '@/lib/vencimiento';
 import type { Empresa } from '@/lib/types';
 
 export default function EmpresaDetallePage() {
   const params = useParams<{ rfc: string }>();
   const rfc = decodeURIComponent(params.rfc);
-  const { empresas, loading, addCiec, addFiel } = useEmpresas();
+  const { empresas, loading, addCiec, addFiel, activarSesion } = useEmpresas();
   const empresa = empresas.find((e) => e.rfc === rfc);
 
   const volver = (
@@ -68,11 +70,7 @@ export default function EmpresaDetallePage() {
             <KeyRound className="size-3" /> CIEC
           </Badge>
         )}
-        {tieneFiel && empresa.vencimiento && (
-          <span className="text-xs text-muted-foreground">
-            e.firma vence: {empresa.vencimiento}
-          </span>
-        )}
+        {tieneFiel && <VencimientoBadge vencimiento={empresa.vencimiento} />}
       </div>
 
       <CiecSection
@@ -81,9 +79,11 @@ export default function EmpresaDetallePage() {
       />
       <FielSection
         empresa={empresa}
-        onGuardar={(cer, key, password) =>
-          addFiel(cer, key, password, empresa.nombre, empresa.rfc)
-        }
+        onGuardar={async (cer, key, password) => {
+          await addFiel(cer, key, password, empresa.nombre, empresa.rfc);
+          // Cargar la e.firma recién agregada/renovada en la sesión (cabecera/Inicio).
+          await activarSesion(empresa.rfc);
+        }}
       />
     </div>
   );
@@ -165,6 +165,8 @@ function FielSection({
   onGuardar: (cer: File, key: File, password: string) => Promise<void>;
 }) {
   const tiene = empresa.metodos.includes('fiel');
+  const sem = tiene ? semaforoVencimiento(empresa.vencimiento) : null;
+  const avisaRenovar = sem !== null && sem.estado !== 'verde';
   const [cer, setCer] = useState<File | null>(null);
   const [key, setKey] = useState<File | null>(null);
   const [password, setPassword] = useState('');
@@ -209,6 +211,22 @@ function FielSection({
       <p className="text-xs text-muted-foreground">
         Sube el .cer y .key de la e.firma de este RFC ({empresa.rfc}).
       </p>
+      {avisaRenovar && sem && (
+        <Alert
+          variant={sem.estado === 'rojo' ? 'destructive' : 'default'}
+          className={
+            sem.estado === 'amarillo'
+              ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300'
+              : undefined
+          }
+        >
+          <AlertDescription className="text-xs">
+            {sem.vencida
+              ? `Esta e.firma venció el ${sem.fecha}. Renuévala subiendo el nuevo .cer y .key.`
+              : `Esta e.firma ${sem.label.toLowerCase()} (vence el ${sem.fecha}). Conviene renovarla.`}
+          </AlertDescription>
+        </Alert>
+      )}
       <form className="space-y-3" onSubmit={guardar}>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">

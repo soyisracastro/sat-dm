@@ -21,6 +21,8 @@ interface FielStatus {
   loaded: boolean;
   rfc: string | null;
   numeroSerie: string | null;
+  /** Vencimiento de la e.firma en sesión ("YYYY-MM-DD") o null. */
+  vencimiento: string | null;
 }
 
 interface ServerContextValue {
@@ -69,6 +71,7 @@ export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
     isConnected,
     rfcCargado,
     efirmaLista,
+    efirmaVencimiento,
     refresh: refreshHealth,
   } = useServerHealth(apiClient);
 
@@ -81,8 +84,9 @@ export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
       loaded: efirmaLista,
       rfc: rfcCargado,
       numeroSerie: efirmaLista ? numeroSerieRef.current : null,
+      vencimiento: efirmaLista ? efirmaVencimiento : null,
     }),
-    [efirmaLista, rfcCargado],
+    [efirmaLista, rfcCargado, efirmaVencimiento],
   );
 
   const cargarFiel = useCallback(

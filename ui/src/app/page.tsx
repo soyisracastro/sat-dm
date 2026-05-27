@@ -19,6 +19,7 @@ import { useServer } from '@/providers/server-provider';
 import { getAgentBaseUrl } from '@/lib/constants';
 import { PageHeading } from '@/components/layout/page-heading';
 import { FielUploadDialog } from '@/components/fiel/fiel-upload-dialog';
+import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -143,14 +144,17 @@ export default function InicioPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 {fielStatus.loaded ? (
                   <>
-                    <CheckCircle className="size-5 text-success" />
-                    <span className="font-mono text-sm font-medium text-success">
-                      {fielStatus.rfc}
-                    </span>
+                    <CheckCircle className="size-5 shrink-0 text-success" />
+                    <div className="flex flex-col gap-1">
+                      <span className="font-mono text-sm font-medium text-success">
+                        {fielStatus.rfc}
+                      </span>
+                      <VencimientoBadge vencimiento={fielStatus.vencimiento} />
+                    </div>
                   </>
                 ) : (
                   <>

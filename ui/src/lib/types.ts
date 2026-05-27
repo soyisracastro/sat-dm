@@ -7,6 +7,10 @@ export interface HealthResponse {
   status: string;
   rfc_cargado: string | null;
   efirma_lista: boolean;
+  /** Vencimiento de la e.firma en sesión ("YYYY-MM-DD") o null si no hay. */
+  efirma_vencimiento?: string | null;
+  /** True/false si hay e.firma cargada; null si no hay. */
+  efirma_vigente?: boolean | null;
 }
 
 // POST /auth/cargar-fiel
