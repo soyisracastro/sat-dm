@@ -152,7 +152,10 @@ function EmpresaRow({
           <div>
             <div className="font-medium leading-tight">{empresa.nombre}</div>
             {empresa.default && (
-              <div className="text-[10px] font-semibold text-primary">★ Predeterminada</div>
+              <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                <span className="size-1.5 rounded-full bg-primary" />
+                Activa
+              </div>
             )}
           </div>
         </div>
@@ -175,9 +178,7 @@ function EmpresaRow({
       </TableCell>
       <TableCell className="text-right">
         <div className="inline-flex items-center gap-1">
-          {empresa.default ? (
-            <span className="px-2 text-xs font-medium text-primary">✓ Activa</span>
-          ) : (
+          {!empresa.default && (
             <Button variant="ghost" size="sm" onClick={onSeleccionar} disabled={busy}>
               {busy ? <Loader2 className="size-3 animate-spin" /> : null}
               Usar
