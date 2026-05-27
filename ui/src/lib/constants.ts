@@ -9,6 +9,18 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_SAT_API_URL ?? 'http://localhost:8787';
 
+/**
+ * Base URL efectiva del agente. Dentro de Electron, el preload inyecta
+ * `window.satAgent.baseUrl` (puerto efímero); en el navegador cae a API_BASE_URL.
+ */
+export function getAgentBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const injected = (window as unknown as { satAgent?: { baseUrl?: string } }).satAgent?.baseUrl;
+    if (injected) return injected;
+  }
+  return API_BASE_URL;
+}
+
 // ---------------------------------------------------------------------------
 // CodEstado labels (VerificaSolicitud response states)
 // ---------------------------------------------------------------------------

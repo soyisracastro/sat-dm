@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+*.log
+
+# Usamos pnpm (no npm/yarn): el único lockfile válido es pnpm-lock.yaml
+package-lock.json
+yarn.lock
