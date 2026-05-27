@@ -127,10 +127,19 @@ class JobRegistry:
         job._captcha_resp.put(solucion)
 
     # ---- ejecución en worker thread ----
-    def ejecutar(self, job: Job, fn: Callable[[], Any]) -> threading.Thread:
+    def ejecutar(
+        self,
+        job: Job,
+        fn: Callable[[], Any],
+        al_completar: Optional[Callable[[Any], None]] = None,
+    ) -> threading.Thread:
         """
         Corre `fn()` en un thread daemon. `fn` hace el scrape (y usa el callback de
         captcha de este registry). Captura resultado/errores y cierra el stream.
+
+        Si se pasa `al_completar`, se invoca con el resultado cuando el job termina
+        bien (p. ej. para registrar la descarga en el historial). Sus errores se
+        registran pero NO tumban el job ni se propagan al front.
         """
         def _run():
             job.estado = "running"
@@ -138,6 +147,11 @@ class JobRegistry:
             try:
                 job.resultado = fn()
                 job.estado = "done"
+                if al_completar is not None:
+                    try:
+                        al_completar(job.resultado)
+                    except Exception:  # noqa: BLE001 - registrar no debe romper la descarga
+                        logger.exception("[job %s] al_completar falló", job.id)
                 self.emitir(job, "done", resultado=_serializable(job.resultado))
             except Exception as e:  # noqa: BLE001 - se reporta al front
                 msg = str(e)

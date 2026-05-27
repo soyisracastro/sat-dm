@@ -276,6 +276,76 @@ def get_solicitud(rfc: str, id_solicitud: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Historial de descargas (log unificado: WS + CIEC + documentos)
+#
+# A diferencia de `solicitudes/` (lifecycle de las solicitudes WS, para retomar),
+# esto es un registro plano de descargas YA COMPLETADAS, por empresa, para que la
+# pantalla Historial las muestre. Una línea por descarga terminada.
+# ---------------------------------------------------------------------------
+
+def _historial_dir() -> Path:
+    d = get_config_dir() / "historial"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _historial_path(rfc: str) -> Path:
+    return _historial_dir() / f"{rfc}.json"
+
+
+def registrar_descarga(
+    rfc: str,
+    canal: str,                 # "ws" | "ciec" | "fiel"
+    tipo: str,                  # "cfdi" | "metadata" | "constancia" | "opinion"
+    descripcion: str = "",
+    ruta: str = "",
+    total: Optional[int] = None,  # nº de XML (CFDIs) cuando aplica
+    estado: str = "completada",
+) -> dict:
+    """Registra una descarga completada en el historial de la empresa. Devuelve el registro."""
+    rfc = rfc.strip().upper()
+    path = _historial_path(rfc)
+    data = json.loads(path.read_text()) if path.exists() else {"descargas": []}
+    registro = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "canal": canal,
+        "tipo": tipo,
+        "descripcion": descripcion,
+        "ruta": ruta,
+        "total": total,
+        "estado": estado,
+    }
+    data["descargas"].append(registro)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return registro
+
+
+def list_descargas(rfc: str) -> list[dict]:
+    """Descargas de una empresa, más recientes primero."""
+    path = _historial_path(rfc)
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text())
+    return list(reversed(data.get("descargas", [])))
+
+
+def list_todas_descargas() -> list[dict]:
+    """Descargas de TODAS las empresas (con rfc + nombre), más recientes primero."""
+    nombres = {e["rfc"]: e["nombre"] for e in list_empresas()}
+    resultado: list[dict] = []
+    for path in _historial_dir().glob("*.json"):
+        rfc = path.stem
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        for d in data.get("descargas", []):
+            resultado.append({**d, "rfc": rfc, "nombre": nombres.get(rfc, rfc)})
+    resultado.sort(key=lambda d: d.get("timestamp", ""), reverse=True)
+    return resultado
+
+
+# ---------------------------------------------------------------------------
 # Ajustes (settings.json) — p. ej. la carpeta base de descargas
 # ---------------------------------------------------------------------------
 

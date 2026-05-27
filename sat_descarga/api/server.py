@@ -490,6 +490,11 @@ def descargar(
             directorio_salida=directorio_salida,
             extraer=extraer,
         )
+        _registrar_descarga(
+            fiel.rfc, "ws", "cfdi",
+            descripcion=f"Descarga WS · solicitud {id_solicitud[:8]}…",
+            ruta=directorio_salida, total=estado.numero_cfdis,
+        )
         return {
             "ok": True,
             "archivos": [str(z) for z in zips],
@@ -524,6 +529,11 @@ def descarga_completa(req: DescargaCompletaRequest):
             tipo_solicitud=TIPO_CFDI,
             tipo_comprobante=req.tipo_comprobante,
             extraer=req.extraer,
+        )
+        _registrar_descarga(
+            _session["rfc"], "ws", "cfdi",
+            descripcion=f"Descarga WS completa · {req.fecha_inicio} a {req.fecha_fin}",
+            ruta=req.directorio_salida,
         )
         return {
             "ok": True,
@@ -889,11 +899,23 @@ def _resolver_ciec(rfc: str, ciec: Optional[str]) -> str:
     return guardada
 
 
-def _lanzar_ciec(fn_factory):
+def _registrar_descarga(rfc, canal, tipo, descripcion="", ruta="", total=None):
+    """Registra una descarga completada en el historial. Best-effort: nunca lanza."""
+    try:
+        from ..cli import config_store
+        config_store.registrar_descarga(
+            rfc, canal, tipo, descripcion=descripcion, ruta=ruta, total=total,
+        )
+    except Exception:  # noqa: BLE001 - el historial no debe romper una descarga
+        logger.warning("No se pudo registrar la descarga en el historial", exc_info=True)
+
+
+def _lanzar_ciec(fn_factory, al_completar=None):
     """
     Crea un job CIEC, inyecta el callback de captcha del bridge y lo corre en un
     worker thread. `fn_factory(pedir_captcha)` devuelve el callable del scrape.
-    Solo un job CIEC a la vez (la sesión del agente es de un usuario).
+    `al_completar(resultado)` (opcional) se ejecuta al terminar bien (p. ej. registrar
+    en el historial). Solo un job CIEC a la vez (la sesión del agente es de un usuario).
     """
     if jobs.registry.hay_activo():
         raise HTTPException(
@@ -902,7 +924,7 @@ def _lanzar_ciec(fn_factory):
         )
     job = jobs.registry.crear()
     pedir_captcha = jobs.registry.pedir_captcha_callback(job)
-    jobs.registry.ejecutar(job, fn_factory(pedir_captcha))
+    jobs.registry.ejecutar(job, fn_factory(pedir_captcha), al_completar=al_completar)
     return {"job_id": job.id}
 
 
@@ -928,7 +950,14 @@ def ciec_cfdi(req: CIECDescargaRequest):
                     "archivos": [str(a) for a in archivos]}
         return run
 
-    return _lanzar_ciec(factory)
+    cuales = {"E": "emitidos", "R": "recibidos"}.get(req.tipo_comprobante, "")
+    desc = f"CFDIs {cuales} · {req.fecha_inicio} a {req.fecha_fin}".replace("  ", " ")
+
+    def al_completar(resultado):
+        _registrar_descarga(req.rfc, "ciec", "cfdi", descripcion=desc,
+                            ruta=salida, total=(resultado or {}).get("total"))
+
+    return _lanzar_ciec(factory, al_completar=al_completar)
 
 
 @app.post("/ciec/constancia")
@@ -951,7 +980,12 @@ def ciec_constancia(req: ConstanciaRequest):
             return {"archivo": str(pdf)}
         return run
 
-    return _lanzar_ciec(factory)
+    def al_completar(resultado):
+        _registrar_descarga(req.rfc, "ciec", "constancia",
+                            descripcion="Constancia de Situación Fiscal",
+                            ruta=(resultado or {}).get("archivo", ""))
+
+    return _lanzar_ciec(factory, al_completar=al_completar)
 
 
 @app.post("/ciec/opinion")
@@ -974,7 +1008,12 @@ def ciec_opinion(req: OpinionRequest):
             return {"archivo": str(pdf)}
         return run
 
-    return _lanzar_ciec(factory)
+    def al_completar(resultado):
+        _registrar_descarga(req.rfc, "ciec", "opinion",
+                            descripcion="Opinión de Cumplimiento 32-D",
+                            ruta=(resultado or {}).get("archivo", ""))
+
+    return _lanzar_ciec(factory, al_completar=al_completar)
 
 
 @app.post("/jobs/{job_id}/captcha")
@@ -1029,6 +1068,8 @@ def constancia_fiel_endpoint():
         )
         if not pdf:
             raise HTTPException(status_code=502, detail="No se pudo descargar la constancia.")
+        _registrar_descarga(_session["rfc"] or "", "fiel", "constancia",
+                            descripcion="Constancia de Situación Fiscal", ruta=str(pdf))
         return {"ok": True, "archivo": str(pdf)}
     except HTTPException:
         raise
@@ -1051,6 +1092,8 @@ def opinion_fiel_endpoint():
         )
         if not pdf:
             raise HTTPException(status_code=502, detail="No se pudo descargar la opinión 32-D.")
+        _registrar_descarga(_session["rfc"] or "", "fiel", "opinion",
+                            descripcion="Opinión de Cumplimiento 32-D", ruta=str(pdf))
         return {"ok": True, "archivo": str(pdf)}
     except HTTPException:
         raise
@@ -1163,6 +1206,20 @@ def empresas_solicitudes(rfc: str):
     """Historial de solicitudes de descarga de la empresa (más recientes primero)."""
     from ..cli import config_store
     return {"solicitudes": config_store.list_solicitudes(rfc)}
+
+
+@app.get("/empresas/{rfc}/historial")
+def empresas_historial(rfc: str):
+    """Historial de descargas completadas de la empresa (más recientes primero)."""
+    from ..cli import config_store
+    return {"descargas": config_store.list_descargas(rfc)}
+
+
+@app.get("/historial")
+def historial():
+    """Historial de descargas de TODAS las empresas (con rfc + nombre), recientes primero."""
+    from ..cli import config_store
+    return {"descargas": config_store.list_todas_descargas()}
 
 
 # ---------------------------------------------------------------------------
