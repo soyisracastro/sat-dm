@@ -86,9 +86,11 @@ app.add_middleware(
 _session: dict = {
     "fiel": None,        # Objeto FIEL cargado
     "rfc": None,         # RFC extraído del certificado
-    "cer_path": None,    # Path al .cer temporal
-    "key_path": None,    # Path al .key temporal
+    "cer_path": None,    # Path al .cer
+    "key_path": None,    # Path al .key
     "password": None,    # Contraseña de la llave (en memoria, no en disco)
+    "es_temp": False,    # True si cer/key son temporales (borrar al limpiar);
+                         # False si apuntan a una empresa guardada (NO borrar).
 }
 
 
@@ -182,6 +184,12 @@ class CaptchaSolution(BaseModel):
     solution: Optional[str] = None
 
 
+class EmpresaCiecRequest(BaseModel):
+    rfc: str
+    nombre: str
+    ciec: str
+
+
 class DescargaInteligente(BaseModel):
     fecha_inicio: date
     fecha_fin: date
@@ -251,6 +259,7 @@ async def cargar_fiel(
         _session["cer_path"] = cer_tmp.name
         _session["key_path"] = key_tmp.name
         _session["password"] = password
+        _session["es_temp"] = True  # archivos temporales → se borran al limpiar
 
         return {
             "ok": True,
@@ -276,20 +285,23 @@ def descargar_fiel():
 
 
 def _limpiar_session():
-    """Limpia el estado de sesión y borra archivos temporales."""
-    for path_key in ("cer_path", "key_path"):
-        path = _session.get(path_key)
-        if path:
-            try:
-                os.unlink(path)
-            except Exception:
-                pass
+    """Limpia el estado de sesión. Solo borra los .cer/.key si eran temporales
+    (no toca los de una empresa guardada en ./efirma/)."""
+    if _session.get("es_temp"):
+        for path_key in ("cer_path", "key_path"):
+            path = _session.get(path_key)
+            if path:
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
     _session.update({
         "fiel": None,
         "rfc": None,
         "cer_path": None,
         "key_path": None,
         "password": None,
+        "es_temp": False,
     })
 
 
@@ -955,6 +967,104 @@ def opinion_fiel_endpoint():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Endpoints: catálogo de empresas (persistente; credenciales en keychain del SO)
+# ---------------------------------------------------------------------------
+#
+# Reusa cli.config_store (capa de datos sin I/O de terminal): catálogo en
+# ~/.sat-descarga/empresas.json + contraseñas en el keychain del SO (core.secretos).
+# Así el usuario registra su e.firma/CIEC una vez y no las reingresa cada descarga.
+
+@app.get("/empresas")
+def empresas_list():
+    """Lista las empresas registradas (sin credenciales)."""
+    from ..cli import config_store
+    return {"empresas": config_store.list_empresas()}
+
+
+@app.post("/empresas/fiel")
+async def empresas_add_fiel(
+    cer_file: UploadFile = File(...),
+    key_file: UploadFile = File(...),
+    password: str = Form(...),
+    nombre: str = Form(...),
+):
+    """Registra una empresa por e.firma. La contraseña se guarda en el keychain."""
+    from ..cli import config_store
+
+    cer_data = await cer_file.read()
+    key_data = await key_file.read()
+    cer_tmp = tempfile.NamedTemporaryFile(suffix=".cer", delete=False)
+    key_tmp = tempfile.NamedTemporaryFile(suffix=".key", delete=False)
+    try:
+        cer_tmp.write(cer_data); cer_tmp.flush(); cer_tmp.close()
+        key_tmp.write(key_data); key_tmp.flush(); key_tmp.close()
+        rfc = config_store.add_empresa(nombre, cer_tmp.name, key_tmp.name, password)
+        return {"ok": True, "rfc": rfc}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"No se pudo registrar la empresa: {e}")
+    finally:
+        for p in (cer_tmp.name, key_tmp.name):
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+
+
+@app.post("/empresas/ciec")
+def empresas_add_ciec(req: EmpresaCiecRequest):
+    """Registra una empresa por CIEC. La contraseña CIEC se guarda en el keychain."""
+    from ..cli import config_store
+    rfc = config_store.add_empresa_ciec(req.rfc, req.nombre, req.ciec)
+    return {"ok": True, "rfc": rfc}
+
+
+@app.delete("/empresas/{rfc}")
+def empresas_remove(rfc: str):
+    """Elimina la empresa del catálogo y borra sus credenciales del keychain."""
+    from ..cli import config_store
+    config_store.remove_empresa(rfc)
+    return {"ok": True}
+
+
+@app.post("/empresas/{rfc}/activar")
+def empresas_activar(rfc: str):
+    """
+    Activa una empresa para la sesión. Para FIEL, carga la e.firma guardada en memoria
+    (como /auth/cargar-fiel, pero desde el catálogo). Para CIEC no carga e.firma.
+    """
+    from ..cli import config_store
+    try:
+        empresa = config_store.get_empresa(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+
+    if empresa.get("metodo") == "fiel":
+        cer, key, pwd = empresa.get("cer_path"), empresa.get("key_path"), empresa.get("password")
+        if not (cer and key and pwd):
+            raise HTTPException(status_code=400, detail="La empresa no tiene e.firma completa.")
+        try:
+            fiel = FIEL(cer, key, pwd)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"No se pudo cargar la e.firma: {e}")
+        _limpiar_session()
+        _session.update({
+            "fiel": fiel, "rfc": fiel.rfc, "cer_path": cer,
+            "key_path": key, "password": pwd, "es_temp": False,
+        })
+        return {"ok": True, "rfc": rfc, "metodo": "fiel", "efirma_lista": True}
+
+    return {"ok": True, "rfc": rfc, "metodo": empresa.get("metodo", "ciec"),
+            "efirma_lista": False}
+
+
+@app.get("/empresas/{rfc}/solicitudes")
+def empresas_solicitudes(rfc: str):
+    """Historial de solicitudes de descarga de la empresa (más recientes primero)."""
+    from ..cli import config_store
+    return {"solicitudes": config_store.list_solicitudes(rfc)}
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,38 @@ from pathlib import Path
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def keyring_en_memoria():
+    """
+    Backend de keyring en memoria para TODOS los tests: las credenciales nunca
+    tocan el keychain real del SO. Se aísla por test (cada uno arranca vacío).
+    """
+    keyring = pytest.importorskip("keyring")
+    from keyring.backend import KeyringBackend
+
+    class _MemKeyring(KeyringBackend):
+        priority = 1
+
+        def __init__(self):
+            self._store: dict = {}
+
+        def set_password(self, service, username, password):
+            self._store[(service, username)] = password
+
+        def get_password(self, service, username):
+            return self._store.get((service, username))
+
+        def delete_password(self, service, username):
+            self._store.pop((service, username), None)
+
+    anterior = keyring.get_keyring()
+    keyring.set_keyring(_MemKeyring())
+    try:
+        yield
+    finally:
+        keyring.set_keyring(anterior)
+
+
 @pytest.fixture
 def fixtures_dir():
     """Ruta al directorio de fixtures."""
