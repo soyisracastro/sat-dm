@@ -16,6 +16,10 @@ constancia*/
 opinion*/
 descargas/
 metadata/
+
+# Boceto de Claude Design (referencia local; no se versiona — el prototipo se
+# re-crea en ui/, no se copia tal cual)
+desktop/design-ref/
 *.zip
 *.csv
 

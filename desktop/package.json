@@ -1,0 +1,23 @@
+{
+  "name": "todoconta-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python).",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "pnpm": {
+    "//": "pnpm bloquea postinstall por seguridad; autorizamos solo los que requieren binarios.",
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-builder",
+      "esbuild"
+    ]
+  }
+}

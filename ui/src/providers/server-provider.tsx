@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { SatApiClient } from '@/lib/api-client';
+import { getAgentBaseUrl } from '@/lib/constants';
 import { useServerHealth } from '@/hooks/use-server-health';
 
 // ---------------------------------------------------------------------------
@@ -59,7 +60,10 @@ interface ServerProviderProps {
 }
 
 export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
-  const apiClient = useMemo(() => new SatApiClient(baseUrl), [baseUrl]);
+  // En Electron el agente corre en un puerto efímero que el preload inyecta en
+  // window.satAgent.baseUrl; en el navegador cae a API_BASE_URL (localhost:8787).
+  const resolvedBaseUrl = baseUrl ?? getAgentBaseUrl();
+  const apiClient = useMemo(() => new SatApiClient(resolvedBaseUrl), [resolvedBaseUrl]);
 
   const {
     isConnected,
