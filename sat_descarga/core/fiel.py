@@ -46,11 +46,20 @@ class FIEL:
     def _load_private_key(self, path: str, password: str):
         data = Path(path).read_bytes()
         pwd_bytes = password.encode() if isinstance(password, str) else password
-        # Las llaves del SAT vienen en formato DER PKCS#8
-        try:
-            return serialization.load_der_private_key(data, password=pwd_bytes)
-        except Exception:
-            return serialization.load_pem_private_key(data, password=pwd_bytes)
+        # Las llaves del SAT vienen en DER PKCS#8; algunas en PEM. Probamos ambos.
+        errores = []
+        for cargar in (serialization.load_der_private_key,
+                       serialization.load_pem_private_key):
+            try:
+                return cargar(data, password=pwd_bytes)
+            except Exception as e:  # noqa: BLE001
+                errores.append(str(e).lower())
+        # Si ambos fallan, distinguir "contraseña incorrecta" de "archivo inválido"
+        # (si no, el error real queda enmascarado por el del segundo intento).
+        combinado = " ".join(errores)
+        if any(k in combinado for k in ("decrypt", "password", "bad", "incorrect")):
+            raise ValueError("La contraseña de la clave privada (.key) es incorrecta.")
+        raise ValueError("No se pudo leer la clave privada (.key): formato no reconocido.")
 
     def _validate_pair(self):
         """Verifica que el certificado y la llave coincidan."""
