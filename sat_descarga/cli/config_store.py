@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from sat_descarga.core.fiel import FIEL
+from sat_descarga.core import secretos
 
 CONFIG_DIR = Path.home() / ".sat-descarga"
 EFIRMA_DIR = Path("efirma")
@@ -53,9 +54,9 @@ def _efirma_dir(rfc: str) -> Path:
 
 def add_empresa(nombre: str, cer_path: str, key_path: str, password: str) -> str:
     """
-    Registra una empresa. Valida la FIEL, copia archivos a ./efirma/{RFC}/
-    con nombres estándar (fiel.cer, fiel.key, fiel.txt) y guarda en catálogo.
-    Retorna el RFC.
+    Registra una empresa por e.firma (FIEL). Valida la FIEL, copia .cer/.key a
+    ./efirma/{RFC}/ y guarda la contraseña en el keychain del SO (NUNCA en texto
+    plano en disco). Retorna el RFC.
     """
     cer_src = Path(cer_path).expanduser().resolve()
     key_src = Path(key_path).expanduser().resolve()
@@ -64,25 +65,47 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str) -> str
     fiel = FIEL(str(cer_src), str(key_src), password)
     rfc = fiel.rfc
 
-    # Copiar a ./efirma/{RFC}/fiel.*
+    # Copiar a ./efirma/{RFC}/fiel.{cer,key} (la contraseña va al keychain).
     dest = _efirma_dir(rfc)
     cer_dest = dest / "fiel.cer"
     key_dest = dest / "fiel.key"
-    pwd_dest = dest / "fiel.txt"
 
     if cer_src.resolve() != cer_dest.resolve():
         shutil.copy2(cer_src, cer_dest)
     if key_src.resolve() != key_dest.resolve():
         shutil.copy2(key_src, key_dest)
-    pwd_dest.write_text(password)
+    secretos.guardar(rfc, secretos.FIEL, password)
 
     data = load_empresas()
+    existente = data["empresas"].get(rfc, {})
     data["empresas"][rfc] = {
+        **existente,
         "nombre": nombre,
+        "metodo": "fiel",
         "cer_path": str(cer_dest),
         "key_path": str(key_dest),
-        "password": password,
         "vencimiento": fiel.not_valid_after.strftime("%Y-%m-%d"),
+    }
+    if data["default_rfc"] is None:
+        data["default_rfc"] = rfc
+    save_empresas(data)
+    return rfc
+
+
+def add_empresa_ciec(rfc: str, nombre: str, ciec: str) -> str:
+    """
+    Registra (o actualiza) una empresa por CIEC. Guarda la contraseña CIEC en el
+    keychain del SO; en el catálogo solo queda RFC + nombre + método. Retorna el RFC.
+    """
+    rfc = rfc.strip().upper()
+    secretos.guardar(rfc, secretos.CIEC, ciec)
+
+    data = load_empresas()
+    existente = data["empresas"].get(rfc, {})
+    data["empresas"][rfc] = {
+        **existente,
+        "nombre": nombre,
+        "metodo": "ciec",
     }
     if data["default_rfc"] is None:
         data["default_rfc"] = rfc
@@ -97,6 +120,9 @@ def remove_empresa(rfc: str):
         rfcs = list(data["empresas"].keys())
         data["default_rfc"] = rfcs[0] if rfcs else None
     save_empresas(data)
+    # Borrar credenciales del keychain (ambos métodos; no falla si no existen).
+    secretos.borrar(rfc, secretos.FIEL)
+    secretos.borrar(rfc, secretos.CIEC)
 
 
 def list_empresas() -> list[dict]:
@@ -107,7 +133,8 @@ def list_empresas() -> list[dict]:
         result.append({
             "rfc": rfc,
             "nombre": info["nombre"],
-            "cer_path": info["cer_path"],
+            "metodo": info.get("metodo", "fiel"),
+            "cer_path": info.get("cer_path"),
             "vencimiento": info.get("vencimiento", ""),
             "default": rfc == default,
         })
@@ -115,11 +142,25 @@ def list_empresas() -> list[dict]:
 
 
 def get_empresa(rfc: str) -> dict:
+    """
+    Devuelve los datos de la empresa MÁS sus credenciales recuperadas del keychain:
+    `password` (FIEL) y/o `ciec` (CIEC), según estén guardadas. Compat: si quedó un
+    `password` en texto plano de una versión vieja del catálogo, se respeta.
+    """
     data = load_empresas()
     empresa = data["empresas"].get(rfc)
     if empresa is None:
         raise KeyError(f"No se encontró empresa con RFC {rfc}")
-    return {"rfc": rfc, **empresa}
+    info = {"rfc": rfc, **empresa}
+    info.setdefault("metodo", "fiel")
+
+    password = empresa.get("password") or secretos.obtener(rfc, secretos.FIEL)
+    if password:
+        info["password"] = password
+    ciec = secretos.obtener(rfc, secretos.CIEC)
+    if ciec:
+        info["ciec"] = ciec
+    return info
 
 
 def get_default() -> Optional[str]:
@@ -193,6 +234,12 @@ def update_solicitud(rfc: str, id_solicitud: str, estado: str, package_ids: Opti
 def get_solicitudes_pendientes(rfc: str) -> list[dict]:
     data = _load_solicitudes(rfc)
     return [s for s in data["solicitudes"] if s["estado"] not in ("terminada", "error")]
+
+
+def list_solicitudes(rfc: str) -> list[dict]:
+    """Todas las solicitudes de la empresa, más recientes primero (para Historial)."""
+    data = _load_solicitudes(rfc)
+    return list(reversed(data["solicitudes"]))
 
 
 def get_solicitud(rfc: str, id_solicitud: str) -> Optional[dict]:

@@ -33,7 +33,32 @@ class TestEmpresas:
         efirma_dir = tmp_path / "efirma" / rfc
         assert (efirma_dir / "fiel.cer").exists()
         assert (efirma_dir / "fiel.key").exists()
-        assert (efirma_dir / "fiel.txt").exists()
+        # La contraseña ya NO se escribe en texto plano (va al keychain).
+        assert not (efirma_dir / "fiel.txt").exists()
+
+    def test_password_no_queda_en_disco_plano(self, test_cer, test_key, test_password, tmp_path):
+        config_store.add_empresa("Test", test_cer, test_key, test_password)
+        contenido_json = (tmp_path / ".sat-descarga" / "empresas.json").read_text()
+        assert test_password not in contenido_json  # no se filtra al catálogo
+
+    def test_get_empresa_recupera_password_del_keychain(self, test_cer, test_key, test_password, test_rfc):
+        config_store.add_empresa("Test", test_cer, test_key, test_password)
+        assert config_store.get_empresa(test_rfc)["password"] == test_password
+
+    def test_add_empresa_ciec(self):
+        rfc = config_store.add_empresa_ciec("CAUI890921DAA", "Cliente CIEC", "miCiec123")
+        assert rfc == "CAUI890921DAA"
+        empresa = config_store.get_empresa(rfc)
+        assert empresa["metodo"] == "ciec"
+        assert empresa["ciec"] == "miCiec123"
+        assert config_store.list_empresas()[0]["metodo"] == "ciec"
+
+    def test_remove_borra_credenciales(self, test_cer, test_key, test_password, test_rfc):
+        from sat_descarga.core import secretos
+        config_store.add_empresa("Test", test_cer, test_key, test_password)
+        assert secretos.obtener(test_rfc, secretos.FIEL) == test_password
+        config_store.remove_empresa(test_rfc)
+        assert secretos.obtener(test_rfc, secretos.FIEL) is None
 
     def test_add_guarda_vencimiento(self, test_cer, test_key, test_password):
         config_store.add_empresa("Test", test_cer, test_key, test_password)
