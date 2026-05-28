@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ServerProvider } from '@/providers/server-provider';
+import { ThemeProvider } from '@/providers/theme-provider';
 import { AppShell } from '@/components/layout/app-shell';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -15,13 +16,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <body>
-        <ServerProvider>
-          <TooltipProvider>
-            <AppShell>{children}</AppShell>
-          </TooltipProvider>
-        </ServerProvider>
+        <ThemeProvider>
+          <ServerProvider>
+            <TooltipProvider>
+              <AppShell>{children}</AppShell>
+            </TooltipProvider>
+          </ServerProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
