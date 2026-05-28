@@ -1,8 +1,7 @@
 'use client';
 
-import { AlertTriangle, CalendarClock, CalendarCheck } from 'lucide-react';
-
 import { cn } from '@/lib/utils';
+import { Icon } from '@/components/ui/icon';
 import { semaforoVencimiento, type EstadoVencimiento } from '@/lib/vencimiento';
 
 // Estilos del semáforo (mismo criterio que TodoConta: verde >30d, amarillo ≤30d, rojo ≤5d/vencida).
@@ -20,11 +19,11 @@ const ESTILO_PUNTO: Record<EstadoVencimiento, string> = {
   rojo: 'bg-red-500',
 };
 
-const ICONO = {
-  verde: CalendarCheck,
-  amarillo: CalendarClock,
-  rojo: AlertTriangle,
-} as const;
+const ICONO: Record<EstadoVencimiento, string> = {
+  verde: 'ph:calendar-check-light',
+  amarillo: 'ph:calendar-light',
+  rojo: 'ph:warning-light',
+};
 
 /**
  * Badge con el semáforo de vencimiento de la e.firma. Devuelve null si no hay
@@ -39,7 +38,6 @@ export function VencimientoBadge({
 }) {
   const s = semaforoVencimiento(vencimiento);
   if (!s) return null;
-  const Icon = ICONO[s.estado];
   return (
     <span
       className={cn(
@@ -49,7 +47,7 @@ export function VencimientoBadge({
       )}
       title={`Vence el ${s.fecha}`}
     >
-      <Icon className="size-3 shrink-0" />
+      <Icon icon={ICONO[s.estado]} className="size-3 shrink-0" />
       {s.label}
     </span>
   );

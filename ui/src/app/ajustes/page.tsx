@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Folder, Loader2 } from 'lucide-react';
+
+import { Icon } from '@/components/ui/icon';
 
 import { useServer } from '@/providers/server-provider';
 import { PageHeading } from '@/components/layout/page-heading';
@@ -74,7 +75,7 @@ export default function AjustesPage() {
               className="font-mono text-xs"
             />
             <Button onClick={() => guardar(dir)} disabled={saving}>
-              {saving ? <Loader2 className="size-4 animate-spin" /> : 'Guardar'}
+              {saving ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : 'Guardar'}
             </Button>
           </div>
         ) : (
@@ -84,9 +85,9 @@ export default function AjustesPage() {
             </code>
             <Button variant="outline" onClick={cambiar} disabled={saving}>
               {saving ? (
-                <Loader2 className="size-4 animate-spin" />
+                <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
               ) : (
-                <Folder className="size-4" />
+                <Icon icon="ph:folder-light" className="size-4" />
               )}
               Cambiar…
             </Button>

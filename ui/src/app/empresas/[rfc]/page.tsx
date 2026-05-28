@@ -3,10 +3,10 @@
 import { useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle2, KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 
 import { useEmpresas } from '@/hooks/use-empresas';
 import { PageHeading } from '@/components/layout/page-heading';
+import { Icon } from '@/components/ui/icon';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ export default function EmpresaDetallePage() {
 
   const volver = (
     <Link href="/empresas" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-      <ArrowLeft className="size-4" /> Empresas
+      <Icon icon="ph:arrow-left-light" className="size-4" /> Empresas
     </Link>
   );
 
@@ -34,7 +34,7 @@ export default function EmpresaDetallePage() {
       <div className="space-y-4">
         {volver}
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Cargando…
+          <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> Cargando…
         </div>
       </div>
     );
@@ -62,12 +62,12 @@ export default function EmpresaDetallePage() {
       <div className="flex flex-wrap items-center gap-2">
         {tieneFiel && (
           <Badge variant="secondary" className="gap-1">
-            <ShieldCheck className="size-3" /> e.firma
+            <Icon icon="ph:shield-check-light" className="size-3" /> e.firma
           </Badge>
         )}
         {tieneCiec && (
           <Badge variant="secondary" className="gap-1">
-            <KeyRound className="size-3" /> CIEC
+            <Icon icon="ph:key-light" className="size-3" /> CIEC
           </Badge>
         )}
         {tieneFiel && <VencimientoBadge vencimiento={empresa.vencimiento} />}
@@ -92,7 +92,7 @@ export default function EmpresaDetallePage() {
 function Guardado() {
   return (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-      <CheckCircle2 className="size-3.5" /> Guardado
+      <Icon icon="ph:check-circle-light" className="size-3.5" /> Guardado
     </span>
   );
 }
@@ -131,7 +131,7 @@ function CiecSection({
     <Card className="space-y-3 p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <KeyRound className="size-4 text-primary" />
+          <Icon icon="ph:key-light" className="size-4 text-primary" />
           <span className="text-sm font-medium">
             {tiene ? 'Cambiar contraseña CIEC' : 'Agregar CIEC'}
           </span>
@@ -149,7 +149,7 @@ function CiecSection({
           }}
         />
         <Button type="submit" disabled={!ciec || saving}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : 'Guardar'}
+          {saving ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : 'Guardar'}
         </Button>
       </form>
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -201,7 +201,7 @@ function FielSection({
     <Card className="space-y-3 p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="size-4 text-primary" />
+          <Icon icon="ph:shield-check-light" className="size-4 text-primary" />
           <span className="text-sm font-medium">
             {tiene ? 'Renovar e.firma' : 'Agregar e.firma'}
           </span>
@@ -246,7 +246,7 @@ function FielSection({
                  onChange={(e) => { setPassword(e.target.value); setOk(false); }} />
         </div>
         <Button type="submit" disabled={!cer || !key || !password || saving}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+          {saving ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:shield-check-light" className="size-4" />}
           {tiene ? 'Renovar e.firma' : 'Agregar e.firma'}
         </Button>
       </form>

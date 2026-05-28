@@ -1,16 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  ChevronRightIcon,
-  DownloadIcon,
-  PackageIcon,
-  FileIcon,
-  CheckCircle2Icon,
-  Loader2Icon,
-} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -58,7 +51,7 @@ export function PackageList({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <PackageIcon className="size-5" />
+          <Icon icon="ph:package-light" className="size-5" />
           {hasArchivos ? 'Descarga completada' : 'Paquetes disponibles'}
         </CardTitle>
         {!hasArchivos && (
@@ -81,12 +74,12 @@ export function PackageList({
             >
               {isDownloading ? (
                 <>
-                  <Loader2Icon className="size-4 animate-spin" />
+                  <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
                   Descargando...
                 </>
               ) : (
                 <>
-                  <DownloadIcon className="size-4" />
+                  <Icon icon="ph:download-simple-light" className="size-4" />
                   Descargar Todo ({nPaquetes})
                 </>
               )}
@@ -98,7 +91,8 @@ export function PackageList({
                 onClick={() => setVerIds((v) => !v)}
                 className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
               >
-                <ChevronRightIcon
+                <Icon
+                  icon="ph:caret-right-light"
                   className={cn('size-4 transition-transform', verIds && 'rotate-90')}
                 />
                 {verIds ? 'Ocultar' : 'Ver'} IDs de paquetes ({nPaquetes})
@@ -111,7 +105,7 @@ export function PackageList({
                         key={id}
                         className="flex items-center gap-2 rounded bg-muted px-3 py-1.5"
                       >
-                        <PackageIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                        <Icon icon="ph:package-light" className="size-3.5 shrink-0 text-muted-foreground" />
                         <code className="truncate font-mono text-xs">{id}</code>
                       </div>
                     ))}
@@ -127,7 +121,7 @@ export function PackageList({
           <>
             <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/30">
               <div className="flex items-center gap-2">
-                <CheckCircle2Icon className="size-4 text-green-600 dark:text-green-400" />
+                <Icon icon="ph:check-circle-light" className="size-4 text-green-600 dark:text-green-400" />
                 <p className="text-sm font-medium text-green-800 dark:text-green-300">
                   Se descargaron {archivosDescargados.length.toLocaleString('es-MX')} archivo
                   {archivosDescargados.length !== 1 ? 's' : ''} exitosamente.
@@ -148,7 +142,7 @@ export function PackageList({
                       key={archivo}
                       className="flex items-center gap-2 rounded px-3 py-1.5 text-sm hover:bg-muted"
                     >
-                      <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      <Icon icon="ph:file-light" className="size-3.5 shrink-0 text-muted-foreground" />
                       <span className="truncate font-mono text-xs">{archivo}</span>
                       <Badge variant="secondary" className="ml-auto shrink-0 text-[10px]">
                         XML

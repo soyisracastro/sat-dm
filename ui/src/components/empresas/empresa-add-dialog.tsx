@@ -1,8 +1,8 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { KeyRound, Loader2, ShieldCheck } from 'lucide-react';
 
+import { Icon } from '@/components/ui/icon';
 import {
   Dialog,
   DialogContent,
@@ -97,10 +97,10 @@ export function EmpresaAddDialog({
         <Tabs defaultValue="fiel">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="fiel">
-              <ShieldCheck className="size-4" /> e.firma
+              <Icon icon="ph:shield-check-light" className="size-4" /> e.firma
             </TabsTrigger>
             <TabsTrigger value="ciec">
-              <KeyRound className="size-4" /> CIEC
+              <Icon icon="ph:key-light" className="size-4" /> CIEC
             </TabsTrigger>
           </TabsList>
 
@@ -130,7 +130,7 @@ export function EmpresaAddDialog({
                        onChange={(e) => setPassword(e.target.value)} />
               </Field>
               <Button type="submit" className="w-full" disabled={!fielOk || loading}>
-                {loading ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                {loading ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:shield-check-light" className="size-4" />}
                 Registrar con e.firma
               </Button>
             </form>
@@ -159,7 +159,7 @@ export function EmpresaAddDialog({
                        onChange={(e) => setCiec(e.target.value)} />
               </Field>
               <Button type="submit" className="w-full" disabled={!ciecOk || loading}>
-                {loading ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+                {loading ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:key-light" className="size-4" />}
                 Registrar con CIEC
               </Button>
             </form>

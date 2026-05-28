@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircleIcon, RotateCcwIcon } from 'lucide-react';
+import { Icon } from '@/components/ui/icon';
 
 import { PageHeading } from '@/components/layout/page-heading';
 import { DescargaForm } from '@/components/descarga/descarga-form';
@@ -45,7 +45,7 @@ export default function DescargaPage() {
         action={
           state !== 'idle' ? (
             <Button variant="outline" size="sm" onClick={reset}>
-              <RotateCcwIcon className="size-4" />
+              <Icon icon="ph:arrow-counter-clockwise-light" className="size-4" />
               Nueva solicitud
             </Button>
           ) : undefined
@@ -55,7 +55,7 @@ export default function DescargaPage() {
       {/* Server not connected */}
       {!isConnected && (
         <Alert variant="destructive">
-          <AlertCircleIcon className="size-4" />
+          <Icon icon="ph:warning-circle-light" className="size-4" />
           <AlertTitle>Servidor no disponible</AlertTitle>
           <AlertDescription>
             No se puede conectar al servidor Python en localhost:8787.
@@ -67,7 +67,7 @@ export default function DescargaPage() {
       {/* FIEL not loaded */}
       {isConnected && !fielLoaded && (
         <Alert>
-          <AlertCircleIcon className="size-4" />
+          <Icon icon="ph:warning-circle-light" className="size-4" />
           <AlertTitle>e-Firma no cargada</AlertTitle>
           <AlertDescription>
             Debes cargar tu e-firma (FIEL) antes de solicitar una descarga masiva.
@@ -79,7 +79,7 @@ export default function DescargaPage() {
       {/* Error */}
       {error && (
         <Alert variant="destructive">
-          <AlertCircleIcon className="size-4" />
+          <Icon icon="ph:warning-circle-light" className="size-4" />
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>

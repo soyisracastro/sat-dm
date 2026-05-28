@@ -2,18 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  Building2,
-  CheckCircle,
-  Database,
-  Download,
-  FileText,
-  FolderTree,
-  KeyRound,
-  Server,
-  ShieldCheck,
-  XCircle,
-} from 'lucide-react';
 
 import { useServer } from '@/providers/server-provider';
 import { getAgentBaseUrl } from '@/lib/constants';
@@ -21,6 +9,7 @@ import { PageHeading } from '@/components/layout/page-heading';
 import { FielUploadDialog } from '@/components/fiel/fiel-upload-dialog';
 import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
 import {
   Card,
   CardContent,
@@ -34,7 +23,7 @@ interface FeatureCard {
   href: string;
   title: string;
   description: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: string;
   requiresFiel: boolean;
 }
 
@@ -44,49 +33,49 @@ const FEATURE_CARDS: FeatureCard[] = [
     href: '/empresas',
     title: 'Empresas',
     description: 'Registra y administra tus empresas (e.firma / CIEC).',
-    icon: Building2,
+    icon: 'ph:buildings-light',
     requiresFiel: false,
   },
   {
     href: '/nueva-descarga',
     title: 'Descargar CFDIs',
     description: 'CFDIs del portal del SAT (CIEC), con el captcha aquí mismo.',
-    icon: Download,
+    icon: 'ph:download-simple-light',
     requiresFiel: false,
   },
   {
     href: '/documentos',
     title: 'Documentos',
     description: 'Constancia de Situación Fiscal y Opinión de Cumplimiento 32-D.',
-    icon: FileText,
+    icon: 'ph:file-text-light',
     requiresFiel: false,
   },
   {
     href: '/descarga',
     title: 'Descarga por e.firma (WS)',
     description: 'Descarga masiva por el Web Service oficial del SAT.',
-    icon: Download,
+    icon: 'ph:download-simple-light',
     requiresFiel: true,
   },
   {
     href: '/metadata',
     title: 'Metadata',
     description: 'Resumen (CSV) de tus CFDIs sin descargar los XMLs completos.',
-    icon: Database,
+    icon: 'ph:database-light',
     requiresFiel: true,
   },
   {
     href: '/validacion',
     title: 'Validación CFDI',
     description: 'Verifica el estatus (Vigente / Cancelado) en el SAT.',
-    icon: ShieldCheck,
+    icon: 'ph:shield-check-light',
     requiresFiel: false,
   },
   {
     href: '/organizador',
     title: 'Organizador',
     description: 'Organiza, renombra y deduplica los XML descargados.',
-    icon: FolderTree,
+    icon: 'ph:folders-light',
     requiresFiel: false,
   },
 ];
@@ -110,7 +99,7 @@ export default function InicioPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Server className="size-4" />
+              <Icon icon="ph:hard-drives-light" className="size-4" />
               Servidor
             </CardTitle>
           </CardHeader>
@@ -118,7 +107,7 @@ export default function InicioPage() {
             <div className="flex items-center gap-2">
               {isConnected ? (
                 <>
-                  <CheckCircle className="size-5 text-success" />
+                  <Icon icon="ph:check-circle-light" className="size-5 text-success" />
                   <span className="text-sm font-medium text-success">Conectado</span>
                   <span className="font-mono text-xs text-muted-foreground">
                     {agentHost}
@@ -126,7 +115,7 @@ export default function InicioPage() {
                 </>
               ) : (
                 <>
-                  <XCircle className="size-5 text-destructive" />
+                  <Icon icon="ph:x-circle-light" className="size-5 text-destructive" />
                   <span className="text-sm font-medium text-destructive">
                     Desconectado
                   </span>
@@ -139,7 +128,7 @@ export default function InicioPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <KeyRound className="size-4" />
+              <Icon icon="ph:key-light" className="size-4" />
               e-firma (FIEL)
             </CardTitle>
           </CardHeader>
@@ -148,7 +137,7 @@ export default function InicioPage() {
               <div className="flex items-center gap-2">
                 {fielStatus.loaded ? (
                   <>
-                    <CheckCircle className="size-5 shrink-0 text-success" />
+                    <Icon icon="ph:check-circle-light" className="size-5 shrink-0 text-success" />
                     <div className="flex flex-col gap-1">
                       <span className="font-mono text-sm font-medium text-success">
                         {fielStatus.rfc}
@@ -158,7 +147,7 @@ export default function InicioPage() {
                   </>
                 ) : (
                   <>
-                    <XCircle className="size-5 text-muted-foreground" />
+                    <Icon icon="ph:x-circle-light" className="size-5 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
                       Sin e-firma cargada
                     </span>
@@ -176,13 +165,12 @@ export default function InicioPage() {
       {/* Feature cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {FEATURE_CARDS.map((card) => {
-          const Icon = card.icon;
           const disabled = card.requiresFiel && !fielStatus.loaded;
           return (
             <Card key={card.href} className={cn('transition-colors', disabled && 'opacity-60')}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Icon className="size-5" />
+                  <Icon icon={card.icon} className="size-5" />
                   {card.title}
                 </CardTitle>
                 <CardDescription>{card.description}</CardDescription>

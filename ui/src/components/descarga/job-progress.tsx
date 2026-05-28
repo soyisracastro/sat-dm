@@ -1,8 +1,7 @@
 'use client';
 
-import { CheckCircle2, Loader2, XCircle, Ban, KeyRound } from 'lucide-react';
-
 import { Card } from '@/components/ui/card';
+import { Icon } from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
 import type { JobUiEstado, LogEntry } from '@/hooks/use-ciec-job';
 
@@ -24,11 +23,11 @@ const ESTADO_LABEL: Record<JobUiEstado, string> = {
 };
 
 function EstadoIcon({ estado }: { estado: JobUiEstado }) {
-  if (estado === 'done') return <CheckCircle2 className="size-4 text-success" />;
-  if (estado === 'error') return <XCircle className="size-4 text-destructive" />;
-  if (estado === 'cancelled') return <Ban className="size-4 text-muted-foreground" />;
-  if (estado === 'captcha') return <KeyRound className="size-4 text-primary" />;
-  return <Loader2 className="size-4 animate-spin text-primary" />;
+  if (estado === 'done') return <Icon icon="ph:check-circle-light" className="size-4 text-success" />;
+  if (estado === 'error') return <Icon icon="ph:x-circle-light" className="size-4 text-destructive" />;
+  if (estado === 'cancelled') return <Icon icon="ph:prohibit-light" className="size-4 text-muted-foreground" />;
+  if (estado === 'captcha') return <Icon icon="ph:key-light" className="size-4 text-primary" />;
+  return <Icon icon="ph:circle-notch-light" className="size-4 animate-spin text-primary" />;
 }
 
 const LEVEL_COLOR: Record<NonNullable<LogEntry['level']>, string> = {
