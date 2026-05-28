@@ -172,18 +172,20 @@ export class SatApiClient {
 
   /**
    * Step 3: Download the packages for a completed request.
+   *
+   * Sin `directorioSalida` el agente usa la convención por empresa
+   * (`<descargas>/cfdi/{RFC}/`), igual que CIEC.
    */
   async descargar(
     idSolicitud: string,
-    directorioSalida = './cfdi/',
+    directorioSalida?: string,
     extraer = true,
   ): Promise<DescargarResponse> {
-    // This endpoint uses query params (see server.py signature)
     const params = new URLSearchParams({
       id_solicitud: idSolicitud,
-      directorio_salida: directorioSalida,
       extraer: String(extraer),
     });
+    if (directorioSalida) params.set('directorio_salida', directorioSalida);
     return this.request<DescargarResponse>(`/descargar?${params}`, {
       method: 'POST',
     });

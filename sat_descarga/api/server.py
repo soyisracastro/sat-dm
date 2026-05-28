@@ -450,25 +450,34 @@ def verificar(req: VerificarRequest):
 @app.post("/descargar")
 def descargar(
     id_solicitud: str,
-    directorio_salida: str = "./cfdi/",
+    directorio_salida: Optional[str] = None,
     extraer: bool = True,
 ):
     """
     Descarga los paquetes de una solicitud ya terminada (cod_estado=3).
 
     Llama primero a /verificar para confirmar que la solicitud está lista.
+    Si no se pasa `directorio_salida`, se usa la convención por empresa
+    (`<descargas>/cfdi/{RFC}/`), igual que las descargas vía CIEC.
     """
     from ..webservice.descarga import descargar_todos
+    from ..core import paths
 
     fiel = _get_fiel()
     token = _renovar_token()
 
-    # Verificar estado actual
+    salida = directorio_salida or str(
+        paths.dir_cfdi_base(fiel.rfc, salida_base=_descargas_base())
+    )
+
+    # Verificar estado actual — la petición DEBE ir firmada (xmldsig) con la FIEL,
+    # si no, el SAT devuelve un EstadoSolicitud vacío y se ve como "no está lista".
     try:
         estado = verificar_solicitud(
             token=token,
             rfc_solicitante=fiel.rfc,
             id_solicitud=id_solicitud,
+            fiel=fiel,
             poll=False,
         )
     except RuntimeError as e:
@@ -494,13 +503,14 @@ def descargar(
             token=token,
             rfc_solicitante=fiel.rfc,
             package_ids=estado.package_ids,
-            directorio_salida=directorio_salida,
+            directorio_salida=salida,
+            fiel=fiel,
             extraer=extraer,
         )
         _registrar_descarga(
             fiel.rfc, "ws", "cfdi",
             descripcion=f"Descarga WS · solicitud {id_solicitud[:8]}…",
-            ruta=directorio_salida, total=estado.numero_cfdis,
+            ruta=salida, total=estado.numero_cfdis,
         )
         return {
             "ok": True,

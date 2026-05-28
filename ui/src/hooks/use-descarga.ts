@@ -77,6 +77,10 @@ export function useDescarga(
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  // RequestID para la cual ya disparamos la descarga automática al pasar a 'ready'.
+  // Permite re-descargar manualmente (descargar() puede llamarse de nuevo) sin
+  // que el efecto auto-dispare otra vez por el mismo state→ready transition.
+  const autoDescargaDispatchedRef = useRef<string | null>(null);
 
   // -----------------------------------------------------------------------
   // Cleanup interval
@@ -219,7 +223,21 @@ export function useDescarga(
     setArchivosDescargados([]);
     setError(null);
     saveRequestId(null);
+    autoDescargaDispatchedRef.current = null;
   }, [stopPolling]);
+
+  // Auto-descarga: tan pronto la solicitud quede lista, dispara `descargar()`
+  // una sola vez por solicitud (sin bloquear la re-descarga manual posterior).
+  useEffect(() => {
+    if (
+      state === 'ready' &&
+      requestId &&
+      autoDescargaDispatchedRef.current !== requestId
+    ) {
+      autoDescargaDispatchedRef.current = requestId;
+      void descargar();
+    }
+  }, [state, requestId, descargar]);
 
   // -----------------------------------------------------------------------
   // Resume polling on mount if localStorage has a requestId

@@ -119,14 +119,33 @@ export function PackageList({
         {/* Downloaded files */}
         {hasArchivos && (
           <>
-            <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/30">
+            <div className="flex items-start justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/30">
               <div className="flex items-center gap-2">
-                <Icon icon="ph:check-circle-light" className="size-4 text-green-600 dark:text-green-400" />
+                <Icon icon="ph:check-circle-light" className="size-4 shrink-0 text-green-600 dark:text-green-400" />
                 <p className="text-sm font-medium text-green-800 dark:text-green-300">
                   Se descargaron {archivosDescargados.length.toLocaleString('es-MX')} archivo
                   {archivosDescargados.length !== 1 ? 's' : ''} exitosamente.
                 </p>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onDescargar}
+                disabled={isDownloading}
+                title="Vuelve a descargar el paquete (mientras siga vigente en el SAT)"
+              >
+                {isDownloading ? (
+                  <>
+                    <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
+                    Descargando…
+                  </>
+                ) : (
+                  <>
+                    <Icon icon="ph:download-simple-light" className="size-3.5" />
+                    Volver a descargar
+                  </>
+                )}
+              </Button>
             </div>
 
             <Separator />
