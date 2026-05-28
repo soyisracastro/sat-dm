@@ -16,6 +16,46 @@ LOGIN_TIMEOUT_MS = 180_000        # 3 min para el login FIEL (e.firma, sin captc
 MAX_INTENTOS_CAPTCHA = 3          # CIEC: 1 + 2 reintentos; tras agotarse → cancelar
 EXITO_TIMEOUT_MS = 25_000         # espera de aterrizaje tras enviar el captcha
 
+# Selectores donde el portal NIDP del SAT muestra el mensaje de error del login.
+_ERROR_SELECTORS = "#msgError, .msg-error, #errormsg"
+
+# Si el mensaje de error es de CAPTCHA, reintentar tiene sentido (otra imagen).
+_KW_CAPTCHA = ("captcha", "imagen", "caracteres", "código de la imagen",
+               "texto de la imagen")
+# Si es de credenciales (RFC/contraseña), reintentar el captcha es inútil → abortar.
+# (El chequeo de captcha va primero, así que "válid" no captura errores de captcha.)
+_KW_CREDENCIALES = ("contraseña", "contrasena", "rfc", "usuario", "clave",
+                    "incorrect", "válid", "invalid")
+
+
+class CredencialCIECInvalida(RuntimeError):
+    """El portal del SAT rechazó el RFC/contraseña CIEC (no es problema del captcha).
+
+    Se lanza para abortar de inmediato (sin gastar reintentos de captcha) cuando el
+    portal muestra un error de credenciales."""
+
+
+def _es_error_credenciales(msg: str) -> bool:
+    """True si `msg` (texto del error del portal) indica RFC/contraseña incorrectos
+    (y NO un error de captcha, que sí amerita reintentar)."""
+    low = msg.lower()
+    if any(k in low for k in _KW_CAPTCHA):
+        return False
+    return any(k in low for k in _KW_CREDENCIALES)
+
+
+def _texto_error_login(page) -> str:
+    """Texto del mensaje de error visible en el login (o '' si no hay)."""
+    el = page.query_selector(_ERROR_SELECTORS)
+    if el is None:
+        return ""
+    try:
+        if not el.is_visible():
+            return ""
+    except Exception:  # noqa: BLE001 — si is_visible falla, intentamos leer igual
+        pass
+    return (el.text_content() or "").strip()
+
 
 def _login_ciec_con_reintentos(rellenar_form, leer_captcha_img, pedir_captcha,
                                enviar, max_intentos=MAX_INTENTOS_CAPTCHA):
@@ -30,9 +70,12 @@ def _login_ciec_con_reintentos(rellenar_form, leer_captcha_img, pedir_captcha,
             recargado tras un captcha incorrecto).
         leer_captcha_img() -> bytes: imagen del captcha vigente.
         pedir_captcha(img, intento, max) -> Optional[str]: UI; None = el usuario canceló.
-        enviar(texto) -> bool: envía y devuelve True si el login tuvo éxito.
+        enviar(texto) -> bool: envía y devuelve True si el login tuvo éxito; puede
+            LANZAR `CredencialCIECInvalida` si el portal rechaza RFC/contraseña
+            (fail-fast: se propaga y aborta sin gastar los reintentos restantes).
 
     Raises:
+        CredencialCIECInvalida: si el portal rechaza el RFC/contraseña CIEC.
         RuntimeError: si el usuario cancela o si se agotan los intentos (la operación
             se cancela para no bloquear/abusar del portal del SAT).
     """
@@ -108,6 +151,17 @@ def iniciar_sesion_ciec(page, rfc: str, ciec: str, url_entrada: str, exito,
         try:
             page.wait_for_url(exito, timeout=EXITO_TIMEOUT_MS)
         except PWTimeout:
+            # No aterrizó. Si el portal muestra un error de CREDENCIALES (RFC/contraseña),
+            # reintentar el captcha es inútil → abortar de inmediato con copy claro.
+            # Si es error de captcha (u otro), devolver False para reintentar.
+            err = _texto_error_login(page)
+            if err and _es_error_credenciales(err):
+                raise CredencialCIECInvalida(
+                    f"El SAT rechazó el acceso: «{err}». Revisa el RFC y la contraseña "
+                    "CIEC de esta empresa en Empresas."
+                )
+            if err:
+                logger.warning("[CIEC] Error de login (reintentable): %s", err)
             return False
         try:
             page.wait_for_load_state("networkidle", timeout=15_000)
