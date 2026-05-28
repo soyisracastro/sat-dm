@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Building2, KeyRound, Loader2, Lock, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 
 import { useEmpresas } from '@/hooks/use-empresas';
 import { useServer } from '@/providers/server-provider';
 import { PageHeading } from '@/components/layout/page-heading';
 import { EmpresaAddDialog } from '@/components/empresas/empresa-add-dialog';
 import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
+import { Icon } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -69,7 +69,7 @@ export default function EmpresasPage() {
         description="Cada empresa guarda su método de autenticación localmente. La e.firma nunca sale de tu computadora."
         action={
           <Button onClick={() => setOpen(true)}>
-            <Plus className="size-4" /> Agregar empresa
+            <Icon icon="ph:plus-light" className="size-4" /> Agregar empresa
           </Button>
         }
       />
@@ -82,11 +82,11 @@ export default function EmpresasPage() {
 
       {loading && empresas.length === 0 ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Cargando empresas…
+          <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> Cargando empresas…
         </div>
       ) : empresas.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 p-10 text-center">
-          <Building2 className="size-8 text-muted-foreground" />
+          <Icon icon="ph:buildings-light" className="size-8 text-muted-foreground" />
           <div className="space-y-1">
             <p className="font-medium">Aún no tienes empresas</p>
             <p className="text-sm text-muted-foreground">
@@ -94,7 +94,7 @@ export default function EmpresasPage() {
             </p>
           </div>
           <Button onClick={() => setOpen(true)}>
-            <Plus className="size-4" /> Agregar empresa
+            <Icon icon="ph:plus-light" className="size-4" /> Agregar empresa
           </Button>
         </Card>
       ) : (
@@ -126,7 +126,7 @@ export default function EmpresasPage() {
       )}
 
       <div className="flex items-center gap-2 rounded-lg border bg-secondary px-4 py-3 text-xs text-muted-foreground">
-        <Lock className="size-4 shrink-0" />
+        <Icon icon="ph:lock-light" className="size-4 shrink-0" />
         <span>
           Las contraseñas de tu e.firma y CIEC se guardan en el{' '}
           <span className="font-medium text-foreground">keychain del sistema</span>{' '}
@@ -184,12 +184,12 @@ function EmpresaRow({
         <div className="flex flex-wrap items-center gap-1">
           {empresa.metodos.includes('fiel') && (
             <Badge variant="secondary" className="gap-1">
-              <ShieldCheck className="size-3" /> e.firma
+              <Icon icon="ph:shield-check-light" className="size-3" /> e.firma
             </Badge>
           )}
           {empresa.metodos.includes('ciec') && (
             <Badge variant="secondary" className="gap-1">
-              <KeyRound className="size-3" /> CIEC
+              <Icon icon="ph:key-light" className="size-3" /> CIEC
             </Badge>
           )}
           {empresa.metodos.includes('fiel') && (
@@ -201,22 +201,22 @@ function EmpresaRow({
         <div className="inline-flex items-center gap-1">
           {!empresa.default ? (
             <Button variant="ghost" size="sm" onClick={onSeleccionar} disabled={busy}>
-              {busy ? <Loader2 className="size-3 animate-spin" /> : null}
+              {busy ? <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" /> : null}
               Usar
             </Button>
           ) : puedeCargarEfirma ? (
             <Button variant="ghost" size="sm" onClick={onCargarEfirma} disabled={busy}>
-              {busy ? <Loader2 className="size-3 animate-spin" /> : null}
+              {busy ? <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" /> : null}
               Cargar e.firma
             </Button>
           ) : null}
           <Button asChild variant="ghost" size="icon" title="Editar / credenciales">
             <Link href={`/empresas/${encodeURIComponent(empresa.rfc)}`}>
-              <Pencil className="size-4" />
+              <Icon icon="ph:pencil-simple-light" className="size-4" />
             </Link>
           </Button>
           <Button variant="ghost" size="icon" onClick={onRemove} disabled={busy} title="Eliminar">
-            <Trash2 className="size-4" />
+            <Icon icon="ph:trash-light" className="size-4" />
           </Button>
         </div>
       </TableCell>

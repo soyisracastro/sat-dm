@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { CalendarIcon, DownloadIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -75,7 +75,7 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <CalendarIcon className="size-5" />
+          <Icon icon="ph:calendar-light" className="size-5" />
           Solicitar Descarga
         </CardTitle>
         <CardDescription>
@@ -160,7 +160,7 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
               </>
             ) : (
               <>
-                <DownloadIcon className="size-4" />
+                <Icon icon="ph:download-simple-light" className="size-4" />
                 Solicitar Descarga
               </>
             )}

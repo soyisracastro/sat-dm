@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback } from 'react';
-import { ClipboardCopyIcon, CheckCircle2Icon, Loader2Icon, FileTextIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { Icon } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { COD_ESTADO_LABELS } from '@/lib/constants';
@@ -48,11 +48,11 @@ export function PollingDisplay({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {isPolling ? (
-            <Loader2Icon className="size-5 animate-spin text-blue-500" />
+            <Icon icon="ph:circle-notch-light" className="size-5 animate-spin text-blue-500" />
           ) : isReady ? (
-            <CheckCircle2Icon className="size-5 text-green-500" />
+            <Icon icon="ph:check-circle-light" className="size-5 text-green-500" />
           ) : (
-            <FileTextIcon className="size-5" />
+            <Icon icon="ph:file-text-light" className="size-5" />
           )}
           Estado de la solicitud
         </CardTitle>
@@ -71,7 +71,7 @@ export function PollingDisplay({
               onClick={handleCopy}
               title="Copiar al portapapeles"
             >
-              <ClipboardCopyIcon className="size-3.5" />
+              <Icon icon="ph:clipboard-text-light" className="size-3.5" />
             </Button>
           </div>
         </div>
@@ -119,7 +119,7 @@ export function PollingDisplay({
         {/* Polling indicator */}
         {isPolling && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2Icon className="size-3.5 animate-spin" />
+            <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
             Verificando estado... (consulta automatica cada 15 segundos)
           </div>
         )}

@@ -1,17 +1,6 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import {
-  Database,
-  Download,
-  Eye,
-  FileCheck2,
-  FileText,
-  FolderOpen,
-  History,
-  Loader2,
-  RefreshCw,
-} from 'lucide-react';
 
 import { useHistorial } from '@/hooks/use-historial';
 import { useServer } from '@/providers/server-provider';
@@ -19,6 +8,7 @@ import { PageHeading } from '@/components/layout/page-heading';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { Icon } from '@/components/ui/icon';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Table,
@@ -37,11 +27,11 @@ import {
 } from '@/components/ui/select';
 import type { CanalDescarga, HistorialItem, TipoDescarga } from '@/lib/types';
 
-const TIPO_META: Record<TipoDescarga, { label: string; icon: typeof Download }> = {
-  cfdi: { label: 'CFDIs', icon: Download },
-  metadata: { label: 'Metadata', icon: Database },
-  constancia: { label: 'Constancia', icon: FileText },
-  opinion: { label: 'Opinión 32-D', icon: FileCheck2 },
+const TIPO_META: Record<TipoDescarga, { label: string; icon: string }> = {
+  cfdi: { label: 'CFDIs', icon: 'ph:download-simple-light' },
+  metadata: { label: 'Metadata', icon: 'ph:database-light' },
+  constancia: { label: 'Constancia', icon: 'ph:file-text-light' },
+  opinion: { label: 'Opinión 32-D', icon: 'ph:seal-check-light' },
 };
 
 const CANAL_LABEL: Record<CanalDescarga, string> = {
@@ -102,9 +92,9 @@ export default function HistorialPage() {
         action={
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
             {loading ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
             ) : (
-              <RefreshCw className="size-4" />
+              <Icon icon="ph:arrows-clockwise-light" className="size-4" />
             )}
             Actualizar
           </Button>
@@ -137,7 +127,7 @@ export default function HistorialPage() {
 
       {filtradas.length === 0 ? (
         <Card className="flex flex-col items-center gap-2 p-10 text-center">
-          <History className="size-8 text-muted-foreground" />
+          <Icon icon="ph:clock-counter-clockwise-light" className="size-8 text-muted-foreground" />
           <p className="text-sm font-medium">Aún no hay descargas registradas</p>
           <p className="text-sm text-muted-foreground">
             Cuando completes una descarga (CIEC o Web Service) aparecerá aquí.
@@ -178,8 +168,7 @@ function DescargaRow({
   d: HistorialItem;
   onAbrir: (ruta: string, modo: 'carpeta' | 'archivo') => Promise<void>;
 }) {
-  const meta = TIPO_META[d.tipo] ?? { label: d.tipo, icon: Download };
-  const Icon = meta.icon;
+  const meta = TIPO_META[d.tipo] ?? { label: d.tipo, icon: 'ph:download-simple-light' };
   const [busy, setBusy] = useState<'carpeta' | 'archivo' | null>(null);
 
   // Un PDF (constancia/opinión) se puede abrir directo; los CFDIs son una carpeta.
@@ -210,7 +199,7 @@ function DescargaRow({
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">
-              <Icon className="size-3" /> {meta.label}
+              <Icon icon={meta.icon} className="size-3" /> {meta.label}
             </Badge>
             <span className="text-xs text-muted-foreground">{CANAL_LABEL[d.canal] ?? d.canal}</span>
           </div>
@@ -234,9 +223,9 @@ function DescargaRow({
                 title="Abrir el PDF"
               >
                 {busy === 'archivo' ? (
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
                 ) : (
-                  <Eye className="size-3.5" />
+                  <Icon icon="ph:eye-light" className="size-3.5" />
                 )}
                 Ver PDF
               </Button>
@@ -249,9 +238,9 @@ function DescargaRow({
               title="Abrir la carpeta donde se guardó"
             >
               {busy === 'carpeta' ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
               ) : (
-                <FolderOpen className="size-3.5" />
+                <Icon icon="ph:folder-open-light" className="size-3.5" />
               )}
               Carpeta
             </Button>

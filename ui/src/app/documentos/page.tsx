@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { FileText, ScrollText } from 'lucide-react';
 import Link from 'next/link';
+
+import { Icon } from '@/components/ui/icon';
 
 import { useServer } from '@/providers/server-provider';
 import { useEmpresas } from '@/hooks/use-empresas';
@@ -86,14 +87,14 @@ export default function DocumentosPage() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DocCard
-              icon={<FileText className="size-5 text-primary" />}
+              icon={<Icon icon="ph:file-text-light" className="size-5 text-primary" />}
               title="Constancia de Situación Fiscal"
               desc="Tu CSF en PDF."
               disabled={!tieneCiec || corriendo}
               onClick={() => bajar('constancia')}
             />
             <DocCard
-              icon={<ScrollText className="size-5 text-primary" />}
+              icon={<Icon icon="ph:scroll-light" className="size-5 text-primary" />}
               title="Opinión de Cumplimiento 32-D"
               desc="Tu opinión 32-D en PDF."
               disabled={!tieneCiec || corriendo}

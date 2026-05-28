@@ -2,33 +2,23 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  Building2,
-  Database,
-  Download,
-  FileText,
-  FolderTree,
-  History,
-  LayoutDashboard,
-  Settings,
-  ShieldCheck,
-} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { useServer } from '@/providers/server-provider';
 import { FielStatus } from '@/components/fiel/fiel-status';
+import { Icon } from '@/components/ui/icon';
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Inicio', icon: LayoutDashboard },
-  { href: '/empresas', label: 'Empresas', icon: Building2 },
-  { href: '/nueva-descarga', label: 'Nueva descarga', icon: Download },
-  { href: '/documentos', label: 'Documentos', icon: FileText },
-  { href: '/descarga', label: 'Descarga WS', icon: Download },
-  { href: '/metadata', label: 'Metadata', icon: Database },
-  { href: '/validacion', label: 'Validacion', icon: ShieldCheck },
-  { href: '/organizador', label: 'Organizador', icon: FolderTree },
-  { href: '/historial', label: 'Historial', icon: History },
-  { href: '/ajustes', label: 'Ajustes', icon: Settings },
+  { href: '/', label: 'Inicio', icon: 'ph:squares-four-light' },
+  { href: '/empresas', label: 'Empresas', icon: 'ph:buildings-light' },
+  { href: '/nueva-descarga', label: 'Nueva descarga', icon: 'ph:download-simple-light' },
+  { href: '/documentos', label: 'Documentos', icon: 'ph:file-text-light' },
+  { href: '/descarga', label: 'Descarga WS', icon: 'ph:download-simple-light' },
+  { href: '/metadata', label: 'Metadata', icon: 'ph:database-light' },
+  { href: '/validacion', label: 'Validacion', icon: 'ph:shield-check-light' },
+  { href: '/organizador', label: 'Organizador', icon: 'ph:folders-light' },
+  { href: '/historial', label: 'Historial', icon: 'ph:clock-counter-clockwise-light' },
+  { href: '/ajustes', label: 'Ajustes', icon: 'ph:gear-light' },
 ] as const;
 
 export function Sidebar() {
@@ -45,7 +35,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {NAV_ITEMS.map(({ href, label, icon }) => {
           const isActive =
             href === '/' ? pathname === '/' : pathname.startsWith(href);
 
@@ -60,7 +50,7 @@ export function Sidebar() {
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
               )}
             >
-              <Icon className="size-4 shrink-0" />
+              <Icon icon={icon} className="size-4 shrink-0" />
               {label}
             </Link>
           );

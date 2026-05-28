@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Download, KeyRound } from 'lucide-react';
 import Link from 'next/link';
+
+import { Icon } from '@/components/ui/icon';
 
 import { useServer } from '@/providers/server-provider';
 import { useEmpresas } from '@/hooks/use-empresas';
@@ -139,9 +140,9 @@ export default function NuevaDescargaPage() {
 
           <Button onClick={iniciar} disabled={!tieneCiec || corriendo} className="w-full">
             {empresa?.metodos.includes('ciec') ? (
-              <KeyRound className="size-4" />
+              <Icon icon="ph:key-light" className="size-4" />
             ) : (
-              <Download className="size-4" />
+              <Icon icon="ph:download-simple-light" className="size-4" />
             )}
             Descargar por CIEC
           </Button>

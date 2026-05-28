@@ -1,9 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { CheckCircle, Loader2, Upload } from 'lucide-react';
 
 import { useServer } from '@/providers/server-provider';
+import { Icon } from '@/components/ui/icon';
 import {
   Dialog,
   DialogContent,
@@ -107,7 +107,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
         {/* Show unload option when FIEL is already loaded */}
         {fielStatus.loaded && !successRfc && (
           <Alert>
-            <CheckCircle className="size-4 text-green-600" />
+            <Icon icon="ph:check-circle-light" className="size-4 text-green-600" />
             <AlertTitle>e-firma cargada</AlertTitle>
             <AlertDescription className="flex items-center justify-between">
               <span>RFC: {fielStatus.rfc}</span>
@@ -119,7 +119,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
               >
                 {unloading ? (
                   <>
-                    <Loader2 className="size-3 animate-spin" />
+                    <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" />
                     Descargando...
                   </>
                 ) : (
@@ -173,7 +173,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
 
           {successRfc && (
             <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
-              <CheckCircle className="size-4 text-green-600" />
+              <Icon icon="ph:check-circle-light" className="size-4 text-green-600" />
               <AlertTitle>e-firma cargada exitosamente</AlertTitle>
               <AlertDescription>RFC: {successRfc}</AlertDescription>
             </Alert>
@@ -182,12 +182,12 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
           <Button type="submit" className="w-full" disabled={!canSubmit}>
             {loading ? (
               <>
-                <Loader2 className="size-4 animate-spin" />
+                <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
                 Cargando...
               </>
             ) : (
               <>
-                <Upload className="size-4" />
+                <Icon icon="ph:upload-simple-light" className="size-4" />
                 Cargar e-firma
               </>
             )}

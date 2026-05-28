@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@iconify-icons/ph": "^1.2.5",
+    "@iconify/react": "^6.0.2",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-label": "^2.1.8",
@@ -23,7 +25,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "lucide-react": "^0.562.0",
     "next": "16.1.1",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
