@@ -36,10 +36,12 @@ export default function DocumentosPage() {
 
   function bajar(kind: 'constancia' | 'opinion') {
     if (!empresa || !tieneCiec || corriendo) return;
-    job.iniciar(() =>
-      kind === 'constancia'
-        ? apiClient.ciecConstancia({ rfc: empresa.rfc })
-        : apiClient.ciecOpinion({ rfc: empresa.rfc }),
+    job.iniciar(
+      () =>
+        kind === 'constancia'
+          ? apiClient.ciecConstancia({ rfc: empresa.rfc })
+          : apiClient.ciecOpinion({ rfc: empresa.rfc }),
+      { rfc: empresa.rfc },
     );
   }
 

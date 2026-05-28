@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
+import { notifyDescargaCompleta, notifyDescargaError } from '@/lib/notify';
 import type { JobEvent } from '@/lib/types';
 
 export type JobUiEstado =
@@ -26,6 +27,11 @@ export interface LogEntry {
   level?: 'info' | 'ok' | 'warn' | 'error';
 }
 
+export interface JobMeta {
+  /** RFC asociado al job; si se provee, se dispara una notificación al terminar/fallar. */
+  rfc?: string;
+}
+
 interface UseCiecJob {
   estado: JobUiEstado;
   log: LogEntry[];
@@ -33,7 +39,10 @@ interface UseCiecJob {
   resultado: unknown;
   error: string | null;
   /** Arranca un job: `starter` llama al endpoint (ciecCfdi/…) y devuelve { job_id }. */
-  iniciar: (starter: () => Promise<{ job_id: string }>) => Promise<void>;
+  iniciar: (
+    starter: () => Promise<{ job_id: string }>,
+    meta?: JobMeta,
+  ) => Promise<void>;
   /** Entrega el captcha tecleado, o null para cancelar. */
   responderCaptcha: (texto: string | null) => Promise<void>;
   reset: () => void;
@@ -55,6 +64,7 @@ export function useCiecJob(): UseCiecJob {
 
   const jobIdRef = useRef<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const metaRef = useRef<JobMeta>({});
 
   const addLog = useCallback((msg: string, level: LogEntry['level'] = 'info') => {
     setLog((l) => [...l, { t: new Date().toLocaleTimeString('es-MX'), msg, level }]);
@@ -98,20 +108,42 @@ export function useCiecJob(): UseCiecJob {
         case 'captcha_timeout':
           addLog('captcha: tiempo agotado', 'warn');
           break;
-        case 'done':
+        case 'done': {
           setEstado('done');
           setResultado(ev.resultado ?? null);
           setCaptcha(null);
           addLog('descarga completada', 'ok');
           cerrarStream();
+          const rfc = metaRef.current.rfc;
+          if (rfc) {
+            const resultado = ev.resultado as { count?: number; total?: number } | null | undefined;
+            const count = resultado?.count ?? resultado?.total;
+            notifyDescargaCompleta({
+              canal: 'ciec',
+              rfc,
+              count,
+              jobId: jobIdRef.current ?? undefined,
+            });
+          }
           break;
-        case 'error':
+        }
+        case 'error': {
           setEstado('error');
           setError(ev.mensaje ?? 'Error');
           setCaptcha(null);
           addLog(`error: ${ev.mensaje}`, 'error');
           cerrarStream();
+          const rfc = metaRef.current.rfc;
+          if (rfc) {
+            notifyDescargaError({
+              canal: 'ciec',
+              rfc,
+              motivo: ev.mensaje,
+              jobId: jobIdRef.current ?? undefined,
+            });
+          }
           break;
+        }
         case 'cancelled':
           setEstado('cancelled');
           setCaptcha(null);
@@ -124,8 +156,9 @@ export function useCiecJob(): UseCiecJob {
   );
 
   const iniciar = useCallback(
-    async (starter: () => Promise<{ job_id: string }>) => {
+    async (starter: () => Promise<{ job_id: string }>, meta: JobMeta = {}) => {
       reset();
+      metaRef.current = meta;
       setEstado('iniciando');
       try {
         const { job_id } = await starter();
@@ -136,6 +169,13 @@ export function useCiecJob(): UseCiecJob {
       } catch (e) {
         setEstado('error');
         setError(e instanceof Error ? e.message : String(e));
+        if (meta.rfc) {
+          notifyDescargaError({
+            canal: 'ciec',
+            rfc: meta.rfc,
+            motivo: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
     },
     [apiClient, reset, addLog, onEvent],

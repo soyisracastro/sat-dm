@@ -1,14 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
+import { notifyDescargaCompleta, notifyDescargaError } from '@/lib/notify';
 import type { Solicitud } from '@/lib/types';
 
 // Estados que NO han terminado: las solicitudes con estos estados deben re-pollearse.
 // "3"/"4"/"5"/"descargada" son terminales (lista/error/rechazada/descargada).
 const ESTADOS_NO_TERMINALES = new Set(['solicitada', '1', '2']);
 const POLL_INTERVAL_MS = 15_000;
+
+// Transiciones a estos estados disparan notificación.
+const ESTADO_LISTA = '3';
+const ESTADOS_ERROR = new Set(['4', '5']);
 
 interface UseSolicitudesState {
   solicitudes: Solicitud[];
@@ -32,6 +37,13 @@ export function useSolicitudes(rfc: string | null): UseSolicitudesState {
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
+  // Estados previos por id_solicitud para detectar transiciones a terminal.
+  // Se reinicia cuando cambia el RFC (cambiar empresa no debe disparar notif).
+  const estadosPrevRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    estadosPrevRef.current = new Map();
+  }, [rfc]);
+
   useEffect(() => {
     if (!rfc) {
       setSolicitudes([]);
@@ -44,6 +56,7 @@ export function useSolicitudes(rfc: string | null): UseSolicitudesState {
       .listSolicitudes(rfc)
       .then((r) => {
         if (mounted) {
+          detectarYNotificarTransiciones(r.solicitudes, estadosPrevRef.current, rfc);
           setSolicitudes(r.solicitudes);
           setError(null);
         }
@@ -86,4 +99,44 @@ export function useSolicitudes(rfc: string | null): UseSolicitudesState {
   }, [apiClient, rfc, idsNoTerminales, refresh]);
 
   return { solicitudes, loading, error, refresh };
+}
+
+/**
+ * Compara el estado actual de cada solicitud contra el snapshot previo y
+ * dispara notificaciones cuando hay transición desde un estado no-terminal
+ * hacia "lista" (3) o "error" (4/5). En el primer load `prev` está vacío
+ * y no se dispara nada (evita ruido al cargar la página).
+ */
+function detectarYNotificarTransiciones(
+  actuales: Solicitud[],
+  prev: Map<string, string>,
+  rfc: string,
+): void {
+  if (prev.size === 0) {
+    for (const s of actuales) prev.set(s.id_solicitud, s.estado);
+    return;
+  }
+  for (const s of actuales) {
+    const prevEstado = prev.get(s.id_solicitud);
+    prev.set(s.id_solicitud, s.estado);
+    if (prevEstado === undefined) continue; // nueva solicitud creada en este ciclo
+    if (prevEstado === s.estado) continue;
+    if (!ESTADOS_NO_TERMINALES.has(prevEstado)) continue;
+
+    if (s.estado === ESTADO_LISTA) {
+      notifyDescargaCompleta({
+        canal: 'ws',
+        rfc,
+        count: s.numero_cfdis,
+        jobId: s.id_solicitud,
+      });
+    } else if (ESTADOS_ERROR.has(s.estado)) {
+      notifyDescargaError({
+        canal: 'ws',
+        rfc,
+        motivo: s.mensaje,
+        jobId: s.id_solicitud,
+      });
+    }
+  }
 }

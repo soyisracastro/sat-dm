@@ -11,6 +11,9 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from '@/lib/notify/prefs';
+import { notifyPrueba } from '@/lib/notify';
 
 const TEMAS = [
   { value: 'light', label: 'Claro', icon: 'ph:sun-light' },
@@ -34,10 +37,19 @@ export default function AjustesPage() {
   const [dir, setDir] = useState('');
   const [editable, setEditable] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [notifPrefs, setNotifPrefsState] = useState<NotifPrefs>({
+    descargas: true,
+    efirma: true,
+  });
 
   useEffect(() => {
     setMounted(true);
+    setNotifPrefsState(getNotifPrefs());
   }, []);
+
+  function actualizarNotif(patch: Partial<NotifPrefs>) {
+    setNotifPrefsState(setNotifPrefs(patch));
+  }
 
   useEffect(() => {
     apiClient
@@ -94,6 +106,54 @@ export default function AjustesPage() {
               </Button>
             );
           })}
+        </div>
+      </Card>
+
+      <Card className="space-y-4 p-5">
+        <div className="space-y-1">
+          <Label>Notificaciones</Label>
+          <p className="text-xs text-muted-foreground">
+            Avisos in-app cuando ocurren eventos importantes.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <label className="flex items-start gap-3">
+            <Switch
+              checked={notifPrefs.descargas}
+              onCheckedChange={(v) => actualizarNotif({ descargas: v })}
+              className="mt-0.5"
+            />
+            <span className="space-y-0.5">
+              <span className="block text-sm">Avisarme cuando termine una descarga</span>
+              <span className="block text-xs text-muted-foreground">
+                Aplica a descargas WS (FIEL) y CIEC. También avisa si fallan.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-3">
+            <Switch
+              checked={notifPrefs.efirma}
+              onCheckedChange={(v) => actualizarNotif({ efirma: v })}
+              className="mt-0.5"
+            />
+            <span className="space-y-0.5">
+              <span className="block text-sm">
+                Recordarme cuando mi e.firma esté por vencer
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Una vez al día si la e.firma activa vence en 30 días o menos.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div>
+          <Button variant="outline" size="sm" onClick={notifyPrueba}>
+            <Icon icon="ph:bell-light" className="size-4" />
+            Probar notificación
+          </Button>
         </div>
       </Card>
 

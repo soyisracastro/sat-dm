@@ -52,13 +52,15 @@ export default function NuevaDescargaPage() {
 
   function iniciar() {
     if (!empresa || !tieneCiec) return;
-    job.iniciar(() =>
-      apiClient.ciecCfdi({
-        rfc: empresa.rfc,
-        fecha_inicio: desde,
-        fecha_fin: hasta,
-        tipo_comprobante: tipo,
-      }),
+    job.iniciar(
+      () =>
+        apiClient.ciecCfdi({
+          rfc: empresa.rfc,
+          fecha_inicio: desde,
+          fecha_fin: hasta,
+          tipo_comprobante: tipo,
+        }),
+      { rfc: empresa.rfc },
     );
   }
 
