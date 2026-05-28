@@ -232,16 +232,23 @@ def save_solicitud(
     fecha_fin: str,
     tipo: str,
     estado: str = "solicitada",
+    *,
+    tipo_comprobante: Optional[str] = None,  # "E" (emitidos) / "R" (recibidos)
 ):
+    """Guarda una solicitud WS. `tipo_comprobante` se conserva para luego ubicar la
+    descarga en la carpeta correcta (`{RFC}/{emitidos|recibidos}/{rango}/`)."""
     data = _load_solicitudes(rfc)
-    data["solicitudes"].append({
+    registro = {
         "id_solicitud": id_solicitud,
         "fecha_inicio": fecha_inicio,
         "fecha_fin": fecha_fin,
         "tipo": tipo,
         "estado": estado,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
-    })
+    }
+    if tipo_comprobante:
+        registro["tipo_comprobante"] = tipo_comprobante.strip().upper()
+    data["solicitudes"].append(registro)
     _save_solicitudes(rfc, data)
 
 
