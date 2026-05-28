@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ServerProvider } from '@/providers/server-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
+import { SonnerProvider } from '@/components/providers/sonner-provider';
 import { AppShell } from '@/components/layout/app-shell';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -24,6 +25,7 @@ export default function RootLayout({
               <AppShell>{children}</AppShell>
             </TooltipProvider>
           </ServerProvider>
+          <SonnerProvider />
         </ThemeProvider>
       </body>
     </html>
