@@ -82,29 +82,6 @@ export interface SolicitudFolioRequest {
   extraer: boolean;
 }
 
-// POST /metadata — uses SolicitudRequest body, returns MetadataResponse
-
-export interface MetadataRecord {
-  uuid: string;
-  rfc_emisor: string;
-  nombre_emisor: string;
-  rfc_receptor: string;
-  nombre_receptor: string;
-  rfc_pac: string;
-  fecha_emision: string;
-  fecha_certificacion: string;
-  monto: string;
-  efecto_comprobante: string;
-  estatus: string;
-  fecha_cancelacion: string;
-}
-
-export interface MetadataResponse {
-  ok: boolean;
-  total: number;
-  records: MetadataRecord[];
-}
-
 // POST /validar — request body
 export interface CfdiValidarInput {
   uuid: string;
@@ -287,10 +264,13 @@ export interface Solicitud {
   id_solicitud: string;
   fecha_inicio: string;
   fecha_fin: string;
-  tipo: string;
-  estado: string;
-  timestamp: string;
-  package_ids?: string[];
+  tipo: string;            // Etiqueta humana "CFDI · emitidos" / "Metadata · recibidos"
+  estado: string;          // "solicitada" / "1"-"5" (SAT) / "descargada"
+  timestamp: string;       // Creada (ISO local)
+  package_ids?: string[];  // Disponibles cuando estado="3"+
+  tipo_comprobante?: string;  // "E" / "R" — usado por el agente para componer la carpeta de salida
+  mensaje?: string;        // Mensaje del SAT en la última /verificar
+  numero_cfdis?: number;   // CFDIs reportados por el SAT
 }
 
 export interface SolicitudesResponse {

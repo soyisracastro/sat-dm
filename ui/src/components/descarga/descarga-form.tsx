@@ -14,8 +14,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { TIPO_COMPROBANTE, ESTADO_COMPROBANTE } from '@/lib/constants';
-import type { SolicitudRequest } from '@/lib/types';
+
+// ---------------------------------------------------------------------------
+// Parámetros que emite el form (la página expande "A" en dos solicitudes E + R).
+// ---------------------------------------------------------------------------
+
+export type ComprobanteSeleccion = 'E' | 'R' | 'A';
+
+export interface DescargaFormParams {
+  fecha_inicio: string;
+  fecha_fin: string;
+  tipo_solicitud: 'CFDI' | 'Metadata';
+  tipo_comprobante: ComprobanteSeleccion;
+}
 
 // ---------------------------------------------------------------------------
 // Date helpers
@@ -41,7 +52,7 @@ function lastDayOfMonth(): string {
 // ---------------------------------------------------------------------------
 
 interface DescargaFormProps {
-  onSubmit: (request: SolicitudRequest) => void;
+  onSubmit: (params: DescargaFormParams) => void;
   isLoading: boolean;
   disabled: boolean;
 }
@@ -53,20 +64,17 @@ interface DescargaFormProps {
 export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProps) {
   const [fechaInicio, setFechaInicio] = useState(firstDayOfMonth);
   const [fechaFin, setFechaFin] = useState(lastDayOfMonth);
-  const [tipoComprobante, setTipoComprobante] = useState('E');
-  const [estadoComprobante, setEstadoComprobante] = useState('Vigente');
+  const [tipoSolicitud, setTipoSolicitud] = useState<'CFDI' | 'Metadata'>('CFDI');
+  const [tipoComprobante, setTipoComprobante] = useState<ComprobanteSeleccion>('E');
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-
-    const request: SolicitudRequest = {
+    onSubmit({
       fecha_inicio: fechaInicio,
       fecha_fin: fechaFin,
-      tipo_solicitud: 'CFDI',
+      tipo_solicitud: tipoSolicitud,
       tipo_comprobante: tipoComprobante,
-    };
-
-    onSubmit(request);
+    });
   }
 
   const isDisabled = disabled || isLoading;
@@ -79,12 +87,13 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
           Solicitar Descarga
         </CardTitle>
         <CardDescription>
-          Selecciona el rango de fechas y tipo de comprobantes a descargar del SAT.
+          Define el rango, qué quieres descargar y de qué comprobantes. &quot;Ambos&quot;
+          dispara dos solicitudes (emitidos y recibidos) en paralelo.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Date range */}
+          {/* Date range — se queda como está, nativo */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="fecha-inicio">Fecha inicio</Label>
@@ -111,41 +120,36 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
           {/* Selects */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Tipo de comprobante</Label>
+              <Label>Tipo de descarga</Label>
               <Select
-                value={tipoComprobante}
-                onValueChange={setTipoComprobante}
+                value={tipoSolicitud}
+                onValueChange={(v) => setTipoSolicitud(v as 'CFDI' | 'Metadata')}
                 disabled={isDisabled}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar..." />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {TIPO_COMPROBANTE.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="CFDI">CFDIs completos (24-72 hrs)</SelectItem>
+                  <SelectItem value="Metadata">Metadata (rápido)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label>Estado del comprobante</Label>
+              <Label>Comprobantes</Label>
               <Select
-                value={estadoComprobante}
-                onValueChange={setEstadoComprobante}
+                value={tipoComprobante}
+                onValueChange={(v) => setTipoComprobante(v as ComprobanteSeleccion)}
                 disabled={isDisabled}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar..." />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ESTADO_COMPROBANTE.map((e) => (
-                    <SelectItem key={e.value} value={e.value}>
-                      {e.label}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="E">Emitidos</SelectItem>
+                  <SelectItem value="R">Recibidos</SelectItem>
+                  <SelectItem value="A">Ambos</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -155,8 +159,8 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
           <Button type="submit" disabled={isDisabled} className="w-full sm:w-auto">
             {isLoading ? (
               <>
-                <LoadingSpinner />
-                Solicitando...
+                <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
+                Solicitando…
               </>
             ) : (
               <>
@@ -168,34 +172,5 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
         </form>
       </CardContent>
     </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Inline spinner
-// ---------------------------------------------------------------------------
-
-function LoadingSpinner() {
-  return (
-    <svg
-      className="size-4 animate-spin"
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-      />
-    </svg>
   );
 }

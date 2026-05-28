@@ -10,7 +10,6 @@ import type {
   DescargarResponse,
   DescargaCompletaRequest,
   SolicitudFolioRequest,
-  MetadataResponse,
   ValidarRequest,
   ValidarResponse,
   OrganizadorRequest,
@@ -172,18 +171,20 @@ export class SatApiClient {
 
   /**
    * Step 3: Download the packages for a completed request.
+   *
+   * Sin `directorioSalida` el agente usa la convención por empresa
+   * (`<descargas>/cfdi/{RFC}/`), igual que CIEC.
    */
   async descargar(
     idSolicitud: string,
-    directorioSalida = './cfdi/',
+    directorioSalida?: string,
     extraer = true,
   ): Promise<DescargarResponse> {
-    // This endpoint uses query params (see server.py signature)
     const params = new URLSearchParams({
       id_solicitud: idSolicitud,
-      directorio_salida: directorioSalida,
       extraer: String(extraer),
     });
+    if (directorioSalida) params.set('directorio_salida', directorioSalida);
     return this.request<DescargarResponse>(`/descargar?${params}`, {
       method: 'POST',
     });
@@ -211,18 +212,6 @@ export class SatApiClient {
     req: SolicitudFolioRequest,
   ): Promise<DescargarResponse> {
     return this.post<DescargarResponse>('/solicitar-folio', req as unknown as Record<string, unknown>);
-  }
-
-  // -----------------------------------------------------------------------
-  // Metadata
-  // -----------------------------------------------------------------------
-
-  /**
-   * Download metadata (CSV summary) for a date range.
-   * Much faster than full CFDI download (~seconds vs ~hours).
-   */
-  async metadata(req: SolicitudRequest): Promise<MetadataResponse> {
-    return this.post<MetadataResponse>('/metadata', req as unknown as Record<string, unknown>);
   }
 
   // -----------------------------------------------------------------------
@@ -381,6 +370,13 @@ export class SatApiClient {
   async listSolicitudes(rfc: string): Promise<SolicitudesResponse> {
     return this.request<SolicitudesResponse>(
       `/empresas/${encodeURIComponent(rfc)}/solicitudes`,
+    );
+  }
+
+  /** Borra una solicitud del catálogo local (no afecta al SAT). */
+  async deleteSolicitud(rfc: string, idSolicitud: string): Promise<{ ok: boolean }> {
+    return this.del<{ ok: boolean }>(
+      `/empresas/${encodeURIComponent(rfc)}/solicitudes/${encodeURIComponent(idSolicitud)}`,
     );
   }
 

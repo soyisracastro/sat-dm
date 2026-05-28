@@ -404,7 +404,13 @@ def solicitar(req: SolicitudRequest):
             tipo_comprobante=req.tipo_comprobante,
             rfc_emisor=req.rfc_emisor,
             rfc_receptor=req.rfc_receptor,
+            # El SAT rechaza la solicitud (CodEstatus=301 "XML Mal Formado") si no
+            # se envía EstadoComprobante — no permite descargar cancelados por WS.
+            # Lo forzamos a "Vigente" siempre (E y R por igual): no es una opción
+            # del usuario, es un requisito del SAT.
+            estado_comprobante="Vigente",
         )
+        _guardar_solicitud_ws(fiel.rfc, id_solicitud, req)
         return {"ok": True, "id_solicitud": id_solicitud}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -436,6 +442,12 @@ def verificar(req: VerificarRequest):
             fiel=fiel,
             poll=req.poll,
         )
+        _actualizar_solicitud_ws(
+            fiel.rfc, req.id_solicitud, estado.cod_estado,
+            package_ids=estado.package_ids if estado.package_ids else None,
+            mensaje=estado.mensaje,
+            numero_cfdis=estado.numero_cfdis,
+        )
         return {
             "cod_estado": estado.cod_estado,
             "mensaje": estado.mensaje,
@@ -450,25 +462,34 @@ def verificar(req: VerificarRequest):
 @app.post("/descargar")
 def descargar(
     id_solicitud: str,
-    directorio_salida: str = "./cfdi/",
+    directorio_salida: Optional[str] = None,
     extraer: bool = True,
 ):
     """
     Descarga los paquetes de una solicitud ya terminada (cod_estado=3).
 
     Llama primero a /verificar para confirmar que la solicitud está lista.
+    Si no se pasa `directorio_salida`, se usa la convención por empresa
+    (`<descargas>/cfdi/{RFC}/{emitidos|recibidos}/{desde}_a_{hasta}/`), igual que
+    las descargas vía CIEC. La carpeta se compone con los datos persistidos al
+    crearse la solicitud (`config_store.get_solicitud`); si no hay registro (p. ej.
+    flujo legacy), cae al directorio base por RFC.
     """
     from ..webservice.descarga import descargar_todos
 
     fiel = _get_fiel()
     token = _renovar_token()
 
-    # Verificar estado actual
+    salida = directorio_salida or _salida_descarga_ws(fiel.rfc, id_solicitud)
+
+    # Verificar estado actual — la petición DEBE ir firmada (xmldsig) con la FIEL,
+    # si no, el SAT devuelve un EstadoSolicitud vacío y se ve como "no está lista".
     try:
         estado = verificar_solicitud(
             token=token,
             rfc_solicitante=fiel.rfc,
             id_solicitud=id_solicitud,
+            fiel=fiel,
             poll=False,
         )
     except RuntimeError as e:
@@ -494,13 +515,17 @@ def descargar(
             token=token,
             rfc_solicitante=fiel.rfc,
             package_ids=estado.package_ids,
-            directorio_salida=directorio_salida,
+            directorio_salida=salida,
+            fiel=fiel,
             extraer=extraer,
         )
         _registrar_descarga(
             fiel.rfc, "ws", "cfdi",
             descripcion=f"Descarga WS · solicitud {id_solicitud[:8]}…",
-            ruta=directorio_salida, total=estado.numero_cfdis,
+            ruta=salida, total=estado.numero_cfdis,
+        )
+        _actualizar_solicitud_ws(
+            fiel.rfc, id_solicitud, "descargada", package_ids=estado.package_ids,
         )
         return {
             "ok": True,
@@ -917,6 +942,74 @@ def _registrar_descarga(rfc, canal, tipo, descripcion="", ruta="", total=None):
         logger.warning("No se pudo registrar la descarga en el historial", exc_info=True)
 
 
+def _guardar_solicitud_ws(rfc: str, id_solicitud: str, req: "SolicitudRequest") -> None:
+    """Guarda la solicitud WS recién creada en el catálogo por empresa. Best-effort.
+
+    Persiste `tipo_comprobante` (E/R) además del tipo humano: lo necesita /descargar
+    para ubicar la salida en `{RFC}/{emitidos|recibidos}/{rango}/`.
+    """
+    try:
+        from ..cli import config_store
+        cuales = {"E": "emitidos", "R": "recibidos"}.get(req.tipo_comprobante, "")
+        tipo_humano = f"{req.tipo_solicitud} · {cuales}".rstrip(" ·")
+        config_store.save_solicitud(
+            rfc, id_solicitud,
+            str(req.fecha_inicio), str(req.fecha_fin),
+            tipo=tipo_humano,
+            tipo_comprobante=req.tipo_comprobante,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudo guardar la solicitud en el historial", exc_info=True)
+
+
+def _actualizar_solicitud_ws(
+    rfc: str,
+    id_solicitud: str,
+    estado: str,
+    package_ids=None,
+    *,
+    mensaje: Optional[str] = None,
+    numero_cfdis: Optional[int] = None,
+) -> None:
+    """Actualiza el estado de una solicitud WS guardada. Best-effort.
+
+    También persiste `mensaje` y `numero_cfdis` cuando vienen (los devuelve el SAT
+    en /verificar) para mostrarlos en la fila expandida de la UI."""
+    try:
+        from ..cli import config_store
+        config_store.update_solicitud(
+            rfc, id_solicitud, estado, package_ids=package_ids,
+            mensaje=mensaje, numero_cfdis=numero_cfdis,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudo actualizar la solicitud en el historial", exc_info=True)
+
+
+def _salida_descarga_ws(rfc: str, id_solicitud: str) -> str:
+    """Calcula la carpeta de salida para `/descargar` siguiendo la convención CIEC
+    (`{base}/cfdi/{RFC}/{emitidos|recibidos}/{desde}_a_{hasta}/`), recuperando del
+    catálogo lo que el usuario solicitó. Si el registro no existe o le falta info,
+    cae al directorio base por RFC (compatible hacia atrás)."""
+    from ..cli import config_store
+    from ..core import paths
+    from datetime import date as _date
+
+    base = _descargas_base()
+    try:
+        sol = config_store.get_solicitud(rfc, id_solicitud) or {}
+    except Exception:  # noqa: BLE001
+        sol = {}
+    tipo = sol.get("tipo_comprobante")
+    fi, ff = sol.get("fecha_inicio"), sol.get("fecha_fin")
+    if tipo in ("E", "R") and fi and ff:
+        try:
+            return str(paths.dir_cfdi(rfc, tipo, _date.fromisoformat(fi),
+                                      _date.fromisoformat(ff), salida_base=base))
+        except ValueError:
+            pass  # fechas malformadas → fallback
+    return str(paths.dir_cfdi_base(rfc, salida_base=base))
+
+
 def _lanzar_ciec(fn_factory, al_completar=None):
     """
     Crea un job CIEC, inyecta el callback de captcha del bridge y lo corre en un
@@ -1213,6 +1306,16 @@ def empresas_solicitudes(rfc: str):
     """Historial de solicitudes de descarga de la empresa (más recientes primero)."""
     from ..cli import config_store
     return {"solicitudes": config_store.list_solicitudes(rfc)}
+
+
+@app.delete("/empresas/{rfc}/solicitudes/{id_solicitud}")
+def empresas_solicitudes_delete(rfc: str, id_solicitud: str):
+    """Borra una solicitud del catálogo (solo limpia el registro local, no afecta al SAT)."""
+    from ..cli import config_store
+    borrada = config_store.delete_solicitud(rfc, id_solicitud)
+    if not borrada:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return {"ok": True}
 
 
 @app.get("/empresas/{rfc}/historial")

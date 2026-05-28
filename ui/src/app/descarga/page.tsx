@@ -1,22 +1,26 @@
 'use client';
 
+import { useCallback, useEffect } from 'react';
+
 import { Icon } from '@/components/ui/icon';
 
 import { PageHeading } from '@/components/layout/page-heading';
-import { DescargaForm } from '@/components/descarga/descarga-form';
+import { DescargaForm, type DescargaFormParams } from '@/components/descarga/descarga-form';
 import { PollingDisplay } from '@/components/descarga/polling-display';
 import { PackageList } from '@/components/descarga/package-list';
+import { SolicitudesList } from '@/components/descarga/solicitudes-list';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useServer } from '@/providers/server-provider';
 import { useDescarga } from '@/hooks/use-descarga';
+import { useSolicitudes } from '@/hooks/use-solicitudes';
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function DescargaPage() {
-  const { isConnected, fielStatus } = useServer();
+  const { isConnected, fielStatus, apiClient } = useServer();
   const {
     state,
     requestId,
@@ -30,6 +34,75 @@ export default function DescargaPage() {
     descargar,
     reset,
   } = useDescarga();
+  const {
+    solicitudes,
+    loading: loadingSolicitudes,
+    refresh: refreshSolicitudes,
+  } = useSolicitudes(fielStatus.rfc);
+
+  // Refresca el historial de solicitudes en cada cambio del flujo (nueva solicitud,
+  // poll que avanza el estado, descarga completada) para que la lista esté al día.
+  useEffect(() => {
+    refreshSolicitudes();
+  }, [state, codEstado, requestId, refreshSolicitudes]);
+
+  // Descarga una solicitud desde la lista (sin tocar el active flow): pega directo
+  // al agente y refresca para que el estado pase a "Descargada". Sirve cuando el
+  // active flow se movió a otra solicitud y dejó atrás una en "Lista", o cuando el
+  // usuario quiere re-bajar el ZIP de una ya descargada.
+  const handleDescargarFromList = useCallback(
+    async (idSolicitud: string) => {
+      await apiClient.descargar(idSolicitud);
+      refreshSolicitudes();
+    },
+    [apiClient, refreshSolicitudes],
+  );
+
+  // Borra la solicitud del catálogo local. Si era la del flujo activo, reseteamos
+  // el hook (no queremos seguir polleando un id que ya no existe).
+  const handleEliminarFromList = useCallback(
+    async (idSolicitud: string) => {
+      if (!fielStatus.rfc) return;
+      await apiClient.deleteSolicitud(fielStatus.rfc, idSolicitud);
+      if (requestId === idSolicitud) reset();
+      refreshSolicitudes();
+    },
+    [apiClient, fielStatus.rfc, refreshSolicitudes, requestId, reset],
+  );
+
+  // Expande "Ambos" en dos solicitudes (E + R). Las previas se mandan por el cliente
+  // directo (quedan persistidas en el catálogo y aparecen en la lista); la última
+  // entra al active flow (polling + auto-descarga) por el hook.
+  const handleSubmit = useCallback(
+    async (params: DescargaFormParams) => {
+      const tipos: ('E' | 'R')[] =
+        params.tipo_comprobante === 'A' ? ['E', 'R'] : [params.tipo_comprobante];
+      const previas = tipos.slice(0, -1);
+      const ultima = tipos[tipos.length - 1];
+      // Previas en paralelo, ignorando errores individuales (la lista los reflejará si llegaron).
+      await Promise.all(
+        previas.map((t) =>
+          apiClient
+            .solicitar({
+              fecha_inicio: params.fecha_inicio,
+              fecha_fin: params.fecha_fin,
+              tipo_solicitud: params.tipo_solicitud,
+              tipo_comprobante: t,
+            })
+            .catch(() => null),
+        ),
+      );
+      // Última solicitud por el hook → entra al flujo activo (polling + auto-descarga).
+      await solicitar({
+        fecha_inicio: params.fecha_inicio,
+        fecha_fin: params.fecha_fin,
+        tipo_solicitud: params.tipo_solicitud,
+        tipo_comprobante: ultima,
+      });
+      refreshSolicitudes();
+    },
+    [apiClient, solicitar, refreshSolicitudes],
+  );
 
   const fielLoaded = fielStatus.loaded;
   const isRequesting = state === 'requesting';
@@ -88,7 +161,7 @@ export default function DescargaPage() {
       {/* Form */}
       {showForm && (
         <DescargaForm
-          onSubmit={solicitar}
+          onSubmit={handleSubmit}
           isLoading={isRequesting}
           disabled={!isConnected || !fielLoaded}
         />
@@ -113,6 +186,16 @@ export default function DescargaPage() {
           isDownloading={state === 'downloading'}
           archivosDescargados={archivosDescargados}
           numeroCfdis={numeroCfdis}
+        />
+      )}
+
+      {/* Solicitudes recientes — historial WS de la empresa activa */}
+      {fielLoaded && (
+        <SolicitudesList
+          solicitudes={solicitudes}
+          loading={loadingSolicitudes}
+          onDescargar={handleDescargarFromList}
+          onEliminar={handleEliminarFromList}
         />
       )}
     </div>
