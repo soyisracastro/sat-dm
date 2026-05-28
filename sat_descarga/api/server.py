@@ -404,6 +404,11 @@ def solicitar(req: SolicitudRequest):
             tipo_comprobante=req.tipo_comprobante,
             rfc_emisor=req.rfc_emisor,
             rfc_receptor=req.rfc_receptor,
+            # El SAT rechaza la solicitud (CodEstatus=301 "XML Mal Formado") si no
+            # se envía EstadoComprobante — no permite descargar cancelados por WS.
+            # Lo forzamos a "Vigente" siempre (E y R por igual): no es una opción
+            # del usuario, es un requisito del SAT.
+            estado_comprobante="Vigente",
         )
         _guardar_solicitud_ws(fiel.rfc, id_solicitud, req)
         return {"ok": True, "id_solicitud": id_solicitud}
