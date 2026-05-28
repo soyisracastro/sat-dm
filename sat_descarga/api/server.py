@@ -20,6 +20,8 @@ Uso:
 
 import logging
 import os
+import subprocess
+import sys
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import date
@@ -203,6 +205,11 @@ class EmpresaCiecRequest(BaseModel):
 
 class DescargasDirRequest(BaseModel):
     dir: str
+
+
+class AbrirRequest(BaseModel):
+    ruta: str
+    modo: str = "carpeta"  # "carpeta" (abre el folder) | "archivo" (abre el PDF/archivo)
 
 
 class DescargaInteligente(BaseModel):
@@ -1220,6 +1227,44 @@ def historial():
     """Historial de descargas de TODAS las empresas (con rfc + nombre), recientes primero."""
     from ..cli import config_store
     return {"descargas": config_store.list_todas_descargas()}
+
+
+def _abrir_en_so(path: str) -> None:
+    """Abre `path` (archivo o carpeta) con el manejador por defecto del SO."""
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    elif sys.platform.startswith("win"):
+        os.startfile(path)  # type: ignore[attr-defined]  # solo existe en Windows
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
+@app.post("/abrir")
+def abrir(req: AbrirRequest):
+    """
+    Abre en el SO una descarga del historial: su carpeta (`modo=carpeta`) o el
+    archivo (`modo=archivo`, p. ej. el PDF de constancia/opinión).
+
+    Seguridad: solo se permiten rutas que estén registradas en el historial
+    (no se puede abrir una ruta arbitraria del disco).
+    """
+    from ..cli import config_store
+
+    rutas = {d.get("ruta") for d in config_store.list_todas_descargas() if d.get("ruta")}
+    if req.ruta not in rutas:
+        raise HTTPException(status_code=403, detail="Ruta no permitida (no está en el historial).")
+
+    objetivo = req.ruta
+    if req.modo == "carpeta" and os.path.isfile(objetivo):
+        objetivo = os.path.dirname(objetivo)
+    if not os.path.exists(objetivo):
+        raise HTTPException(status_code=404, detail="La ruta ya no existe (¿se movió o borró?).")
+
+    try:
+        _abrir_en_so(objetivo)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"No se pudo abrir: {e}")
+    return {"ok": True, "ruta": objetivo}
 
 
 # ---------------------------------------------------------------------------

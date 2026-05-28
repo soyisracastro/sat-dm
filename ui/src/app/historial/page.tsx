@@ -1,9 +1,20 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Database, Download, FileCheck2, FileText, History, Loader2, RefreshCw } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  Database,
+  Download,
+  Eye,
+  FileCheck2,
+  FileText,
+  FolderOpen,
+  History,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react';
 
 import { useHistorial } from '@/hooks/use-historial';
+import { useServer } from '@/providers/server-provider';
 import { PageHeading } from '@/components/layout/page-heading';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,7 +64,21 @@ function fechaLegible(iso: string): string {
 
 export default function HistorialPage() {
   const { descargas, loading, error, refresh } = useHistorial();
+  const { apiClient } = useServer();
   const [empresaFiltro, setEmpresaFiltro] = useState('todas');
+  const [accionError, setAccionError] = useState<string | null>(null);
+
+  const abrir = useCallback(
+    async (ruta: string, modo: 'carpeta' | 'archivo') => {
+      setAccionError(null);
+      try {
+        await apiClient.abrir(ruta, modo);
+      } catch (e) {
+        setAccionError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [apiClient],
+  );
 
   // Empresas presentes en el historial (para el filtro).
   const empresas = useMemo(() => {
@@ -86,9 +111,9 @@ export default function HistorialPage() {
         }
       />
 
-      {error && (
+      {(error || accionError) && (
         <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{accionError || error}</AlertDescription>
         </Alert>
       )}
 
@@ -127,11 +152,16 @@ export default function HistorialPage() {
                 <TableHead>Empresa</TableHead>
                 <TableHead>Descarga</TableHead>
                 <TableHead className="text-right">CFDIs</TableHead>
+                <TableHead className="text-right" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtradas.map((d, i) => (
-                <DescargaRow key={`${d.rfc}-${d.timestamp}-${i}`} d={d} />
+                <DescargaRow
+                  key={`${d.rfc}-${d.timestamp}-${i}`}
+                  d={d}
+                  onAbrir={abrir}
+                />
               ))}
             </TableBody>
           </Table>
@@ -141,9 +171,32 @@ export default function HistorialPage() {
   );
 }
 
-function DescargaRow({ d }: { d: HistorialItem }) {
+function DescargaRow({
+  d,
+  onAbrir,
+}: {
+  d: HistorialItem;
+  onAbrir: (ruta: string, modo: 'carpeta' | 'archivo') => Promise<void>;
+}) {
   const meta = TIPO_META[d.tipo] ?? { label: d.tipo, icon: Download };
   const Icon = meta.icon;
+  const [busy, setBusy] = useState<'carpeta' | 'archivo' | null>(null);
+
+  // Un PDF (constancia/opinión) se puede abrir directo; los CFDIs son una carpeta.
+  const esPdf =
+    (d.tipo === 'constancia' || d.tipo === 'opinion') &&
+    !!d.ruta &&
+    d.ruta.toLowerCase().endsWith('.pdf');
+
+  async function abrir(modo: 'carpeta' | 'archivo') {
+    setBusy(modo);
+    try {
+      await onAbrir(d.ruta, modo);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <TableRow>
       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
@@ -168,6 +221,42 @@ function DescargaRow({ d }: { d: HistorialItem }) {
       </TableCell>
       <TableCell className="text-right font-mono text-sm">
         {d.total ?? '—'}
+      </TableCell>
+      <TableCell className="text-right">
+        {d.ruta && (
+          <div className="inline-flex items-center gap-1">
+            {esPdf && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => abrir('archivo')}
+                disabled={busy !== null}
+                title="Abrir el PDF"
+              >
+                {busy === 'archivo' ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Eye className="size-3.5" />
+                )}
+                Ver PDF
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => abrir('carpeta')}
+              disabled={busy !== null}
+              title="Abrir la carpeta donde se guardó"
+            >
+              {busy === 'carpeta' ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <FolderOpen className="size-3.5" />
+              )}
+              Carpeta
+            </Button>
+          </div>
+        )}
       </TableCell>
     </TableRow>
   );

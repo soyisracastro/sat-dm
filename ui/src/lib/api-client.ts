@@ -396,6 +396,11 @@ export class SatApiClient {
     );
   }
 
+  /** Abre en el SO una descarga del historial: su carpeta o el archivo (PDF). */
+  async abrir(ruta: string, modo: 'carpeta' | 'archivo' = 'carpeta'): Promise<{ ok: boolean }> {
+    return this.post<{ ok: boolean }>('/abrir', { ruta, modo });
+  }
+
   // -----------------------------------------------------------------------
   // Ajustes
   // -----------------------------------------------------------------------
