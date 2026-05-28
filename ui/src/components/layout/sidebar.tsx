@@ -14,7 +14,6 @@ const NAV_ITEMS = [
   { href: '/nueva-descarga', label: 'Nueva descarga', icon: 'ph:download-simple-light' },
   { href: '/documentos', label: 'Documentos', icon: 'ph:file-text-light' },
   { href: '/descarga', label: 'Descarga WS', icon: 'ph:download-simple-light' },
-  { href: '/metadata', label: 'Metadata', icon: 'ph:database-light' },
   { href: '/validacion', label: 'Validacion', icon: 'ph:shield-check-light' },
   { href: '/organizador', label: 'Organizador', icon: 'ph:folders-light' },
   { href: '/historial', label: 'Historial', icon: 'ph:clock-counter-clockwise-light' },

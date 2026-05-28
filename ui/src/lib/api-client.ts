@@ -10,7 +10,6 @@ import type {
   DescargarResponse,
   DescargaCompletaRequest,
   SolicitudFolioRequest,
-  MetadataResponse,
   ValidarRequest,
   ValidarResponse,
   OrganizadorRequest,
@@ -213,18 +212,6 @@ export class SatApiClient {
     req: SolicitudFolioRequest,
   ): Promise<DescargarResponse> {
     return this.post<DescargarResponse>('/solicitar-folio', req as unknown as Record<string, unknown>);
-  }
-
-  // -----------------------------------------------------------------------
-  // Metadata
-  // -----------------------------------------------------------------------
-
-  /**
-   * Download metadata (CSV summary) for a date range.
-   * Much faster than full CFDI download (~seconds vs ~hours).
-   */
-  async metadata(req: SolicitudRequest): Promise<MetadataResponse> {
-    return this.post<MetadataResponse>('/metadata', req as unknown as Record<string, unknown>);
   }
 
   // -----------------------------------------------------------------------

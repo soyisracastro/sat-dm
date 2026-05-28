@@ -15,7 +15,8 @@ cfdi_*/
 constancia*/
 opinion*/
 descargas/
-metadata/
+# Solo el directorio raíz (salida CSV de la CLI); NO `ui/src/.../metadata/` ni similares.
+/metadata/
 
 # Boceto de Claude Design (referencia local; no se versiona — el prototipo se
 # re-crea en ui/, no se copia tal cual)

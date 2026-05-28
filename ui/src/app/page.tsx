@@ -58,13 +58,6 @@ const FEATURE_CARDS: FeatureCard[] = [
     requiresFiel: true,
   },
   {
-    href: '/metadata',
-    title: 'Metadata',
-    description: 'Resumen (CSV) de tus CFDIs sin descargar los XMLs completos.',
-    icon: 'ph:database-light',
-    requiresFiel: true,
-  },
-  {
     href: '/validacion',
     title: 'Validación CFDI',
     description: 'Verifica el estatus (Vigente / Cancelado) en el SAT.',

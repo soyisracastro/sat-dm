@@ -82,29 +82,6 @@ export interface SolicitudFolioRequest {
   extraer: boolean;
 }
 
-// POST /metadata — uses SolicitudRequest body, returns MetadataResponse
-
-export interface MetadataRecord {
-  uuid: string;
-  rfc_emisor: string;
-  nombre_emisor: string;
-  rfc_receptor: string;
-  nombre_receptor: string;
-  rfc_pac: string;
-  fecha_emision: string;
-  fecha_certificacion: string;
-  monto: string;
-  efecto_comprobante: string;
-  estatus: string;
-  fecha_cancelacion: string;
-}
-
-export interface MetadataResponse {
-  ok: boolean;
-  total: number;
-  records: MetadataRecord[];
-}
-
 // POST /validar — request body
 export interface CfdiValidarInput {
   uuid: string;
