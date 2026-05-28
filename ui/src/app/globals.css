@@ -157,4 +157,14 @@
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
   }
+  /* En Electron la Titlebar tiene -webkit-app-region:drag y captura los
+   * clicks de cualquier elemento encima (incluso con z-index alto). Los
+   * toasts de sonner (top-right) y los popovers caen sobre esa franja, así
+   * que les forzamos no-drag para que sus botones reciban el click. */
+  [data-sonner-toaster],
+  [data-sonner-toaster] *,
+  [data-radix-popper-content-wrapper],
+  [data-radix-popper-content-wrapper] * {
+    -webkit-app-region: no-drag;
+  }
 }
