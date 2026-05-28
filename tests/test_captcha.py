@@ -11,7 +11,11 @@ import base64
 import pytest
 
 from sat_descarga.portal.captcha import bytes_de_data_uri
-from sat_descarga.portal.login import _login_ciec_con_reintentos
+from sat_descarga.portal.login import (
+    _login_ciec_con_reintentos,
+    _es_error_credenciales,
+    CredencialCIECInvalida,
+)
 
 
 # --- bytes_de_data_uri -----------------------------------------------------
@@ -93,3 +97,42 @@ def test_usuario_cancela_no_envia():
     with pytest.raises(RuntimeError, match="cancelad"):
         _login_ciec_con_reintentos(e.rellenar, e.leer_img, e.pedir, e.enviar, max_intentos=3)
     assert e.enviados == []
+
+
+# --- fail-fast: error de credenciales -------------------------------------
+
+@pytest.mark.parametrize("msg", [
+    "El RFC o la contraseña son incorrectos",
+    "Contraseña incorrecta",
+    "Usuario o clave inválidos",
+    "Los datos no son válidos",
+])
+def test_clasifica_error_de_credenciales(msg):
+    assert _es_error_credenciales(msg) is True
+
+
+@pytest.mark.parametrize("msg", [
+    "El texto de la imagen es incorrecto",
+    "El captcha no coincide",
+    "Captcha incorrecto",
+    "",
+])
+def test_clasifica_error_de_captcha_o_vacio(msg):
+    assert _es_error_credenciales(msg) is False
+
+
+def test_fail_fast_aborta_sin_reintentar_captcha():
+    # Si enviar() lanza CredencialCIECInvalida (RFC/contraseña mal), el loop NO
+    # reintenta el captcha: se propaga y la operación aborta en el primer intento.
+    e = _Espia(exitos=[True, True, True])
+
+    def enviar_credencial_mala(texto):
+        e.enviados.append(texto)
+        raise CredencialCIECInvalida("El SAT rechazó el acceso: «Contraseña incorrecta».")
+
+    with pytest.raises(CredencialCIECInvalida, match="Contraseña"):
+        _login_ciec_con_reintentos(
+            e.rellenar, e.leer_img, e.pedir, enviar_credencial_mala, max_intentos=3
+        )
+    assert len(e.enviados) == 1  # un solo intento; no se pidió captcha de nuevo
+    assert e.intentos_pedidos == [(1, 3)]
