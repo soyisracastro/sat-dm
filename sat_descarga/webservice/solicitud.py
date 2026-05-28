@@ -14,6 +14,7 @@ Cambios en v1.5 (mayo 2025):
 
 import hashlib
 import base64
+import logging
 from datetime import date
 from io import BytesIO
 from typing import Optional
@@ -22,6 +23,8 @@ from lxml import etree
 from ..core.config import ENDPOINTS, SOAP_ACTIONS, TIPO_CFDI, TIPO_EMITIDO
 from ..core.fiel import FIEL
 from ..core.http_client import make_request
+
+logger = logging.getLogger(__name__)
 
 
 _SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
@@ -62,16 +65,38 @@ def solicitar_descarga(
     Raises:
         RuntimeError: Si el SAT rechaza la solicitud.
     """
-    if tipo_comprobante.upper() == "E":
-        return _solicitar_emitidos(
-            fiel, token, rfc_solicitante, fecha_inicio, fecha_fin,
-            tipo_solicitud, rfc_receptor, estado_comprobante,
-        )
-    else:
-        return _solicitar_recibidos(
-            fiel, token, rfc_solicitante, fecha_inicio, fecha_fin,
-            tipo_solicitud, rfc_emisor, estado_comprobante,
-        )
+    # El SAT marca CodEstatus=5002 ("Se han agotado las solicitudes de por vida")
+    # cuando el rango EXACTO ya se solicitó suficientes veces. Cambiamos la firma
+    # del rango restando 1 segundo a fecha_fin en cada reintento — un truco
+    # conocido del WS (la cuota es por hash del rango, no por fechas semánticas).
+    last_error: Optional[Exception] = None
+    for intento in range(5):
+        ff_override = fecha_fin.strftime(f"%Y-%m-%dT23:59:{max(0, 57 - intento):02d}")
+        try:
+            if tipo_comprobante.upper() == "E":
+                return _solicitar_emitidos(
+                    fiel, token, rfc_solicitante, fecha_inicio, fecha_fin,
+                    tipo_solicitud, rfc_receptor, estado_comprobante,
+                    ff_override=ff_override,
+                )
+            return _solicitar_recibidos(
+                fiel, token, rfc_solicitante, fecha_inicio, fecha_fin,
+                tipo_solicitud, rfc_emisor, estado_comprobante,
+                ff_override=ff_override,
+            )
+        except RuntimeError as e:
+            last_error = e
+            if "5002" not in str(e):
+                raise
+            logger.warning(
+                "[Solicitud] CodEstatus=5002 (rango agotado); reintento %d con FechaFinal=%s",
+                intento + 1, ff_override,
+            )
+    raise RuntimeError(
+        "El SAT marcó este rango como agotado (CodEstatus=5002) incluso tras 5 "
+        "reintentos ajustando los segundos. Cambia ligeramente las fechas "
+        f"(p. ej. ±1 día) y vuelve a intentar. (Último error: {last_error})"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -87,10 +112,15 @@ def _solicitar_emitidos(
     tipo_solicitud: str,
     rfc_receptores: Optional[str] = None,
     estado_comprobante: Optional[str] = None,
+    *,
+    ff_override: Optional[str] = None,
 ) -> str:
-    """SolicitaDescargaEmitidos — CFDIs emitidos por rfc_solicitante."""
+    """SolicitaDescargaEmitidos — CFDIs emitidos por rfc_solicitante.
+
+    `ff_override` permite forzar el FechaFinal exacto (usado por el retry de
+    5002 para cambiar la firma del rango)."""
     fi = fecha_inicio.strftime("%Y-%m-%dT00:00:02")
-    ff = fecha_fin.strftime("%Y-%m-%dT23:59:57")
+    ff = ff_override or fecha_fin.strftime("%Y-%m-%dT23:59:57")
 
     # Atributos de la solicitud (sin firma aún)
     # EstadoComprobante va primero según documentación SAT v1.5
@@ -157,10 +187,15 @@ def _solicitar_recibidos(
     tipo_solicitud: str,
     rfc_emisor: Optional[str] = None,
     estado_comprobante: Optional[str] = None,
+    *,
+    ff_override: Optional[str] = None,
 ) -> str:
-    """SolicitaDescargaRecibidos — CFDIs recibidos por rfc_solicitante."""
+    """SolicitaDescargaRecibidos — CFDIs recibidos por rfc_solicitante.
+
+    `ff_override` permite forzar el FechaFinal exacto (usado por el retry de
+    5002 para cambiar la firma del rango)."""
     fi = fecha_inicio.strftime("%Y-%m-%dT00:00:02")
-    ff = fecha_fin.strftime("%Y-%m-%dT23:59:57")
+    ff = ff_override or fecha_fin.strftime("%Y-%m-%dT23:59:57")
 
     # EstadoComprobante va primero según documentación SAT v1.5
     solicitud_attrs = ""
