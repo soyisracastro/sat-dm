@@ -9,13 +9,24 @@ Este módulo NO tiene I/O de terminal; es reutilizable por CLI y GUI.
 """
 
 import json
+import logging
+import os
 import shutil
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from sat_descarga.core.fiel import FIEL
 from sat_descarga.core import secretos
+
+logger = logging.getLogger(__name__)
+
+# Lock para serializar lecturas/escrituras del catálogo de solicitudes. Sin esto,
+# dos requests concurrentes (p. ej. el active flow + el auto-poll de no-terminales
+# pegándole a /verificar al mismo tiempo) hacen read-modify-write entrelazado y
+# corrompen el JSON.
+_solicitudes_lock = threading.RLock()
 
 CONFIG_DIR = Path.home() / ".sat-descarga"
 EFIRMA_DIR = Path("efirma")
@@ -215,14 +226,40 @@ def _solicitudes_path(rfc: str) -> Path:
 
 
 def _load_solicitudes(rfc: str) -> dict:
+    """Lee el catálogo de solicitudes de la empresa. Si el JSON quedó corrupto
+    (p. ej. write race anterior, antes de que esto fuera atómico), recupera el
+    primer objeto válido con raw_decode y reescribe el archivo limpio."""
     path = _solicitudes_path(rfc)
     if not path.exists():
         return {"solicitudes": []}
-    return json.loads(path.read_text())
+    raw = path.read_text()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning(
+            "[config_store] solicitudes/%s.json corrupto; recuperando primer objeto…",
+            rfc,
+        )
+        try:
+            obj, _end = json.JSONDecoder().raw_decode(raw)
+        except json.JSONDecodeError:
+            logger.error(
+                "[config_store] No se pudo recuperar; reseteando catálogo de %s", rfc,
+            )
+            obj = {"solicitudes": []}
+        if not isinstance(obj, dict) or "solicitudes" not in obj:
+            obj = {"solicitudes": obj if isinstance(obj, list) else []}
+        _save_solicitudes(rfc, obj)
+        return obj
 
 
 def _save_solicitudes(rfc: str, data: dict):
-    _solicitudes_path(rfc).write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    """Escritura atómica: a `.tmp` y luego `os.replace` (rename atómico en POSIX),
+    así un lector concurrente nunca ve un archivo a medias."""
+    path = _solicitudes_path(rfc)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    os.replace(tmp, path)
 
 
 def save_solicitud(
@@ -237,19 +274,20 @@ def save_solicitud(
 ):
     """Guarda una solicitud WS. `tipo_comprobante` se conserva para luego ubicar la
     descarga en la carpeta correcta (`{RFC}/{emitidos|recibidos}/{rango}/`)."""
-    data = _load_solicitudes(rfc)
-    registro = {
-        "id_solicitud": id_solicitud,
-        "fecha_inicio": fecha_inicio,
-        "fecha_fin": fecha_fin,
-        "tipo": tipo,
-        "estado": estado,
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-    }
-    if tipo_comprobante:
-        registro["tipo_comprobante"] = tipo_comprobante.strip().upper()
-    data["solicitudes"].append(registro)
-    _save_solicitudes(rfc, data)
+    with _solicitudes_lock:
+        data = _load_solicitudes(rfc)
+        registro = {
+            "id_solicitud": id_solicitud,
+            "fecha_inicio": fecha_inicio,
+            "fecha_fin": fecha_fin,
+            "tipo": tipo,
+            "estado": estado,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+        }
+        if tipo_comprobante:
+            registro["tipo_comprobante"] = tipo_comprobante.strip().upper()
+        data["solicitudes"].append(registro)
+        _save_solicitudes(rfc, data)
 
 
 def update_solicitud(
@@ -264,45 +302,50 @@ def update_solicitud(
     """Actualiza el estado y, opcionalmente, los campos auxiliares que devuelve el
     SAT en /verificar (mensaje, numero_cfdis). Estos últimos alimentan los detalles
     de la fila expandida en la UI."""
-    data = _load_solicitudes(rfc)
-    for sol in data["solicitudes"]:
-        if sol["id_solicitud"] == id_solicitud:
-            sol["estado"] = estado
-            if package_ids is not None:
-                sol["package_ids"] = package_ids
-            if mensaje is not None:
-                sol["mensaje"] = mensaje
-            if numero_cfdis is not None:
-                sol["numero_cfdis"] = numero_cfdis
-            break
-    _save_solicitudes(rfc, data)
+    with _solicitudes_lock:
+        data = _load_solicitudes(rfc)
+        for sol in data["solicitudes"]:
+            if sol["id_solicitud"] == id_solicitud:
+                sol["estado"] = estado
+                if package_ids is not None:
+                    sol["package_ids"] = package_ids
+                if mensaje is not None:
+                    sol["mensaje"] = mensaje
+                if numero_cfdis is not None:
+                    sol["numero_cfdis"] = numero_cfdis
+                break
+        _save_solicitudes(rfc, data)
 
 
 def delete_solicitud(rfc: str, id_solicitud: str) -> bool:
     """Borra una solicitud del catálogo de la empresa. Devuelve True si se borró,
     False si no se encontró."""
-    data = _load_solicitudes(rfc)
-    n = len(data["solicitudes"])
-    data["solicitudes"] = [s for s in data["solicitudes"] if s.get("id_solicitud") != id_solicitud]
-    if len(data["solicitudes"]) == n:
-        return False
-    _save_solicitudes(rfc, data)
-    return True
+    with _solicitudes_lock:
+        data = _load_solicitudes(rfc)
+        n = len(data["solicitudes"])
+        data["solicitudes"] = [s for s in data["solicitudes"] if s.get("id_solicitud") != id_solicitud]
+        if len(data["solicitudes"]) == n:
+            return False
+        _save_solicitudes(rfc, data)
+        return True
 
 
 def get_solicitudes_pendientes(rfc: str) -> list[dict]:
-    data = _load_solicitudes(rfc)
+    with _solicitudes_lock:
+        data = _load_solicitudes(rfc)
     return [s for s in data["solicitudes"] if s["estado"] not in ("terminada", "error")]
 
 
 def list_solicitudes(rfc: str) -> list[dict]:
     """Todas las solicitudes de la empresa, más recientes primero (para Historial)."""
-    data = _load_solicitudes(rfc)
+    with _solicitudes_lock:
+        data = _load_solicitudes(rfc)
     return list(reversed(data["solicitudes"]))
 
 
 def get_solicitud(rfc: str, id_solicitud: str) -> Optional[dict]:
-    data = _load_solicitudes(rfc)
+    with _solicitudes_lock:
+        data = _load_solicitudes(rfc)
     for s in data["solicitudes"]:
         if s["id_solicitud"] == id_solicitud:
             return s
