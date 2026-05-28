@@ -405,6 +405,7 @@ def solicitar(req: SolicitudRequest):
             rfc_emisor=req.rfc_emisor,
             rfc_receptor=req.rfc_receptor,
         )
+        _guardar_solicitud_ws(fiel.rfc, id_solicitud, req)
         return {"ok": True, "id_solicitud": id_solicitud}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -435,6 +436,10 @@ def verificar(req: VerificarRequest):
             id_solicitud=req.id_solicitud,
             fiel=fiel,
             poll=req.poll,
+        )
+        _actualizar_solicitud_ws(
+            fiel.rfc, req.id_solicitud, estado.cod_estado,
+            package_ids=estado.package_ids if estado.package_ids else None,
         )
         return {
             "cod_estado": estado.cod_estado,
@@ -511,6 +516,9 @@ def descargar(
             fiel.rfc, "ws", "cfdi",
             descripcion=f"Descarga WS · solicitud {id_solicitud[:8]}…",
             ruta=salida, total=estado.numero_cfdis,
+        )
+        _actualizar_solicitud_ws(
+            fiel.rfc, id_solicitud, "descargada", package_ids=estado.package_ids,
         )
         return {
             "ok": True,
@@ -925,6 +933,32 @@ def _registrar_descarga(rfc, canal, tipo, descripcion="", ruta="", total=None):
         )
     except Exception:  # noqa: BLE001 - el historial no debe romper una descarga
         logger.warning("No se pudo registrar la descarga en el historial", exc_info=True)
+
+
+def _guardar_solicitud_ws(rfc: str, id_solicitud: str, req: "SolicitudRequest") -> None:
+    """Guarda la solicitud WS recién creada en el catálogo por empresa. Best-effort."""
+    try:
+        from ..cli import config_store
+        cuales = {"E": "emitidos", "R": "recibidos"}.get(req.tipo_comprobante, "")
+        tipo_humano = f"{req.tipo_solicitud} · {cuales}".rstrip(" ·")
+        config_store.save_solicitud(
+            rfc, id_solicitud,
+            str(req.fecha_inicio), str(req.fecha_fin),
+            tipo=tipo_humano,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudo guardar la solicitud en el historial", exc_info=True)
+
+
+def _actualizar_solicitud_ws(
+    rfc: str, id_solicitud: str, estado: str, package_ids=None
+) -> None:
+    """Actualiza el estado de una solicitud WS guardada. Best-effort."""
+    try:
+        from ..cli import config_store
+        config_store.update_solicitud(rfc, id_solicitud, estado, package_ids=package_ids)
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudo actualizar la solicitud en el historial", exc_info=True)
 
 
 def _lanzar_ciec(fn_factory, al_completar=None):

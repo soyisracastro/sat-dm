@@ -1,15 +1,19 @@
 'use client';
 
+import { useEffect } from 'react';
+
 import { Icon } from '@/components/ui/icon';
 
 import { PageHeading } from '@/components/layout/page-heading';
 import { DescargaForm } from '@/components/descarga/descarga-form';
 import { PollingDisplay } from '@/components/descarga/polling-display';
 import { PackageList } from '@/components/descarga/package-list';
+import { SolicitudesList } from '@/components/descarga/solicitudes-list';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useServer } from '@/providers/server-provider';
 import { useDescarga } from '@/hooks/use-descarga';
+import { useSolicitudes } from '@/hooks/use-solicitudes';
 
 // ---------------------------------------------------------------------------
 // Page
@@ -30,6 +34,17 @@ export default function DescargaPage() {
     descargar,
     reset,
   } = useDescarga();
+  const {
+    solicitudes,
+    loading: loadingSolicitudes,
+    refresh: refreshSolicitudes,
+  } = useSolicitudes(fielStatus.rfc);
+
+  // Refresca el historial de solicitudes en cada cambio del flujo (nueva solicitud,
+  // poll que avanza el estado, descarga completada) para que la lista esté al día.
+  useEffect(() => {
+    refreshSolicitudes();
+  }, [state, codEstado, requestId, refreshSolicitudes]);
 
   const fielLoaded = fielStatus.loaded;
   const isRequesting = state === 'requesting';
@@ -113,6 +128,14 @@ export default function DescargaPage() {
           isDownloading={state === 'downloading'}
           archivosDescargados={archivosDescargados}
           numeroCfdis={numeroCfdis}
+        />
+      )}
+
+      {/* Solicitudes recientes — historial WS de la empresa activa */}
+      {fielLoaded && (
+        <SolicitudesList
+          solicitudes={solicitudes}
+          loading={loadingSolicitudes}
         />
       )}
     </div>
