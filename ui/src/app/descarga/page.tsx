@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import { Icon } from '@/components/ui/icon';
 
 import { PageHeading } from '@/components/layout/page-heading';
-import { DescargaForm } from '@/components/descarga/descarga-form';
+import { DescargaForm, type DescargaFormParams } from '@/components/descarga/descarga-form';
 import { PollingDisplay } from '@/components/descarga/polling-display';
 import { PackageList } from '@/components/descarga/package-list';
 import { SolicitudesList } from '@/components/descarga/solicitudes-list';
@@ -20,7 +20,7 @@ import { useSolicitudes } from '@/hooks/use-solicitudes';
 // ---------------------------------------------------------------------------
 
 export default function DescargaPage() {
-  const { isConnected, fielStatus } = useServer();
+  const { isConnected, fielStatus, apiClient } = useServer();
   const {
     state,
     requestId,
@@ -45,6 +45,40 @@ export default function DescargaPage() {
   useEffect(() => {
     refreshSolicitudes();
   }, [state, codEstado, requestId, refreshSolicitudes]);
+
+  // Expande "Ambos" en dos solicitudes (E + R). Las previas se mandan por el cliente
+  // directo (quedan persistidas en el catálogo y aparecen en la lista); la última
+  // entra al active flow (polling + auto-descarga) por el hook.
+  const handleSubmit = useCallback(
+    async (params: DescargaFormParams) => {
+      const tipos: ('E' | 'R')[] =
+        params.tipo_comprobante === 'A' ? ['E', 'R'] : [params.tipo_comprobante];
+      const previas = tipos.slice(0, -1);
+      const ultima = tipos[tipos.length - 1];
+      // Previas en paralelo, ignorando errores individuales (la lista los reflejará si llegaron).
+      await Promise.all(
+        previas.map((t) =>
+          apiClient
+            .solicitar({
+              fecha_inicio: params.fecha_inicio,
+              fecha_fin: params.fecha_fin,
+              tipo_solicitud: params.tipo_solicitud,
+              tipo_comprobante: t,
+            })
+            .catch(() => null),
+        ),
+      );
+      // Última solicitud por el hook → entra al flujo activo (polling + auto-descarga).
+      await solicitar({
+        fecha_inicio: params.fecha_inicio,
+        fecha_fin: params.fecha_fin,
+        tipo_solicitud: params.tipo_solicitud,
+        tipo_comprobante: ultima,
+      });
+      refreshSolicitudes();
+    },
+    [apiClient, solicitar, refreshSolicitudes],
+  );
 
   const fielLoaded = fielStatus.loaded;
   const isRequesting = state === 'requesting';
@@ -103,7 +137,7 @@ export default function DescargaPage() {
       {/* Form */}
       {showForm && (
         <DescargaForm
-          onSubmit={solicitar}
+          onSubmit={handleSubmit}
           isLoading={isRequesting}
           disabled={!isConnected || !fielLoaded}
         />
