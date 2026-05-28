@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTheme } from 'next-themes';
 
 import { Icon } from '@/components/ui/icon';
 
@@ -10,6 +11,12 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+
+const TEMAS = [
+  { value: 'light', label: 'Claro', icon: 'ph:sun-light' },
+  { value: 'dark', label: 'Oscuro', icon: 'ph:moon-light' },
+  { value: 'system', label: 'Sistema', icon: 'ph:desktop-light' },
+] as const;
 
 /** Selector de carpeta nativo del SO (solo en Electron); null en navegador. */
 function elegirCarpetaNativo(): Promise<string | null> | null {
@@ -22,9 +29,15 @@ function elegirCarpetaNativo(): Promise<string | null> | null {
 
 export default function AjustesPage() {
   const { apiClient } = useServer();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [dir, setDir] = useState('');
   const [editable, setEditable] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     apiClient
@@ -57,6 +70,32 @@ export default function AjustesPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <PageHeading title="Ajustes" description="Configuración de la aplicación." />
+
+      <Card className="space-y-3 p-5">
+        <div className="space-y-1">
+          <Label>Apariencia</Label>
+          <p className="text-xs text-muted-foreground">
+            Elige el tema visual. &quot;Sistema&quot; sigue la preferencia de tu sistema operativo.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {TEMAS.map((t) => {
+            const activo = mounted && theme === t.value;
+            return (
+              <Button
+                key={t.value}
+                variant={activo ? 'default' : 'outline'}
+                onClick={() => setTheme(t.value)}
+                aria-pressed={activo}
+              >
+                <Icon icon={t.icon} className="size-4" />
+                {t.label}
+              </Button>
+            );
+          })}
+        </div>
+      </Card>
 
       <Card className="space-y-3 p-5">
         <div className="space-y-1">
