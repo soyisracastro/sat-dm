@@ -264,10 +264,13 @@ export interface Solicitud {
   id_solicitud: string;
   fecha_inicio: string;
   fecha_fin: string;
-  tipo: string;
-  estado: string;
-  timestamp: string;
-  package_ids?: string[];
+  tipo: string;            // Etiqueta humana "CFDI · emitidos" / "Metadata · recibidos"
+  estado: string;          // "solicitada" / "1"-"5" (SAT) / "descargada"
+  timestamp: string;       // Creada (ISO local)
+  package_ids?: string[];  // Disponibles cuando estado="3"+
+  tipo_comprobante?: string;  // "E" / "R" — usado por el agente para componer la carpeta de salida
+  mensaje?: string;        // Mensaje del SAT en la última /verificar
+  numero_cfdis?: number;   // CFDIs reportados por el SAT
 }
 
 export interface SolicitudesResponse {

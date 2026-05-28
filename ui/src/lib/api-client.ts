@@ -373,6 +373,13 @@ export class SatApiClient {
     );
   }
 
+  /** Borra una solicitud del catálogo local (no afecta al SAT). */
+  async deleteSolicitud(rfc: string, idSolicitud: string): Promise<{ ok: boolean }> {
+    return this.del<{ ok: boolean }>(
+      `/empresas/${encodeURIComponent(rfc)}/solicitudes/${encodeURIComponent(idSolicitud)}`,
+    );
+  }
+
   /** Historial de descargas completadas de TODAS las empresas (recientes primero). */
   async listHistorial(): Promise<HistorialResponse> {
     return this.request<HistorialResponse>('/historial');

@@ -445,6 +445,8 @@ def verificar(req: VerificarRequest):
         _actualizar_solicitud_ws(
             fiel.rfc, req.id_solicitud, estado.cod_estado,
             package_ids=estado.package_ids if estado.package_ids else None,
+            mensaje=estado.mensaje,
+            numero_cfdis=estado.numero_cfdis,
         )
         return {
             "cod_estado": estado.cod_estado,
@@ -961,12 +963,24 @@ def _guardar_solicitud_ws(rfc: str, id_solicitud: str, req: "SolicitudRequest") 
 
 
 def _actualizar_solicitud_ws(
-    rfc: str, id_solicitud: str, estado: str, package_ids=None
+    rfc: str,
+    id_solicitud: str,
+    estado: str,
+    package_ids=None,
+    *,
+    mensaje: Optional[str] = None,
+    numero_cfdis: Optional[int] = None,
 ) -> None:
-    """Actualiza el estado de una solicitud WS guardada. Best-effort."""
+    """Actualiza el estado de una solicitud WS guardada. Best-effort.
+
+    También persiste `mensaje` y `numero_cfdis` cuando vienen (los devuelve el SAT
+    en /verificar) para mostrarlos en la fila expandida de la UI."""
     try:
         from ..cli import config_store
-        config_store.update_solicitud(rfc, id_solicitud, estado, package_ids=package_ids)
+        config_store.update_solicitud(
+            rfc, id_solicitud, estado, package_ids=package_ids,
+            mensaje=mensaje, numero_cfdis=numero_cfdis,
+        )
     except Exception:  # noqa: BLE001
         logger.warning("No se pudo actualizar la solicitud en el historial", exc_info=True)
 
@@ -1292,6 +1306,16 @@ def empresas_solicitudes(rfc: str):
     """Historial de solicitudes de descarga de la empresa (más recientes primero)."""
     from ..cli import config_store
     return {"solicitudes": config_store.list_solicitudes(rfc)}
+
+
+@app.delete("/empresas/{rfc}/solicitudes/{id_solicitud}")
+def empresas_solicitudes_delete(rfc: str, id_solicitud: str):
+    """Borra una solicitud del catálogo (solo limpia el registro local, no afecta al SAT)."""
+    from ..cli import config_store
+    borrada = config_store.delete_solicitud(rfc, id_solicitud)
+    if not borrada:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return {"ok": True}
 
 
 @app.get("/empresas/{rfc}/historial")

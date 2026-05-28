@@ -46,6 +46,30 @@ export default function DescargaPage() {
     refreshSolicitudes();
   }, [state, codEstado, requestId, refreshSolicitudes]);
 
+  // Descarga una solicitud desde la lista (sin tocar el active flow): pega directo
+  // al agente y refresca para que el estado pase a "Descargada". Sirve cuando el
+  // active flow se movió a otra solicitud y dejó atrás una en "Lista", o cuando el
+  // usuario quiere re-bajar el ZIP de una ya descargada.
+  const handleDescargarFromList = useCallback(
+    async (idSolicitud: string) => {
+      await apiClient.descargar(idSolicitud);
+      refreshSolicitudes();
+    },
+    [apiClient, refreshSolicitudes],
+  );
+
+  // Borra la solicitud del catálogo local. Si era la del flujo activo, reseteamos
+  // el hook (no queremos seguir polleando un id que ya no existe).
+  const handleEliminarFromList = useCallback(
+    async (idSolicitud: string) => {
+      if (!fielStatus.rfc) return;
+      await apiClient.deleteSolicitud(fielStatus.rfc, idSolicitud);
+      if (requestId === idSolicitud) reset();
+      refreshSolicitudes();
+    },
+    [apiClient, fielStatus.rfc, refreshSolicitudes, requestId, reset],
+  );
+
   // Expande "Ambos" en dos solicitudes (E + R). Las previas se mandan por el cliente
   // directo (quedan persistidas en el catálogo y aparecen en la lista); la última
   // entra al active flow (polling + auto-descarga) por el hook.
@@ -170,6 +194,8 @@ export default function DescargaPage() {
         <SolicitudesList
           solicitudes={solicitudes}
           loading={loadingSolicitudes}
+          onDescargar={handleDescargarFromList}
+          onEliminar={handleEliminarFromList}
         />
       )}
     </div>

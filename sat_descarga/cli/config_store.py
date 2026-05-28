@@ -252,15 +252,42 @@ def save_solicitud(
     _save_solicitudes(rfc, data)
 
 
-def update_solicitud(rfc: str, id_solicitud: str, estado: str, package_ids: Optional[list] = None):
+def update_solicitud(
+    rfc: str,
+    id_solicitud: str,
+    estado: str,
+    package_ids: Optional[list] = None,
+    *,
+    mensaje: Optional[str] = None,
+    numero_cfdis: Optional[int] = None,
+):
+    """Actualiza el estado y, opcionalmente, los campos auxiliares que devuelve el
+    SAT en /verificar (mensaje, numero_cfdis). Estos últimos alimentan los detalles
+    de la fila expandida en la UI."""
     data = _load_solicitudes(rfc)
     for sol in data["solicitudes"]:
         if sol["id_solicitud"] == id_solicitud:
             sol["estado"] = estado
             if package_ids is not None:
                 sol["package_ids"] = package_ids
+            if mensaje is not None:
+                sol["mensaje"] = mensaje
+            if numero_cfdis is not None:
+                sol["numero_cfdis"] = numero_cfdis
             break
     _save_solicitudes(rfc, data)
+
+
+def delete_solicitud(rfc: str, id_solicitud: str) -> bool:
+    """Borra una solicitud del catálogo de la empresa. Devuelve True si se borró,
+    False si no se encontró."""
+    data = _load_solicitudes(rfc)
+    n = len(data["solicitudes"])
+    data["solicitudes"] = [s for s in data["solicitudes"] if s.get("id_solicitud") != id_solicitud]
+    if len(data["solicitudes"]) == n:
+        return False
+    _save_solicitudes(rfc, data)
+    return True
 
 
 def get_solicitudes_pendientes(rfc: str) -> list[dict]:
