@@ -142,7 +142,7 @@ export default function HistorialPage() {
                 <TableHead>Empresa</TableHead>
                 <TableHead>Descarga</TableHead>
                 <TableHead className="text-right">CFDIs</TableHead>
-                <TableHead className="text-right" />
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
