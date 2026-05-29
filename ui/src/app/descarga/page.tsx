@@ -238,7 +238,7 @@ export default function DescargaPage() {
           que el SAT está lento y pueda cambiarse a CIEC sin esperar el
           error final (que puede tardar 5+ min entre reintentos). */}
       {submitting && esperaLarga && (
-        <Alert>
+        <Alert variant="warning">
           <Icon icon="ph:hourglass-medium-light" className="size-4" />
           <AlertTitle>El SAT está tardando más de lo normal</AlertTitle>
           <AlertDescription className="space-y-2">
