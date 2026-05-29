@@ -65,6 +65,11 @@ ui/pnpm-lock.yaml
 .venv/
 venv/
 .env
+# Env locales (Next.js convention)
+.env.local
+.env.*.local
+ui/.env.local
+ui/.env.*.local
 
 # IDE
 .vscode/
