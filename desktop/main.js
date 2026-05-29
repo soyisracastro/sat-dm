@@ -29,6 +29,13 @@ const http = require('http');
 const REPO_ROOT = path.resolve(__dirname, '..');
 const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
 
+// Nombre visible en el menú de la app de macOS (About / Hide / Quit) y en
+// `app.getName()`. El tooltip del dock y el source de las notificaciones
+// nativas siguen viniendo del bundle (Electron.app en dev) — eso solo
+// cambia cuando empaquetemos con electron-builder. Debe llamarse antes
+// de app.whenReady() para que surta efecto en el menú inicial.
+app.setName('TodoConta');
+
 // AppUserModelId: obligatorio en Windows 10/11 para que las notificaciones
 // nativas aparezcan con el nombre correcto en el Action Center y se agrupen
 // bien en el taskbar. DEBE setearse antes de app.whenReady() o no surte

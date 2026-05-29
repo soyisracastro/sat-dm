@@ -1,5 +1,6 @@
 {
   "name": "todoconta-desktop",
+  "productName": "TodoConta",
   "version": "0.1.0",
   "private": true,
   "description": "TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python).",
