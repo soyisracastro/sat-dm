@@ -20,13 +20,22 @@
  *   SAT_RENDERER_URL   URL del renderer (default http://localhost:3001).
  */
 
-const { app, BrowserWindow, shell, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Notification, shell, dialog, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const net = require('net');
 const http = require('http');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+
+// AppUserModelId: obligatorio en Windows 10/11 para que las notificaciones
+// nativas aparezcan con el nombre correcto en el Action Center y se agrupen
+// bien en el taskbar. DEBE setearse antes de app.whenReady() o no surte
+// efecto. Mismo id que usaremos para el appId de electron-builder cuando
+// empaquetemos para producción.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.todoconta.satdescargamasiva');
+}
 
 let agentProc = null;
 let agentUrl = null;
@@ -127,6 +136,38 @@ ipcMain.handle('elegir-carpeta', async () => {
     properties: ['openDirectory', 'createDirectory'],
   });
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
+});
+
+// Notificaciones nativas del SO.
+//   title: string (corto, ≤40 chars idealmente)
+//   body: string (mensaje del pool de lib/notify/messages.ts)
+//   urgent: boolean (si true, el SO suena; si false, silent)
+// El click enfoca la ventana de la app (sale de minimizado, sube al frente).
+ipcMain.handle('notify-native', (_e, payload) => {
+  if (!Notification.isSupported()) return false;
+  const { title, body, urgent } = payload || {};
+  if (!title) return false;
+
+  const n = new Notification({
+    title: String(title),
+    body: body ? String(body) : '',
+    silent: !urgent,
+  });
+  n.on('click', () => {
+    const wins = BrowserWindow.getAllWindows();
+    const win = wins[0];
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    win.moveTop();
+    // En Windows, limpia el resaltado del taskbar después de enfocar.
+    if (process.platform === 'win32') {
+      try { win.flashFrame(false); } catch (_) { /* noop */ }
+    }
+  });
+  n.show();
+  return true;
 });
 
 app.whenReady().then(async () => {

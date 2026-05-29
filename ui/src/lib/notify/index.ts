@@ -1,14 +1,16 @@
 /**
  * API pública de notificaciones.
  *
- * PR1: solo sonner (in-app). El gating por foco y el transporte nativo
- * se agregan en PR3 sin cambiar la firma pública.
- *
- * Cada función:
- *   1. Lee prefs (si el toggle está OFF, no-op).
- *   2. Elige un mensaje aleatorio del pool correspondiente.
- *   3. Dispara `toast.success | error | info` con un `id` derivado para
- *      deduplicar si el mismo evento llega más de una vez.
+ * Patrón:
+ *   1. Lee prefs; si el toggle está OFF, no-op.
+ *   2. Elige UN mensaje del pool y lo pasa a los transportes (consistencia
+ *      entre sonner y nativa).
+ *   3. Gating por foco:
+ *       - App enfocada (`visibilityState=visible` Y `hasFocus`) → solo sonner.
+ *       - App en background / otra app al frente → solo nativa.
+ *       - Excepción: errores críticos disparan AMBAS (sonner persistente
+ *         + ping del SO).
+ *   4. Dedup por `id` derivado (canal:rfc:jobId).
  */
 
 import { toast } from 'sonner';
@@ -19,6 +21,7 @@ import {
   mensajeDescargaSuccess,
   mensajeEfirmaAviso,
 } from './messages';
+import { dispatchNative } from './native';
 import { getNotifPrefs } from './prefs';
 
 const DURATION = {
@@ -26,6 +29,17 @@ const DURATION = {
   error: 7_000,
   info: 5_000,
 };
+
+const NATIVE_TITLES = {
+  descargaOk: 'Descarga lista',
+  descargaErr: 'Descarga con error',
+  efirma: 'e.firma por vencer',
+} as const;
+
+function tieneFoco(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
 
 export interface NotifyDescargaCompletaArgs {
   canal: DescargaCanal;
@@ -38,7 +52,12 @@ export function notifyDescargaCompleta(args: NotifyDescargaCompletaArgs): void {
   if (!getNotifPrefs().descargas) return;
   const id = `descarga:${args.canal}:${args.rfc}:${args.jobId ?? 'ok'}`;
   const mensaje = mensajeDescargaSuccess(args.canal, { count: args.count, rfc: args.rfc });
-  toast.success(mensaje, { id, duration: DURATION.success });
+
+  if (tieneFoco()) {
+    toast.success(mensaje, { id, duration: DURATION.success });
+  } else {
+    void dispatchNative({ title: NATIVE_TITLES.descargaOk, body: mensaje });
+  }
 }
 
 export interface NotifyDescargaErrorArgs {
@@ -55,7 +74,12 @@ export function notifyDescargaError(args: NotifyDescargaErrorArgs): void {
     rfc: args.rfc,
     motivo: args.motivo ?? 'Revisa el detalle.',
   });
+
+  // Errores SIEMPRE disparan ambos canales: el sonner persistente para
+  // cuando el usuario está mirando, y la nativa para cuando se fue a otra
+  // app a esperar (criticidad alta).
   toast.error(mensaje, { id, duration: DURATION.error });
+  void dispatchNative({ title: NATIVE_TITLES.descargaErr, body: mensaje, urgent: true });
 }
 
 export interface NotifyEfirmaArgs {
@@ -73,13 +97,29 @@ export function notifyEfirmaVencimiento(args: NotifyEfirmaArgs): void {
     rfc: proxima.rfc,
     dias: proxima.dias,
   });
-  toast.warning(mensaje, { id, duration: DURATION.info });
+
+  if (tieneFoco()) {
+    toast.warning(mensaje, { id, duration: DURATION.info });
+  } else {
+    void dispatchNative({ title: NATIVE_TITLES.efirma, body: mensaje });
+  }
 }
 
-/** Para el botón "Probar notificación" en Ajustes. */
+/** Para el botón "Probar notificación" en Ajustes (sonner). */
 export function notifyPrueba(): void {
   toast.success('Si ves esto, las notificaciones in-app están funcionando.', {
     id: 'prueba',
     duration: 4_000,
+  });
+}
+
+/**
+ * Test específico de la nativa del SO. Se usa desde Ajustes con un
+ * pequeño delay para que el usuario alcance a cambiar de ventana.
+ */
+export async function notifyPruebaNativa(): Promise<boolean> {
+  return dispatchNative({
+    title: 'SAT Descarga Masiva',
+    body: 'Si ves esto, las notificaciones del sistema están funcionando.',
   });
 }

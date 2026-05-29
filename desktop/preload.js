@@ -27,4 +27,10 @@ contextBridge.exposeInMainWorld('satAgent', {
 contextBridge.exposeInMainWorld('satDesktop', {
   /** Abre el selector de carpeta nativo del SO; devuelve la ruta o null. */
   elegirCarpeta: () => ipcRenderer.invoke('elegir-carpeta'),
+  /**
+   * Dispara una notificación nativa del SO (Windows Action Center / macOS
+   * Notification Center). Click en la toast → enfoca la ventana de la app.
+   * Devuelve true si el SO soporta y se envió, false si no.
+   */
+  notify: (payload) => ipcRenderer.invoke('notify-native', payload),
 });
