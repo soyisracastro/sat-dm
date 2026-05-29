@@ -225,28 +225,33 @@ export default function DescargaPage() {
       )}
 
       {/* Error */}
-      {(error || submitError) && (
-        <Alert variant="destructive">
-          <Icon icon="ph:warning-circle-light" className="size-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription className="space-y-2">
-            <div>{submitError || traducirError(error)}</div>
-            {tieneCiec && esErrorDelSat(submitError || error) && (
-              <div>
-                Si tienes prisa, puedes intentar la descarga por el portal del
-                SAT (CIEC) desde{' '}
-                <Link
-                  href="/nueva-descarga"
-                  className="font-medium underline underline-offset-2"
-                >
-                  Nueva descarga
-                </Link>
-                .
-              </div>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+      {(error || submitError) && (() => {
+        const esSat = esErrorDelSat(submitError || error);
+        const mensaje = esSat
+          ? 'El SAT no está respondiendo como se debe. Inténtalo más tarde.'
+          : submitError || traducirError(error);
+        return (
+          <Alert variant="destructive">
+            <Icon icon="ph:warning-circle-light" className="size-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <div>{mensaje}</div>
+              {esSat && tieneCiec && (
+                <div>
+                  También puedes descargar con la CIEC (limitada a 500 XML por día).{' '}
+                  <Link
+                    href="/nueva-descarga"
+                    className="font-medium underline underline-offset-2"
+                  >
+                    Clic aquí
+                  </Link>
+                  .
+                </div>
+              )}
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
 
       {/* Form */}
       {showForm && (
