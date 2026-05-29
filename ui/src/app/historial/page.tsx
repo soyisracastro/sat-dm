@@ -217,32 +217,30 @@ function DescargaRow({
             {esPdf && (
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => abrir('archivo')}
                 disabled={busy !== null}
                 title="Abrir el PDF"
               >
                 {busy === 'archivo' ? (
-                  <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
+                  <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
                 ) : (
-                  <Icon icon="ph:eye-light" className="size-3.5" />
+                  <Icon icon="ph:file-pdf-light" className="size-4" />
                 )}
-                Ver PDF
               </Button>
             )}
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={() => abrir('carpeta')}
               disabled={busy !== null}
               title="Abrir la carpeta donde se guardó"
             >
               {busy === 'carpeta' ? (
-                <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
+                <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
               ) : (
-                <Icon icon="ph:folder-open-light" className="size-3.5" />
+                <Icon icon="ph:folder-open-light" className="size-4" />
               )}
-              Carpeta
             </Button>
           </div>
         )}
