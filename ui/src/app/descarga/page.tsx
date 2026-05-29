@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 
 import { Icon } from '@/components/ui/icon';
 
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { useServer } from '@/providers/server-provider';
 import { useDescarga } from '@/hooks/use-descarga';
 import { useSolicitudes } from '@/hooks/use-solicitudes';
+import { useEmpresas } from '@/hooks/use-empresas';
 
 /**
  * Convierte errores técnicos de requests al SAT (timeouts, conexión rota,
@@ -29,6 +31,18 @@ function traducirError(raw: string | null): string {
     return 'Falló la conexión segura con el SAT. Suele ser intermitente — inténtalo de nuevo.';
   }
   return raw;
+}
+
+/**
+ * Detecta si el mensaje (raw o traducido o envuelto en "No se pudo
+ * solicitar X: ...") apunta a un problema del lado del SAT. En ese caso
+ * vale la pena sugerir la alternativa CIEC para quien tenga prisa.
+ */
+function esErrorDelSat(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  return /SAT no respondió|conexión segura|saturado|caído|timeout|timed out|max retries|ConnectionError|SSL|certificate/i.test(
+    texto,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +69,9 @@ export default function DescargaPage() {
     loading: loadingSolicitudes,
     refresh: refreshSolicitudes,
   } = useSolicitudes(fielStatus.rfc);
+  const { empresas } = useEmpresas();
+  const empresaActiva = empresas.find((e) => e.rfc === fielStatus.rfc);
+  const tieneCiec = !!empresaActiva?.metodos.includes('ciec');
 
   // Flag de "submit en curso": cubre la ventana entre que el usuario hace
   // click y el hook setea state='requesting'. Antes solo R o E (solo) tenían
@@ -212,7 +229,22 @@ export default function DescargaPage() {
         <Alert variant="destructive">
           <Icon icon="ph:warning-circle-light" className="size-4" />
           <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{submitError || traducirError(error)}</AlertDescription>
+          <AlertDescription className="space-y-2">
+            <div>{submitError || traducirError(error)}</div>
+            {tieneCiec && esErrorDelSat(submitError || error) && (
+              <div>
+                Si tienes prisa, puedes intentar la descarga por el portal del
+                SAT (CIEC) desde{' '}
+                <Link
+                  href="/nueva-descarga"
+                  className="font-medium underline underline-offset-2"
+                >
+                  Nueva descarga
+                </Link>
+                .
+              </div>
+            )}
+          </AlertDescription>
         </Alert>
       )}
 
