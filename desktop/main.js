@@ -20,13 +20,21 @@
  *   SAT_RENDERER_URL   URL del renderer (default http://localhost:3001).
  */
 
-const { app, BrowserWindow, Notification, shell, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Notification, nativeImage, shell, dialog, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const net = require('net');
 const http = require('http');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
+
+// Nombre visible en el menú de la app de macOS (About / Hide / Quit) y en
+// `app.getName()`. El tooltip del dock y el source de las notificaciones
+// nativas siguen viniendo del bundle (Electron.app en dev) — eso solo
+// cambia cuando empaquetemos con electron-builder. Debe llamarse antes
+// de app.whenReady() para que surta efecto en el menú inicial.
+app.setName('TodoConta');
 
 // AppUserModelId: obligatorio en Windows 10/11 para que las notificaciones
 // nativas aparezcan con el nombre correcto en el Action Center y se agrupen
@@ -109,6 +117,9 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     backgroundColor: '#F7F9FC',
+    // En Windows/Linux esto pinta el ícono del taskbar/ventana; en macOS
+    // el dock se setea aparte vía app.dock.setIcon (más abajo).
+    icon: APP_ICON,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -171,6 +182,16 @@ ipcMain.handle('notify-native', (_e, payload) => {
 });
 
 app.whenReady().then(async () => {
+  // macOS: el ícono del dock se cambia explícitamente (no lo agarra del
+  // BrowserWindow). En Win/Linux ya quedó vía `icon:` en createWindow.
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      app.dock.setIcon(nativeImage.createFromPath(APP_ICON));
+    } catch (e) {
+      console.warn('[icon] no se pudo setear el dock icon:', e.message);
+    }
+  }
+
   try {
     await startAgent();
   } catch (e) {
