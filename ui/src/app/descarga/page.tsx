@@ -15,6 +15,22 @@ import { useServer } from '@/providers/server-provider';
 import { useDescarga } from '@/hooks/use-descarga';
 import { useSolicitudes } from '@/hooks/use-solicitudes';
 
+/**
+ * Convierte errores técnicos de requests al SAT (timeouts, conexión rota,
+ * SSL roto) en mensajes amigables. Para errores no reconocidos devuelve
+ * el original.
+ */
+function traducirError(raw: string | null): string {
+  if (!raw) return '';
+  if (/timeout|timed out|read timeout|max retries|ConnectionError|EAI_AGAIN|ECONNRESET/i.test(raw)) {
+    return 'El SAT no respondió a tiempo. Esto pasa cuando su Web Service está saturado o caído. Inténtalo de nuevo en unos minutos.';
+  }
+  if (/SSL|certificate/i.test(raw)) {
+    return 'Falló la conexión segura con el SAT. Suele ser intermitente — inténtalo de nuevo.';
+  }
+  return raw;
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -81,8 +97,7 @@ export default function DescargaPage() {
   // Expande "Ambos" en dos solicitudes (E + R). El hook arranca PRIMERO con la
   // "última" (R) para que setState('requesting') aplique de inmediato y el
   // botón se desactive sin esperar al SAT. La "previa" (E) sale en paralelo
-  // por apiClient directo; queda en el catálogo y aparece en la lista. Ambas
-  // se esperan antes de refrescar la SolicitudesList.
+  // por apiClient directo; queda en el catálogo y aparece en la lista.
   const handleSubmit = useCallback(
     async (params: DescargaFormParams) => {
       setSubmitError(null);
@@ -93,8 +108,8 @@ export default function DescargaPage() {
         const previas = tipos.slice(0, -1);
         const ultima = tipos[tipos.length - 1];
 
-        // 1) Disparar la última por el hook (sin await): setState('requesting')
-        //    se aplica antes del primer yield → botón se desactiva instantáneo.
+        // 1) Última por el hook (sin await): el setState síncrono del hook se
+        //    aplica antes del primer yield → botón se desactiva instantáneo.
         const ultimaPromise = solicitar({
           fecha_inicio: params.fecha_inicio,
           fecha_fin: params.fecha_fin,
@@ -102,31 +117,44 @@ export default function DescargaPage() {
           tipo_comprobante: ultima,
         });
 
-        // 2) En paralelo, las previas por apiClient directo. Errores quedan
-        //    visibles en la consola pero no rompen el flujo (la lista las
-        //    reflejará igualmente si llegaron a crearse).
+        // 2) Previas por apiClient directo, capturando errores individualmente
+        //    para poder mostrarlos en el Alert (no swallowarlos en silencio).
         const previasPromise = Promise.all(
-          previas.map((t) =>
-            apiClient
-              .solicitar({
+          previas.map(async (t) => {
+            try {
+              await apiClient.solicitar({
                 fecha_inicio: params.fecha_inicio,
                 fecha_fin: params.fecha_fin,
                 tipo_solicitud: params.tipo_solicitud,
                 tipo_comprobante: t,
-              })
-              .catch((e: unknown) => {
-                console.warn('[descarga/previa] falló para', t, e);
-                return null;
-              }),
-          ),
+              });
+              return null;
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              console.warn('[descarga/previa]', t, e);
+              return { tipo: t, msg };
+            }
+          }),
         );
 
-        await Promise.all([ultimaPromise, previasPromise]);
+        const [, previasResults] = await Promise.all([ultimaPromise, previasPromise]);
         refreshSolicitudes();
+
+        const previaErrors = previasResults.filter(
+          (r): r is { tipo: 'E' | 'R'; msg: string } => r !== null,
+        );
+        if (previaErrors.length > 0) {
+          const tipos = previaErrors
+            .map((r) => (r.tipo === 'E' ? 'Emitidos' : 'Recibidos'))
+            .join(' y ');
+          setSubmitError(
+            `No se pudo solicitar ${tipos}: ${traducirError(previaErrors[0].msg)}`,
+          );
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error('[descarga/submit]', e);
-        setSubmitError(msg);
+        setSubmitError(traducirError(msg));
       } finally {
         setSubmitting(false);
       }
@@ -184,7 +212,7 @@ export default function DescargaPage() {
         <Alert variant="destructive">
           <Icon icon="ph:warning-circle-light" className="size-4" />
           <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{submitError || error}</AlertDescription>
+          <AlertDescription>{submitError || traducirError(error)}</AlertDescription>
         </Alert>
       )}
 
