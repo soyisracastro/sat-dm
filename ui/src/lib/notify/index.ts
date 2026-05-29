@@ -31,9 +31,9 @@ const DURATION = {
 };
 
 const NATIVE_TITLES = {
-  descargaOk: 'Descarga lista',
-  descargaErr: 'Descarga con error',
-  efirma: 'e.firma por vencer',
+  descargaOk: 'Descarga lista 🎉',
+  descargaErr: 'Descarga con error 😨',
+  efirma: 'e.firma por vencer ⌛️',
 } as const;
 
 function tieneFoco(): boolean {
@@ -105,21 +105,3 @@ export function notifyEfirmaVencimiento(args: NotifyEfirmaArgs): void {
   }
 }
 
-/** Para el botón "Probar notificación" en Ajustes (sonner). */
-export function notifyPrueba(): void {
-  toast.success('Si ves esto, las notificaciones in-app están funcionando.', {
-    id: 'prueba',
-    duration: 4_000,
-  });
-}
-
-/**
- * Test específico de la nativa del SO. Se usa desde Ajustes con un
- * pequeño delay para que el usuario alcance a cambiar de ventana.
- */
-export async function notifyPruebaNativa(): Promise<boolean> {
-  return dispatchNative({
-    title: 'SAT Descarga Masiva',
-    body: 'Si ves esto, las notificaciones del sistema están funcionando.',
-  });
-}

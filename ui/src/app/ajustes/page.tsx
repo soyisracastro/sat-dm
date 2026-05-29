@@ -13,13 +13,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from '@/lib/notify/prefs';
-import { notifyPrueba, notifyPruebaNativa } from '@/lib/notify';
-import {
-  browserPermission,
-  isElectron,
-  requestBrowserPermission,
-} from '@/lib/notify/native';
-import { toast } from 'sonner';
 
 const TEMAS = [
   { value: 'light', label: 'Claro', icon: 'ph:sun-light' },
@@ -55,31 +48,6 @@ export default function AjustesPage() {
 
   function actualizarNotif(patch: Partial<NotifPrefs>) {
     setNotifPrefsState(setNotifPrefs(patch));
-  }
-
-  async function probarNativa() {
-    // En browser dev, pide permiso al primer test si no está granted.
-    if (!isElectron() && browserPermission() === 'default') {
-      const res = await requestBrowserPermission();
-      if (res !== 'granted') {
-        toast.warning(
-          'El navegador no concedió el permiso. Las notificaciones del sistema no aparecerán.',
-        );
-        return;
-      }
-    }
-    if (!isElectron() && browserPermission() === 'denied') {
-      toast.warning(
-        'Tienes denegado el permiso de notificaciones en el navegador. Revisa la barra de URL.',
-      );
-      return;
-    }
-    toast.info('Cambia a otra ventana en 4 segundos para ver la notificación del SO…', {
-      duration: 4_000,
-    });
-    setTimeout(() => {
-      void notifyPruebaNativa();
-    }, 4_000);
   }
 
   useEffect(() => {
@@ -181,16 +149,6 @@ export default function AjustesPage() {
           </label>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={notifyPrueba}>
-            <Icon icon="ph:bell-light" className="size-4" />
-            Probar in-app
-          </Button>
-          <Button variant="outline" size="sm" onClick={probarNativa}>
-            <Icon icon="ph:desktop-light" className="size-4" />
-            Probar del sistema
-          </Button>
-        </div>
       </Card>
 
       <Card className="space-y-3 p-5">
