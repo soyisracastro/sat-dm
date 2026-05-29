@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
+import { useServer } from '@/providers/server-provider';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -22,9 +24,14 @@ import type {
   DeduplicarRequest,
 } from '@/lib/types';
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
+/** Selector de carpeta nativo del SO (solo en Electron); null en navegador. */
+function elegirCarpetaNativo(): Promise<string | null> | null {
+  if (typeof window === 'undefined') return null;
+  const d = (window as unknown as {
+    satDesktop?: { elegirCarpeta?: () => Promise<string | null> };
+  }).satDesktop;
+  return d?.elegirCarpeta ? d.elegirCarpeta() : null;
+}
 
 interface OrganizadorFormProps {
   onOrganizar: (request: OrganizadorRequest) => void;
@@ -33,9 +40,57 @@ interface OrganizadorFormProps {
   isLoading: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+interface DirectoryFieldProps {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  /** Mostrar botón "Examinar" (solo si hay selector nativo del SO). */
+  examinable: boolean;
+  placeholder?: string;
+}
+
+function DirectoryField({
+  id,
+  label,
+  value,
+  onChange,
+  examinable,
+  placeholder,
+}: DirectoryFieldProps) {
+  async function examinar() {
+    const picker = elegirCarpetaNativo();
+    if (!picker) return;
+    const elegida = await picker;
+    if (elegida) onChange(elegida);
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="font-mono text-xs"
+        />
+        {examinable && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={examinar}
+            title="Examinar carpeta"
+          >
+            <Icon icon="ph:folder-open-light" className="size-4" />
+            Examinar
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function OrganizadorForm({
   onOrganizar,
@@ -43,23 +98,63 @@ export function OrganizadorForm({
   onDeduplicar,
   isLoading,
 }: OrganizadorFormProps) {
-  // Organizar state
+  const { apiClient } = useServer();
+
+  // Organizar
   const [orgOrigen, setOrgOrigen] = useState('');
   const [orgDestino, setOrgDestino] = useState('');
   const [orgEstructura, setOrgEstructura] = useState<string>(ESTRUCTURAS[0].value);
-  const [orgCopiar, setOrgCopiar] = useState(false);
+  // Conservar copia del original por default — no perder XMLs por accidente.
+  const [orgCopiar, setOrgCopiar] = useState(true);
+  // Hasta que el usuario lo edita, destino sigue al origen (caso común: organizar in-place).
+  const [destinoTouched, setDestinoTouched] = useState(false);
 
-  // Renombrar state
+  // Renombrar
   const [renDirectorio, setRenDirectorio] = useState('');
   const [renPatron, setRenPatron] = useState<string>(PATRONES_NOMBRE[0].value);
 
-  // Deduplicar state
+  // Deduplicar
   const [dedDirectorio, setDedDirectorio] = useState('');
   const [dedDryRun, setDedDryRun] = useState(true);
 
-  // -------------------------------------------------------------------------
-  // Handlers
-  // -------------------------------------------------------------------------
+  // ¿Hay selector nativo del SO? (Electron sí, navegador no).
+  const [examinable, setExaminable] = useState(false);
+
+  useEffect(() => {
+    setExaminable(
+      typeof window !== 'undefined' &&
+        !!(window as unknown as { satDesktop?: unknown }).satDesktop,
+    );
+  }, []);
+
+  // Prefila los 4 campos de directorio con la carpeta base configurada en Ajustes.
+  // Solo si están vacíos, para no pisar lo que el usuario ya escribió.
+  useEffect(() => {
+    let cancelado = false;
+    apiClient
+      .getDescargasDir()
+      .then((r) => {
+        if (cancelado || !r.dir) return;
+        setOrgOrigen((prev) => prev || r.dir);
+        setOrgDestino((prev) => prev || r.dir);
+        setRenDirectorio((prev) => prev || r.dir);
+        setDedDirectorio((prev) => prev || r.dir);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+  }, [apiClient]);
+
+  function cambiarOrigen(v: string) {
+    setOrgOrigen(v);
+    if (!destinoTouched) setOrgDestino(v);
+  }
+
+  function cambiarDestino(v: string) {
+    setOrgDestino(v);
+    setDestinoTouched(true);
+  }
 
   const handleOrganizar = useCallback(() => {
     if (!orgOrigen || !orgDestino) return;
@@ -100,15 +195,14 @@ export function OrganizadorForm({
           {/* ---- Tab: Organizar ---- */}
           <TabsContent value="organizar">
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="org-origen">Directorio origen</Label>
-                <Input
-                  id="org-origen"
-                  placeholder="/ruta/a/xmls"
-                  value={orgOrigen}
-                  onChange={(e) => setOrgOrigen(e.target.value)}
-                />
-              </div>
+              <DirectoryField
+                id="org-origen"
+                label="Directorio origen"
+                value={orgOrigen}
+                onChange={cambiarOrigen}
+                examinable={examinable}
+                placeholder="/ruta/a/xmls"
+              />
 
               <div className="space-y-2">
                 <Label htmlFor="org-estructura">Estructura de carpetas</Label>
@@ -126,15 +220,14 @@ export function OrganizadorForm({
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="org-destino">Directorio destino</Label>
-                <Input
-                  id="org-destino"
-                  placeholder="/ruta/destino"
-                  value={orgDestino}
-                  onChange={(e) => setOrgDestino(e.target.value)}
-                />
-              </div>
+              <DirectoryField
+                id="org-destino"
+                label="Directorio destino"
+                value={orgDestino}
+                onChange={cambiarDestino}
+                examinable={examinable}
+                placeholder="/ruta/destino"
+              />
 
               <div className="flex items-center gap-3">
                 <Switch
@@ -159,15 +252,14 @@ export function OrganizadorForm({
           {/* ---- Tab: Renombrar ---- */}
           <TabsContent value="renombrar">
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="ren-directorio">Directorio</Label>
-                <Input
-                  id="ren-directorio"
-                  placeholder="/ruta/a/xmls"
-                  value={renDirectorio}
-                  onChange={(e) => setRenDirectorio(e.target.value)}
-                />
-              </div>
+              <DirectoryField
+                id="ren-directorio"
+                label="Directorio"
+                value={renDirectorio}
+                onChange={setRenDirectorio}
+                examinable={examinable}
+                placeholder="/ruta/a/xmls"
+              />
 
               <div className="space-y-2">
                 <Label htmlFor="ren-patron">Patron de nombre</Label>
@@ -197,15 +289,14 @@ export function OrganizadorForm({
           {/* ---- Tab: Deduplicar ---- */}
           <TabsContent value="deduplicar">
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="ded-directorio">Directorio</Label>
-                <Input
-                  id="ded-directorio"
-                  placeholder="/ruta/a/xmls"
-                  value={dedDirectorio}
-                  onChange={(e) => setDedDirectorio(e.target.value)}
-                />
-              </div>
+              <DirectoryField
+                id="ded-directorio"
+                label="Directorio"
+                value={dedDirectorio}
+                onChange={setDedDirectorio}
+                examinable={examinable}
+                placeholder="/ruta/a/xmls"
+              />
 
               <div className="flex items-center gap-3">
                 <Switch
