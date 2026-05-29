@@ -80,6 +80,10 @@ export default function DescargaPage() {
   // sin cambio durante 5–10s, dando la impresión de que nada pasaba.
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // True después de SLOW_NOTICE_MS sin haber resuelto: muestra un aviso
+  // intermedio al usuario para que sepa que el SAT está tardando y le
+  // sugiere CIEC como alternativa sin tener que esperar el error final.
+  const [esperaLarga, setEsperaLarga] = useState(false);
 
   // Refresca el historial de solicitudes en cada cambio del flujo (nueva solicitud,
   // poll que avanza el estado, descarga completada) para que la lista esté al día.
@@ -115,10 +119,14 @@ export default function DescargaPage() {
   // "última" (R) para que setState('requesting') aplique de inmediato y el
   // botón se desactive sin esperar al SAT. La "previa" (E) sale en paralelo
   // por apiClient directo; queda en el catálogo y aparece en la lista.
+  const SLOW_NOTICE_MS = 30_000;
+
   const handleSubmit = useCallback(
     async (params: DescargaFormParams) => {
       setSubmitError(null);
       setSubmitting(true);
+      setEsperaLarga(false);
+      const slowTimer = setTimeout(() => setEsperaLarga(true), SLOW_NOTICE_MS);
       try {
         const tipos: ('E' | 'R')[] =
           params.tipo_comprobante === 'A' ? ['E', 'R'] : [params.tipo_comprobante];
@@ -173,6 +181,8 @@ export default function DescargaPage() {
         console.error('[descarga/submit]', e);
         setSubmitError(traducirError(msg));
       } finally {
+        clearTimeout(slowTimer);
+        setEsperaLarga(false);
         setSubmitting(false);
       }
     },
@@ -220,6 +230,35 @@ export default function DescargaPage() {
           <AlertDescription>
             Debes cargar tu e-firma (FIEL) antes de solicitar una descarga masiva.
             Ve a la seccion de Configuracion para cargar tus archivos .cer y .key.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Espera larga (>30s): aviso intermedio para que el usuario sepa
+          que el SAT está lento y pueda cambiarse a CIEC sin esperar el
+          error final (que puede tardar 5+ min entre reintentos). */}
+      {submitting && esperaLarga && (
+        <Alert>
+          <Icon icon="ph:hourglass-medium-light" className="size-4" />
+          <AlertTitle>El SAT está tardando más de lo normal</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <div>
+              La solicitud puede tardar varios minutos cuando el Web Service
+              del SAT está saturado. Seguimos reintentando.
+            </div>
+            {tieneCiec && (
+              <div>
+                Si no quieres esperar, puedes descargar con la CIEC (limitada
+                a 500 XML por día).{' '}
+                <Link
+                  href="/nueva-descarga"
+                  className="font-medium underline underline-offset-2"
+                >
+                  Clic aquí
+                </Link>
+                .
+              </div>
+            )}
           </AlertDescription>
         </Alert>
       )}
