@@ -13,7 +13,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from '@/lib/notify/prefs';
-import { notifyPrueba } from '@/lib/notify';
 
 const TEMAS = [
   { value: 'light', label: 'Claro', icon: 'ph:sun-light' },
@@ -113,7 +112,8 @@ export default function AjustesPage() {
         <div className="space-y-1">
           <Label>Notificaciones</Label>
           <p className="text-xs text-muted-foreground">
-            Avisos in-app cuando ocurren eventos importantes.
+            Si la app está enfocada, el aviso aparece dentro (in-app). Si
+            estás en otra ventana, llega al centro de notificaciones del SO.
           </p>
         </div>
 
@@ -149,12 +149,6 @@ export default function AjustesPage() {
           </label>
         </div>
 
-        <div>
-          <Button variant="outline" size="sm" onClick={notifyPrueba}>
-            <Icon icon="ph:bell-light" className="size-4" />
-            Probar notificación
-          </Button>
-        </div>
       </Card>
 
       <Card className="space-y-3 p-5">
