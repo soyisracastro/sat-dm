@@ -104,7 +104,8 @@ export function ResourceList<T>({
                 className={cn(
                   'flex items-center px-3 py-2.5 transition-colors',
                   clickable && 'cursor-pointer hover:bg-muted/40',
-                  isActive && 'bg-primary/5 ring-1 ring-inset ring-primary/40',
+                  isActive &&
+                    'bg-blue-50 ring-1 ring-inset ring-blue-300 dark:bg-blue-950/40 dark:ring-blue-800',
                 )}
                 onClick={clickable ? () => onRowClick!(item) : undefined}
                 role={clickable ? 'button' : undefined}

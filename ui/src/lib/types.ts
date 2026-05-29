@@ -238,6 +238,14 @@ export interface Empresa {
   cer_path?: string | null;
   vencimiento?: string;
   default: boolean;
+  /** ISO timestamp si está archivada (soft-delete); null/undefined = activa. */
+  archived_at?: string | null;
+  /** Path local de la última Constancia de Situación Fiscal descargada. */
+  csf_path?: string | null;
+  csf_descargada_en?: string | null;
+  /** Path local de la última Opinión de Cumplimiento 32-D descargada. */
+  opinion_path?: string | null;
+  opinion_descargada_en?: string | null;
 }
 
 export interface EmpresasResponse {

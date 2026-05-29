@@ -1081,9 +1081,13 @@ def ciec_constancia(req: ConstanciaRequest):
         return run
 
     def al_completar(resultado):
+        archivo = (resultado or {}).get("archivo", "")
         _registrar_descarga(req.rfc, "ciec", "constancia",
                             descripcion="Constancia de Situación Fiscal",
-                            ruta=(resultado or {}).get("archivo", ""))
+                            ruta=archivo)
+        if archivo:
+            from ..cli import config_store
+            config_store.set_csf_descargada(req.rfc, archivo)
 
     return _lanzar_ciec(factory, al_completar=al_completar)
 
@@ -1109,9 +1113,13 @@ def ciec_opinion(req: OpinionRequest):
         return run
 
     def al_completar(resultado):
+        archivo = (resultado or {}).get("archivo", "")
         _registrar_descarga(req.rfc, "ciec", "opinion",
                             descripcion="Opinión de Cumplimiento 32-D",
-                            ruta=(resultado or {}).get("archivo", ""))
+                            ruta=archivo)
+        if archivo:
+            from ..cli import config_store
+            config_store.set_opinion_descargada(req.rfc, archivo)
 
     return _lanzar_ciec(factory, al_completar=al_completar)
 
@@ -1170,6 +1178,9 @@ def constancia_fiel_endpoint():
             raise HTTPException(status_code=502, detail="No se pudo descargar la constancia.")
         _registrar_descarga(_session["rfc"] or "", "fiel", "constancia",
                             descripcion="Constancia de Situación Fiscal", ruta=str(pdf))
+        if _session["rfc"]:
+            from ..cli import config_store
+            config_store.set_csf_descargada(_session["rfc"], str(pdf))
         return {"ok": True, "archivo": str(pdf)}
     except HTTPException:
         raise
@@ -1194,6 +1205,9 @@ def opinion_fiel_endpoint():
             raise HTTPException(status_code=502, detail="No se pudo descargar la opinión 32-D.")
         _registrar_descarga(_session["rfc"] or "", "fiel", "opinion",
                             descripcion="Opinión de Cumplimiento 32-D", ruta=str(pdf))
+        if _session["rfc"]:
+            from ..cli import config_store
+            config_store.set_opinion_descargada(_session["rfc"], str(pdf))
         return {"ok": True, "archivo": str(pdf)}
     except HTTPException:
         raise
@@ -1296,6 +1310,28 @@ def empresas_default(rfc: str):
     from ..cli import config_store
     try:
         config_store.set_default(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+    return {"ok": True, "rfc": rfc}
+
+
+@app.post("/empresas/{rfc}/archive")
+def empresas_archive(rfc: str):
+    """Soft-delete: archiva la empresa (la oculta de la lista principal)."""
+    from ..cli import config_store
+    try:
+        config_store.archive_empresa(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+    return {"ok": True, "rfc": rfc}
+
+
+@app.post("/empresas/{rfc}/unarchive")
+def empresas_unarchive(rfc: str):
+    """Desarchiva la empresa (la regresa a la lista principal)."""
+    from ..cli import config_store
+    try:
+        config_store.unarchive_empresa(rfc)
     except KeyError:
         raise HTTPException(status_code=404, detail="empresa no encontrada")
     return {"ok": True, "rfc": rfc}

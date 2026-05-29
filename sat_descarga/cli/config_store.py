@@ -172,8 +172,60 @@ def list_empresas() -> list[dict]:
             "cer_path": info.get("cer_path"),
             "vencimiento": info.get("vencimiento", ""),
             "default": rfc == default,
+            "archived_at": info.get("archived_at"),
+            "csf_path": info.get("csf_path"),
+            "csf_descargada_en": info.get("csf_descargada_en"),
+            "opinion_path": info.get("opinion_path"),
+            "opinion_descargada_en": info.get("opinion_descargada_en"),
         })
     return result
+
+
+def archive_empresa(rfc: str):
+    """
+    Soft-delete: marca la empresa como archivada (no la borra). Si era la default,
+    promueve la primera empresa activa restante (o None si no quedan activas).
+    """
+    data = load_empresas()
+    if rfc not in data["empresas"]:
+        raise KeyError(f"No se encontró empresa con RFC {rfc}")
+    data["empresas"][rfc]["archived_at"] = datetime.now().isoformat(timespec="seconds")
+    if data.get("default_rfc") == rfc:
+        candidatos = [
+            r for r, info in data["empresas"].items()
+            if r != rfc and not info.get("archived_at")
+        ]
+        data["default_rfc"] = candidatos[0] if candidatos else None
+    save_empresas(data)
+
+
+def unarchive_empresa(rfc: str):
+    """Reactiva una empresa archivada."""
+    data = load_empresas()
+    if rfc not in data["empresas"]:
+        raise KeyError(f"No se encontró empresa con RFC {rfc}")
+    data["empresas"][rfc]["archived_at"] = None
+    save_empresas(data)
+
+
+def set_csf_descargada(rfc: str, path: str):
+    """Best-effort: persiste path + timestamp de la última CSF descargada."""
+    data = load_empresas()
+    if rfc not in data["empresas"]:
+        return
+    data["empresas"][rfc]["csf_path"] = path
+    data["empresas"][rfc]["csf_descargada_en"] = datetime.now().isoformat(timespec="seconds")
+    save_empresas(data)
+
+
+def set_opinion_descargada(rfc: str, path: str):
+    """Best-effort: persiste path + timestamp de la última opinión 32-D descargada."""
+    data = load_empresas()
+    if rfc not in data["empresas"]:
+        return
+    data["empresas"][rfc]["opinion_path"] = path
+    data["empresas"][rfc]["opinion_descargada_en"] = datetime.now().isoformat(timespec="seconds")
+    save_empresas(data)
 
 
 def get_empresa(rfc: str) -> dict:

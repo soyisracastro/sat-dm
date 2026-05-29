@@ -44,13 +44,6 @@ const FEATURE_CARDS: FeatureCard[] = [
     requiresFiel: false,
   },
   {
-    href: '/documentos',
-    title: 'Documentos',
-    description: 'Constancia de Situación Fiscal y Opinión de Cumplimiento 32-D.',
-    icon: 'ph:file-text-light',
-    requiresFiel: false,
-  },
-  {
     href: '/descarga',
     title: 'Descarga por e.firma (WS)',
     description: 'Descarga masiva por el Web Service oficial del SAT.',

@@ -4,46 +4,46 @@ import { useState } from 'react';
 import Link from 'next/link';
 
 import { useEmpresas } from '@/hooks/use-empresas';
-import { useServer } from '@/providers/server-provider';
 import { PageHeading } from '@/components/layout/page-heading';
 import { EmpresaAddDialog } from '@/components/empresas/empresa-add-dialog';
-import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
+import { EmpresaStatusGroup } from '@/components/empresas/empresa-status-group';
+import { EmpresaRowExpanded } from '@/components/empresas/empresa-row-expanded';
+import {
+  ResourceList,
+  type ResourceListColumn,
+} from '@/components/shared/resource-list';
 import { Icon } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 import type { Empresa } from '@/lib/types';
 
-const AVATAR_COLORS = ['#0B5FFF', '#059669', '#B45309', '#7C3AED', '#0848CC', '#0E7490'];
-
-function iniciales(nombre: string): string {
-  const parts = nombre.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '??';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function colorDe(rfc: string): string {
-  let h = 0;
-  for (const c of rfc) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
+type Confirmacion = 'archive' | 'unarchive' | 'delete';
 
 export default function EmpresasPage() {
-  const { empresas, loading, error, addFiel, addCiec, remove, seleccionar, activarSesion } =
-    useEmpresas();
-  const { fielStatus } = useServer();
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null); // rfc en proceso
+  const {
+    empresas,
+    loading,
+    error,
+    refresh,
+    addFiel,
+    addCiec,
+    remove,
+    seleccionar,
+    archive,
+    unarchive,
+  } = useEmpresas();
+  const [addOpen, setAddOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [accionError, setAccionError] = useState<string | null>(null);
 
   async function withBusy(rfc: string, fn: () => Promise<void>) {
@@ -58,17 +58,46 @@ export default function EmpresasPage() {
     }
   }
 
+  const activas = empresas.filter((e) => !e.archived_at);
+  const archivadas = empresas.filter((e) => !!e.archived_at);
+  const activeRfc = activas.find((e) => e.default)?.rfc ?? null;
+
+  const columnas: ResourceListColumn<Empresa>[] = [
+    {
+      key: 'rfc',
+      header: 'RFC',
+      width: 'w-40',
+      render: (e) => (
+        <span className="font-mono text-xs font-medium">{e.rfc}</span>
+      ),
+    },
+    {
+      key: 'nombre',
+      header: 'Nombre',
+      hideOnMobile: true,
+      render: (e) => (
+        <span className="truncate text-sm text-muted-foreground">{e.nombre}</span>
+      ),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      width: 'w-48',
+      render: (e) => <EmpresaStatusGroup empresa={e} />,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeading
         title={
-          empresas.length > 0
-            ? `${empresas.length} RFC${empresas.length === 1 ? '' : 's'} configurados`
+          activas.length > 0
+            ? `${activas.length} RFC${activas.length === 1 ? '' : 's'} configurados`
             : 'Empresas'
         }
         description="Cada empresa guarda su método de autenticación localmente. La e.firma nunca sale de tu computadora."
         action={
-          <Button onClick={() => setOpen(true)}>
+          <Button onClick={() => setAddOpen(true)}>
             <Icon icon="ph:plus-light" className="size-4" /> Agregar empresa
           </Button>
         }
@@ -85,44 +114,72 @@ export default function EmpresasPage() {
           <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> Cargando empresas…
         </div>
       ) : empresas.length === 0 ? (
-        <Card className="flex flex-col items-center gap-3 p-10 text-center">
-          <Icon icon="ph:buildings-light" className="size-8 text-muted-foreground" />
-          <div className="space-y-1">
-            <p className="font-medium">Aún no tienes empresas</p>
-            <p className="text-sm text-muted-foreground">
-              Registra tu primera empresa (e.firma o CIEC) para empezar a descargar.
-            </p>
-          </div>
-          <Button onClick={() => setOpen(true)}>
-            <Icon icon="ph:plus-light" className="size-4" /> Agregar empresa
-          </Button>
-        </Card>
+        <EmptyState onAdd={() => setAddOpen(true)} />
       ) : (
-        <Card className="overflow-hidden p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Empresa</TableHead>
-                <TableHead>RFC</TableHead>
-                <TableHead>Método</TableHead>
-                <TableHead className="text-right" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {empresas.map((e) => (
-                <EmpresaRow
-                  key={e.rfc}
+        <>
+          {activas.length > 0 && (
+            <ResourceList
+              items={activas}
+              getKey={(e) => e.rfc}
+              activeId={activeRfc}
+              onRowClick={(e) =>
+                withBusy(e.rfc, () => seleccionar(e.rfc, e.metodos))
+              }
+              columns={columnas}
+              actionsHeader="Acciones"
+              actions={(e) => (
+                <EmpresaRowActions
                   empresa={e}
+                  archived={false}
                   busy={busy === e.rfc}
-                  efirmaCargada={fielStatus.loaded && fielStatus.rfc === e.rfc}
-                  onSeleccionar={() => withBusy(e.rfc, () => seleccionar(e.rfc, e.metodos))}
-                  onCargarEfirma={() => withBusy(e.rfc, () => activarSesion(e.rfc))}
-                  onRemove={() => withBusy(e.rfc, () => remove(e.rfc))}
+                  onArchive={() => withBusy(e.rfc, () => archive(e.rfc))}
+                  onDelete={() => withBusy(e.rfc, () => remove(e.rfc))}
                 />
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
+              )}
+              expandable={{
+                render: (e) => (
+                  <EmpresaRowExpanded empresa={e} onJobDone={refresh} />
+                ),
+              }}
+            />
+          )}
+
+          {archivadas.length > 0 && (
+            <details className="group rounded-lg border border-border bg-card">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
+                <Icon
+                  icon="ph:caret-right-light"
+                  className="size-4 transition-transform group-open:rotate-90"
+                />
+                <span>Empresas archivadas</span>
+                <Badge variant="secondary">{archivadas.length}</Badge>
+              </summary>
+              <div className="border-t border-border p-3">
+                <ResourceList
+                  items={archivadas}
+                  getKey={(e) => e.rfc}
+                  columns={columnas}
+                  dimmed
+                  actionsHeader="Acciones"
+                  actions={(e) => (
+                    <EmpresaRowActions
+                      empresa={e}
+                      archived
+                      busy={busy === e.rfc}
+                      onUnarchive={() => withBusy(e.rfc, () => unarchive(e.rfc))}
+                      onDelete={() => withBusy(e.rfc, () => remove(e.rfc))}
+                    />
+                  )}
+                  expandable={{
+                    render: (e) => (
+                      <EmpresaRowExpanded empresa={e} onJobDone={refresh} />
+                    ),
+                  }}
+                />
+              </div>
+            </details>
+          )}
+        </>
       )}
 
       <div className="flex items-center gap-2 rounded-lg border bg-secondary px-4 py-3 text-xs text-muted-foreground">
@@ -134,92 +191,145 @@ export default function EmpresasPage() {
         </span>
       </div>
 
-      <EmpresaAddDialog open={open} onOpenChange={setOpen} addFiel={addFiel} addCiec={addCiec} />
+      <EmpresaAddDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        addFiel={addFiel}
+        addCiec={addCiec}
+      />
     </div>
   );
 }
 
-function EmpresaRow({
-  empresa,
-  busy,
-  efirmaCargada,
-  onSeleccionar,
-  onCargarEfirma,
-  onRemove,
-}: {
-  empresa: Empresa;
-  busy: boolean;
-  efirmaCargada: boolean;
-  onSeleccionar: () => void;
-  onCargarEfirma: () => void;
-  onRemove: () => void;
-}) {
-  // Empresa activa con e.firma pero sin cargar en sesión → ofrecer cargarla.
-  const puedeCargarEfirma =
-    empresa.default && empresa.metodos.includes('fiel') && !efirmaCargada;
+function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <TableRow className={empresa.default ? 'bg-accent/60' : undefined}>
-      <TableCell>
-        <div className="flex items-center gap-3">
-          <div
-            className="flex size-8 shrink-0 items-center justify-center rounded-md font-mono text-[10px] font-bold text-white"
-            style={{ background: colorDe(empresa.rfc) }}
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-10 text-center">
+      <Icon icon="ph:buildings-light" className="size-8 text-muted-foreground" />
+      <div className="space-y-1">
+        <p className="font-medium">Aún no tienes empresas</p>
+        <p className="text-sm text-muted-foreground">
+          Registra tu primera empresa (e.firma o CIEC) para empezar a descargar.
+        </p>
+      </div>
+      <Button onClick={onAdd}>
+        <Icon icon="ph:plus-light" className="size-4" /> Agregar empresa
+      </Button>
+    </div>
+  );
+}
+
+interface EmpresaRowActionsProps {
+  empresa: Empresa;
+  archived: boolean;
+  busy: boolean;
+  onArchive?: () => void;
+  onUnarchive?: () => void;
+  onDelete: () => void;
+}
+
+function EmpresaRowActions({
+  empresa,
+  archived,
+  busy,
+  onArchive,
+  onUnarchive,
+  onDelete,
+}: EmpresaRowActionsProps) {
+  const [confirm, setConfirm] = useState<Confirmacion | null>(null);
+
+  function ejecutar() {
+    if (confirm === 'archive') onArchive?.();
+    else if (confirm === 'unarchive') onUnarchive?.();
+    else if (confirm === 'delete') onDelete();
+    setConfirm(null);
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1">
+      {!archived ? (
+        <>
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            title="Configurar empresa"
           >
-            {iniciales(empresa.nombre)}
-          </div>
-          <div>
-            <div className="font-medium leading-tight">{empresa.nombre}</div>
-            {empresa.default && (
-              <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                <span className="size-1.5 rounded-full bg-primary" />
-                Activa
-              </div>
-            )}
-          </div>
-        </div>
-      </TableCell>
-      <TableCell className="font-mono text-xs text-muted-foreground">{empresa.rfc}</TableCell>
-      <TableCell>
-        {/* Una empresa puede tener ambos métodos. */}
-        <div className="flex flex-wrap items-center gap-1">
-          {empresa.metodos.includes('fiel') && (
-            <Badge variant="secondary" className="gap-1">
-              <Icon icon="ph:shield-check-light" className="size-3" /> e.firma
-            </Badge>
-          )}
-          {empresa.metodos.includes('ciec') && (
-            <Badge variant="secondary" className="gap-1">
-              <Icon icon="ph:key-light" className="size-3" /> CIEC
-            </Badge>
-          )}
-          {empresa.metodos.includes('fiel') && (
-            <VencimientoBadge vencimiento={empresa.vencimiento} />
-          )}
-        </div>
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="inline-flex items-center gap-1">
-          {!empresa.default ? (
-            <Button variant="ghost" size="sm" onClick={onSeleccionar} disabled={busy}>
-              {busy ? <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" /> : null}
-              Usar
-            </Button>
-          ) : puedeCargarEfirma ? (
-            <Button variant="ghost" size="sm" onClick={onCargarEfirma} disabled={busy}>
-              {busy ? <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" /> : null}
-              Cargar e.firma
-            </Button>
-          ) : null}
-          <Button asChild variant="ghost" size="icon" title="Editar / credenciales">
             <Link href={`/empresas/${encodeURIComponent(empresa.rfc)}`}>
-              <Icon icon="ph:pencil-simple-light" className="size-4" />
+              <Icon icon="ph:gear-light" className="size-4" />
             </Link>
           </Button>
-          <Button variant="ghost" size="icon" onClick={onRemove} disabled={busy} title="Eliminar">
-            <Icon icon="ph:trash-light" className="size-4" />
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={busy}
+            onClick={() => setConfirm('archive')}
+            title="Archivar"
+          >
+            <Icon icon="ph:archive-light" className="size-4" />
           </Button>
-        </div>
-      </TableCell>
-    </TableRow>
+        </>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={busy}
+          onClick={() => setConfirm('unarchive')}
+          title="Desarchivar"
+        >
+          <Icon
+            icon="ph:archive-tray-light"
+            className={cn('size-4 text-blue-500')}
+          />
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        disabled={busy}
+        onClick={() => setConfirm('delete')}
+        title="Eliminar"
+      >
+        <Icon icon="ph:trash-light" className="size-4" />
+      </Button>
+
+      <Dialog
+        open={confirm !== null}
+        onOpenChange={(o) => !o && setConfirm(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirm === 'delete'
+                ? 'Eliminar empresa'
+                : confirm === 'archive'
+                  ? 'Archivar empresa'
+                  : 'Desarchivar empresa'}
+            </DialogTitle>
+            <DialogDescription>
+              {confirm === 'delete'
+                ? `Esto borrará "${empresa.nombre}" del catálogo y sus credenciales del keychain del sistema. Los archivos descargados no se borran.`
+                : confirm === 'archive'
+                  ? `"${empresa.nombre}" se ocultará de la lista principal. Podrás desarchivarla cuando la necesites.`
+                  : `"${empresa.nombre}" volverá a la lista principal.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant={confirm === 'delete' ? 'destructive' : 'default'}
+              onClick={ejecutar}
+            >
+              {confirm === 'delete'
+                ? 'Eliminar'
+                : confirm === 'archive'
+                  ? 'Archivar'
+                  : 'Desarchivar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
