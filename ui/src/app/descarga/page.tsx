@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Icon } from '@/components/ui/icon';
 
@@ -40,6 +40,14 @@ export default function DescargaPage() {
     refresh: refreshSolicitudes,
   } = useSolicitudes(fielStatus.rfc);
 
+  // Flag de "submit en curso": cubre la ventana entre que el usuario hace
+  // click y el hook setea state='requesting'. Antes solo R o E (solo) tenían
+  // feedback inmediato porque el hook arrancaba primero; en "Ambos" se
+  // disparaba primero la previa via apiClient directo y la UI se quedaba
+  // sin cambio durante 5–10s, dando la impresión de que nada pasaba.
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   // Refresca el historial de solicitudes en cada cambio del flujo (nueva solicitud,
   // poll que avanza el estado, descarga completada) para que la lista esté al día.
   useEffect(() => {
@@ -70,42 +78,64 @@ export default function DescargaPage() {
     [apiClient, fielStatus.rfc, refreshSolicitudes, requestId, reset],
   );
 
-  // Expande "Ambos" en dos solicitudes (E + R). Las previas se mandan por el cliente
-  // directo (quedan persistidas en el catálogo y aparecen en la lista); la última
-  // entra al active flow (polling + auto-descarga) por el hook.
+  // Expande "Ambos" en dos solicitudes (E + R). El hook arranca PRIMERO con la
+  // "última" (R) para que setState('requesting') aplique de inmediato y el
+  // botón se desactive sin esperar al SAT. La "previa" (E) sale en paralelo
+  // por apiClient directo; queda en el catálogo y aparece en la lista. Ambas
+  // se esperan antes de refrescar la SolicitudesList.
   const handleSubmit = useCallback(
     async (params: DescargaFormParams) => {
-      const tipos: ('E' | 'R')[] =
-        params.tipo_comprobante === 'A' ? ['E', 'R'] : [params.tipo_comprobante];
-      const previas = tipos.slice(0, -1);
-      const ultima = tipos[tipos.length - 1];
-      // Previas en paralelo, ignorando errores individuales (la lista los reflejará si llegaron).
-      await Promise.all(
-        previas.map((t) =>
-          apiClient
-            .solicitar({
-              fecha_inicio: params.fecha_inicio,
-              fecha_fin: params.fecha_fin,
-              tipo_solicitud: params.tipo_solicitud,
-              tipo_comprobante: t,
-            })
-            .catch(() => null),
-        ),
-      );
-      // Última solicitud por el hook → entra al flujo activo (polling + auto-descarga).
-      await solicitar({
-        fecha_inicio: params.fecha_inicio,
-        fecha_fin: params.fecha_fin,
-        tipo_solicitud: params.tipo_solicitud,
-        tipo_comprobante: ultima,
-      });
-      refreshSolicitudes();
+      setSubmitError(null);
+      setSubmitting(true);
+      try {
+        const tipos: ('E' | 'R')[] =
+          params.tipo_comprobante === 'A' ? ['E', 'R'] : [params.tipo_comprobante];
+        const previas = tipos.slice(0, -1);
+        const ultima = tipos[tipos.length - 1];
+
+        // 1) Disparar la última por el hook (sin await): setState('requesting')
+        //    se aplica antes del primer yield → botón se desactiva instantáneo.
+        const ultimaPromise = solicitar({
+          fecha_inicio: params.fecha_inicio,
+          fecha_fin: params.fecha_fin,
+          tipo_solicitud: params.tipo_solicitud,
+          tipo_comprobante: ultima,
+        });
+
+        // 2) En paralelo, las previas por apiClient directo. Errores quedan
+        //    visibles en la consola pero no rompen el flujo (la lista las
+        //    reflejará igualmente si llegaron a crearse).
+        const previasPromise = Promise.all(
+          previas.map((t) =>
+            apiClient
+              .solicitar({
+                fecha_inicio: params.fecha_inicio,
+                fecha_fin: params.fecha_fin,
+                tipo_solicitud: params.tipo_solicitud,
+                tipo_comprobante: t,
+              })
+              .catch((e: unknown) => {
+                console.warn('[descarga/previa] falló para', t, e);
+                return null;
+              }),
+          ),
+        );
+
+        await Promise.all([ultimaPromise, previasPromise]);
+        refreshSolicitudes();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[descarga/submit]', e);
+        setSubmitError(msg);
+      } finally {
+        setSubmitting(false);
+      }
     },
     [apiClient, solicitar, refreshSolicitudes],
   );
 
   const fielLoaded = fielStatus.loaded;
-  const isRequesting = state === 'requesting';
+  const isRequesting = state === 'requesting' || submitting;
   const showForm = state === 'idle' || state === 'error' || isRequesting;
   const showPolling = state === 'polling' || isRequesting || state === 'ready';
   const showPackages = state === 'ready' || state === 'downloading' || state === 'done';
@@ -150,11 +180,11 @@ export default function DescargaPage() {
       )}
 
       {/* Error */}
-      {error && (
+      {(error || submitError) && (
         <Alert variant="destructive">
           <Icon icon="ph:warning-circle-light" className="size-4" />
           <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{submitError || error}</AlertDescription>
         </Alert>
       )}
 
