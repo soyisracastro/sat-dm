@@ -366,6 +366,20 @@ export class SatApiClient {
     );
   }
 
+  /** Archiva la empresa (soft-delete; la oculta de la lista principal). */
+  async archiveEmpresa(rfc: string): Promise<{ ok: boolean; rfc: string }> {
+    return this.post<{ ok: boolean; rfc: string }>(
+      `/empresas/${encodeURIComponent(rfc)}/archive`,
+    );
+  }
+
+  /** Desarchiva la empresa (la regresa a la lista principal). */
+  async unarchiveEmpresa(rfc: string): Promise<{ ok: boolean; rfc: string }> {
+    return this.post<{ ok: boolean; rfc: string }>(
+      `/empresas/${encodeURIComponent(rfc)}/unarchive`,
+    );
+  }
+
   /** Historial de solicitudes de una empresa. */
   async listSolicitudes(rfc: string): Promise<SolicitudesResponse> {
     return this.request<SolicitudesResponse>(

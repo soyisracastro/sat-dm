@@ -23,6 +23,10 @@ interface UseEmpresasState {
   seleccionar: (rfc: string, metodos: MetodoEmpresa[]) => Promise<void>;
   /** Carga la e.firma de la empresa en la sesión (sin cambiar la predeterminada). */
   activarSesion: (rfc: string) => Promise<void>;
+  /** Soft-delete: oculta la empresa de la lista principal (reversible). */
+  archive: (rfc: string) => Promise<void>;
+  /** Reactiva una empresa archivada. */
+  unarchive: (rfc: string) => Promise<void>;
 }
 
 /**
@@ -109,8 +113,27 @@ export function useEmpresas(): UseEmpresasState {
     [apiClient, refreshHealth],
   );
 
+  const archive = useCallback(
+    async (rfc: string) => {
+      await apiClient.archiveEmpresa(rfc);
+      refresh();
+      // Archivar puede promover otra empresa como default → recargar health.
+      refreshHealth();
+    },
+    [apiClient, refresh, refreshHealth],
+  );
+
+  const unarchive = useCallback(
+    async (rfc: string) => {
+      await apiClient.unarchiveEmpresa(rfc);
+      refresh();
+    },
+    [apiClient, refresh],
+  );
+
   return {
     empresas, loading, error, refresh,
     addCiec, addFiel, remove, seleccionar, activarSesion,
+    archive, unarchive,
   };
 }
