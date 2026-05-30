@@ -181,6 +181,15 @@ class CIECDescargaRequest(BaseModel):
     max_registros: int = 500
 
 
+class FIELCfdiRequest(BaseModel):
+    # Las credenciales (cer/key/password) vienen de la sesión (`_get_fiel`),
+    # cargadas por /auth/cargar-fiel o por el lifespan al activar empresa.
+    fecha_inicio: date
+    fecha_fin: date
+    tipo_comprobante: str = TIPO_RECIBIDO
+    max_registros: int = 500
+
+
 class ConstanciaRequest(BaseModel):
     rfc: str
     ciec: Optional[str] = None  # si falta, se toma del catálogo (keychain)
@@ -1025,12 +1034,14 @@ def _salida_descarga_ws(rfc: str, id_solicitud: str) -> str:
     return str(paths.dir_cfdi_base(rfc, salida_base=base))
 
 
-def _lanzar_ciec(fn_factory, al_completar=None):
+def _lanzar_job_portal(fn_factory, al_completar=None):
     """
-    Crea un job CIEC, inyecta el callback de captcha del bridge y lo corre en un
-    worker thread. `fn_factory(pedir_captcha)` devuelve el callable del scrape.
+    Crea un job de scraping del portal (CIEC o FIEL), inyecta el callback de captcha
+    del bridge y lo corre en un worker thread. `fn_factory(pedir_captcha)` devuelve
+    el callable del scrape; las factories FIEL simplemente ignoran `pedir_captcha`
+    porque el login con e.firma no pide captcha.
     `al_completar(resultado)` (opcional) se ejecuta al terminar bien (p. ej. registrar
-    en el historial). Solo un job CIEC a la vez (la sesión del agente es de un usuario).
+    en el historial). Solo un job a la vez (la sesión del agente es de un usuario).
     """
     if jobs.registry.hay_activo():
         raise HTTPException(
@@ -1072,7 +1083,7 @@ def ciec_cfdi(req: CIECDescargaRequest):
         _registrar_descarga(req.rfc, "ciec", "cfdi", descripcion=desc,
                             ruta=salida, total=(resultado or {}).get("total"))
 
-    return _lanzar_ciec(factory, al_completar=al_completar)
+    return _lanzar_job_portal(factory, al_completar=al_completar)
 
 
 @app.post("/ciec/constancia")
@@ -1104,7 +1115,7 @@ def ciec_constancia(req: ConstanciaRequest):
             from ..cli import config_store
             config_store.set_csf_descargada(req.rfc, archivo)
 
-    return _lanzar_ciec(factory, al_completar=al_completar)
+    return _lanzar_job_portal(factory, al_completar=al_completar)
 
 
 @app.post("/ciec/opinion")
@@ -1136,7 +1147,7 @@ def ciec_opinion(req: OpinionRequest):
             from ..cli import config_store
             config_store.set_opinion_descargada(req.rfc, archivo)
 
-    return _lanzar_ciec(factory, al_completar=al_completar)
+    return _lanzar_job_portal(factory, al_completar=al_completar)
 
 
 @app.post("/jobs/{job_id}/captcha")
@@ -1228,6 +1239,43 @@ def opinion_fiel_endpoint():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cfdi/fiel")
+def cfdi_fiel(req: FIELCfdiRequest):
+    """
+    Descarga CFDIs vía portal con la e.firma en sesión como job (sin captcha).
+    Mismo patrón que /ciec/cfdi pero el login es e.firma → no se emite
+    `captcha_required` en el SSE. → {job_id}.
+    """
+    from ..portal.cfdi import descargar_cfdi_fiel
+    from ..core import paths
+
+    _get_fiel()
+    rfc = _session["rfc"] or ""
+    salida = str(paths.dir_cfdi_base(rfc, salida_base=_descargas_base()))
+
+    def factory(pedir_captcha):  # pedir_captcha se ignora (FIEL no usa captcha)
+        def run():
+            archivos = descargar_cfdi_fiel(
+                cer_path=_session["cer_path"], key_path=_session["key_path"],
+                password=_session["password"],
+                fecha_inicio=req.fecha_inicio, fecha_fin=req.fecha_fin,
+                tipo_comprobante=req.tipo_comprobante,
+                directorio_salida=salida, max_registros=req.max_registros,
+            )
+            return {"metodo": "fiel", "total": len(archivos),
+                    "archivos": [str(a) for a in archivos]}
+        return run
+
+    cuales = {"E": "emitidos", "R": "recibidos"}.get(req.tipo_comprobante, "")
+    desc = f"CFDIs {cuales} · {req.fecha_inicio} a {req.fecha_fin}".replace("  ", " ")
+
+    def al_completar(resultado):
+        _registrar_descarga(rfc, "fiel", "cfdi", descripcion=desc,
+                            ruta=salida, total=(resultado or {}).get("total"))
+
+    return _lanzar_job_portal(factory, al_completar=al_completar)
 
 
 # ---------------------------------------------------------------------------

@@ -66,7 +66,7 @@ def _es_landing_opinion(url: str) -> bool:
 class OpinionClient:
     """Cliente para descargar el Reporte de Opinión de Cumplimiento 32-D (portal)."""
 
-    def __init__(self, rfc: str = "", ciec: str = "", headless: bool = False):
+    def __init__(self, rfc: str = "", ciec: str = "", headless: bool = True):
         self.rfc = (rfc or "").strip().upper()
         self.ciec = ciec
         self.headless = headless
@@ -285,14 +285,14 @@ def descargar_opinion_fiel(
     key_path: str,
     password: str,
     directorio_salida: str = "./opinion/",
-    headless: bool = False,
+    headless: bool = True,
 ) -> Optional[Path]:
     """
     Descarga el Reporte de Opinión de Cumplimiento 32-D usando e.firma (FIEL).
 
-    El browser es VISIBLE: si el autollenado de la pestaña e.firma falla, selecciona
-    .cer/.key + contraseña a mano (no hay captcha). El resto (navegación + captura
-    del PDF) se reutiliza igual que con CIEC.
+    El browser corre HEADLESS por default (espejo del flujo CIEC). El login con
+    e.firma es 100% automático (no hay captcha). `headless=False` SOLO para depurar
+    si el autollenado de .cer/.key/contraseña falla y necesitas completarlo a mano.
     """
     # El RFC para nombrar el PDF se extrae del certificado.
     rfc = ""

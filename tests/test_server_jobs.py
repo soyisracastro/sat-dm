@@ -116,3 +116,41 @@ def test_ciec_sin_password_ni_catalogo_400(client):
         "fecha_inicio": "2026-01-01", "fecha_fin": "2026-01-31",
     })
     assert r.status_code == 400
+
+
+def test_cfdi_fiel_sin_efirma_cargada_401(client):
+    # Sin /auth/cargar-fiel previo, _get_fiel() rechaza con 401.
+    server._session["fiel"] = None
+    r = client.post("/cfdi/fiel", json={
+        "fecha_inicio": "2026-01-01", "fecha_fin": "2026-01-31",
+    })
+    assert r.status_code == 401
+
+
+def test_cfdi_fiel_lanza_job_con_credenciales_de_sesion(client, monkeypatch):
+    # Con la FIEL en sesión, /cfdi/fiel crea un job y pasa cer/key/password al scrape.
+    server._session.update({
+        "fiel": object(), "rfc": "CAUI890921DAA",
+        "cer_path": "/tmp/x.cer", "key_path": "/tmp/x.key",
+        "password": "pw", "es_temp": False,
+    })
+    recibido = {}
+
+    def stub(**kwargs):
+        recibido.update(kwargs)
+        return []
+    monkeypatch.setattr("sat_descarga.portal.cfdi.descargar_cfdi_fiel", stub)
+
+    r = client.post("/cfdi/fiel", json={
+        "fecha_inicio": "2026-01-01", "fecha_fin": "2026-01-31",
+        "tipo_comprobante": "R", "max_registros": 3,
+    })
+    assert r.status_code == 200 and "job_id" in r.json()
+    fin = time.time() + 3
+    while time.time() < fin and "cer_path" not in recibido:
+        time.sleep(0.02)
+    assert recibido["cer_path"] == "/tmp/x.cer"
+    assert recibido["key_path"] == "/tmp/x.key"
+    assert recibido["password"] == "pw"
+    assert recibido["tipo_comprobante"] == "R"
+    assert recibido["max_registros"] == 3
