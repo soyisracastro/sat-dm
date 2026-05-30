@@ -33,9 +33,9 @@ import logging
 import re
 from datetime import date, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
-from .login import iniciar_sesion_ciec
+from .login import iniciar_sesion_ciec, iniciar_sesion_fiel
 from ..core import paths
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,7 @@ class CIECClient:
         directorio_salida: str = "./cfdi/",
         max_registros: int = 2000,
         pedir_captcha=None,
+        login: Optional[Callable[[object], None]] = None,
     ) -> List[Path]:
         """
         Descarga CFDIs del portal del SAT con un solo login.
@@ -79,6 +80,10 @@ class CIECClient:
                 {base}/{emitidos|recibidos}/[{desde}_a_{hasta}]/ (la carpeta por
                 solicitud se omite si core.paths.AGRUPAR_POR_EVENTO es False).
             max_registros: tope TOTAL de XMLs a descargar (protege contra la cuota).
+            login: callable opcional `login(page)` que ejecuta el login. Si se
+                omite, se usa el flujo CIEC (RFC + contraseña + captcha). El
+                wrapper `descargar_cfdi_fiel` inyecta un login con e.firma para
+                saltarse el captcha.
 
         Returns:
             Lista de Paths a los XMLs descargados.
@@ -110,7 +115,12 @@ class CIECClient:
             page = context.new_page()
 
             try:
-                self._login(page, pedir_captcha)  # un solo captcha para todos los tipos
+                # Un solo login para todos los tipos. Si el caller inyectó un
+                # `login` (p. ej. e.firma), úsalo; si no, cae al login CIEC.
+                if login is not None:
+                    login(page)
+                else:
+                    self._login_ciec(page, pedir_captcha)
                 for tipo in tipos:
                     if len(descargados) >= max_registros:
                         break
@@ -200,7 +210,7 @@ class CIECClient:
     # Login (captcha resuelto por el usuario en el browser visible)
     # ------------------------------------------------------------------
 
-    def _login(self, page, pedir_captcha=None):
+    def _login_ciec(self, page, pedir_captcha=None):
         # El portal CFDI aterriza de vuelta en portalcfdi (saliendo de cfdiau).
         iniciar_sesion_ciec(
             page, self.rfc, self.ciec,
@@ -477,4 +487,51 @@ def descargar_cfdi_ciec(
         directorio_salida=directorio_salida,
         max_registros=max_registros,
         pedir_captcha=pedir_captcha,
+    )
+
+
+def descargar_cfdi_fiel(
+    cer_path: str,
+    key_path: str,
+    password: str,
+    fecha_inicio: date,
+    fecha_fin: date,
+    tipo_comprobante: str = "RE",
+    directorio_salida: str = "./cfdi/",
+    max_registros: int = 2000,
+    headless: bool = True,
+) -> List[Path]:
+    """
+    Descarga CFDIs del portal del SAT usando e.firma (FIEL) en vez de CIEC.
+
+    Ventaja sobre CIEC: el portal NO pide captcha cuando se loguea con e.firma, así
+    que el flujo queda 100% automatizado. La cuota diaria del portal aplica igual
+    (no hay evidencia de que la FIEL la exente).
+
+    tipo_comprobante: "R" (recibidos), "E" (emitidos) o "RE"/ambos (default).
+    El browser corre HEADLESS por default (espejo de `descargar_cfdi_ciec`). Usar
+    `headless=False` SOLO para depurar (si el autollenado e.firma falla y necesitas
+    completarlo a mano).
+    """
+    rfc = ""
+    try:
+        from ..core.fiel import FIEL
+        rfc = FIEL(cer_path, key_path, password).rfc
+    except Exception as e:
+        logger.warning("[FIEL] no se pudo leer el RFC del .cer: %s", e)
+
+    login = lambda page: iniciar_sesion_fiel(
+        page, cer_path, key_path, password,
+        url_entrada=f"{PORTAL_URL}/",
+        exito=lambda url: "portalcfdi.facturaelectronica.sat.gob.mx" in url
+                          and "cfdiau" not in url,
+    )
+    client = CIECClient(rfc=rfc, ciec="", headless=headless)
+    return client.descargar(
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        tipo_comprobante=tipo_comprobante,
+        directorio_salida=directorio_salida,
+        max_registros=max_registros,
+        login=login,
     )

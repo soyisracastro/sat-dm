@@ -12,7 +12,7 @@ Organizado por canal de acceso:
 
 API pública estable:
     from sat_descarga import descargar_cfdi, FIEL                       # Web Service
-    from sat_descarga import descargar_cfdi_ciec                        # portal CIEC (CFDIs)
+    from sat_descarga import descargar_cfdi_ciec, descargar_cfdi_fiel   # portal (CFDIs)
     from sat_descarga import descargar_constancia_ciec, descargar_constancia_fiel
     from sat_descarga import descargar_opinion_ciec, descargar_opinion_fiel
 """
@@ -26,7 +26,7 @@ from .webservice.descarga import descargar_paquete, descargar_todos
 
 # Portal (scraping). Playwright se importa de forma lazy dentro de estas funciones,
 # así que re-exportarlas aquí NO requiere el extra `ciec`.
-from .portal.cfdi import descargar_cfdi_ciec
+from .portal.cfdi import descargar_cfdi_ciec, descargar_cfdi_fiel
 from .portal.constancia import descargar_constancia_ciec, descargar_constancia_fiel
 from .portal.opinion import descargar_opinion_ciec, descargar_opinion_fiel
 
@@ -40,6 +40,7 @@ __all__ = [
     "descargar_paquete",
     "descargar_todos",
     "descargar_cfdi_ciec",
+    "descargar_cfdi_fiel",
     "descargar_constancia_ciec",
     "descargar_constancia_fiel",
     "descargar_opinion_ciec",

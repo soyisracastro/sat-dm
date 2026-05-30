@@ -13,6 +13,7 @@ from sat_descarga import (
     descargar_cfdi,
     verificar_solicitud_existente,
     descargar_cfdi_ciec,
+    descargar_cfdi_fiel,
     descargar_constancia_ciec,
     descargar_constancia_fiel,
     descargar_opinion_ciec,
@@ -211,6 +212,56 @@ def descargar_ciec_cmd(rfc, ciec, desde, hasta, tipo, salida, max_registros, ver
         print_warning("No se descargaron XMLs.")
 
 
+@descargar.command(name="fiel")
+@click.option("--rfc", default=None,
+              help="RFC del contribuyente (si está en el catálogo, toma cer/key/password de ahí)")
+@click.option("--cer", type=click.Path(exists=True), default=None, help="Archivo .cer (e.firma)")
+@click.option("--key", type=click.Path(exists=True), default=None, help="Archivo .key (e.firma)")
+@click.option("--password", default=None, help="Contraseña de la clave privada (se pide oculta si falta)")
+@click.option("--desde", default=None, help="Fecha inicio (YYYY-MM-DD)")
+@click.option("--hasta", default=None, help="Fecha fin (YYYY-MM-DD)")
+@click.option("--tipo", default="RE", help="R=recibidos, E=emitidos, RE=ambos")
+@click.option("--salida", default=None, help="Directorio base de salida (default descargas/cfdi/<RFC>/)")
+@click.option("--max-registros", default=2000, type=int, help="Tope de XMLs (cuota diaria del portal)")
+@click.option("--ver-navegador", is_flag=True, default=False, help="Debug: mostrar el navegador (headful)")
+def descargar_fiel_cmd(rfc, cer, key, password, desde, hasta, tipo, salida, max_registros, ver_navegador):
+    """CFDIs vía el portal web usando e.firma. NO pide captcha (a diferencia de `descargar ciec`)."""
+    # Si pasan --rfc y está en el catálogo, resolvemos cer/key/password desde ahí
+    # (mismo patrón que `descargar cfdi` para WS). Si no, hace falta --cer/--key.
+    if rfc and not (cer and key):
+        rfc = rfc.strip().upper()
+        try:
+            empresa = config_store.get_empresa(rfc)
+            cer = cer or empresa.get("cer_path")
+            key = key or empresa.get("key_path")
+            password = password or empresa.get("password")
+        except KeyError:
+            print_error(f"Empresa {rfc} no registrada. Pasa --cer/--key explícitamente.")
+            raise click.Abort()
+    if not cer or not key:
+        print_error("Faltan credenciales. Pasa --rfc (empresa registrada) o --cer/--key.")
+        raise click.Abort()
+    if not password:
+        password = click.prompt("  Contraseña de la clave privada", hide_input=True)
+
+    # RFC para la ruta de salida: el del certificado (autoritativo).
+    rfc_cert = _rfc_de_cert(cer, key, password) or (rfc or "")
+    fecha_inicio, fecha_fin = _prompt_fechas(desde, hasta)
+    salida = str(paths.dir_cfdi_base(rfc_cert, salida_base=salida))
+
+    print_header(f"Descarga e.firma — {rfc_cert} ({fecha_inicio} a {fecha_fin}, tipo {tipo.upper()})")
+    archivos = descargar_cfdi_fiel(
+        cer_path=cer, key_path=key, password=password,
+        fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+        tipo_comprobante=tipo, directorio_salida=salida,
+        max_registros=max_registros, headless=not ver_navegador,
+    )
+    if archivos:
+        print_success(f"{len(archivos)} XML(s) descargados en {salida}")
+    else:
+        print_warning("No se descargaron XMLs.")
+
+
 @descargar.command(name="constancia")
 @click.option("--metodo", type=click.Choice(["ciec", "fiel"]), default="ciec",
               help="Autenticación: ciec (captcha) o fiel (e.firma, automático)")
@@ -243,11 +294,9 @@ def descargar_constancia_cmd(metodo, rfc, ciec, cer, key, password, salida, ver_
         rfc = _rfc_de_cert(cer, key, password)  # ruta por RFC, igual que CIEC
         salida = str(paths.dir_documento(paths.TIPO_CONSTANCIA, rfc, salida_base=salida))
         print_header("Constancia (e.firma)")
-        # FIEL no tiene captcha; se deja headful por si el autollenado e.firma
-        # necesita completarse a mano.
         pdf = descargar_constancia_fiel(
             cer_path=cer, key_path=key, password=password,
-            directorio_salida=salida, headless=False,
+            directorio_salida=salida, headless=not ver_navegador,
         )
 
     if pdf:
@@ -289,10 +338,9 @@ def descargar_opinion_cmd(metodo, rfc, ciec, cer, key, password, salida, ver_nav
         rfc = _rfc_de_cert(cer, key, password)  # ruta por RFC, igual que CIEC
         salida = str(paths.dir_documento(paths.TIPO_OPINION, rfc, salida_base=salida))
         print_header("Opinión 32-D (e.firma)")
-        # FIEL no tiene captcha; headful por si el autollenado e.firma falla.
         pdf = descargar_opinion_fiel(
             cer_path=cer, key_path=key, password=password,
-            directorio_salida=salida, headless=False,
+            directorio_salida=salida, headless=not ver_navegador,
         )
 
     if pdf:
