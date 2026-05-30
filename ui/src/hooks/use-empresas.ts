@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
-import type { Empresa, MetodoEmpresa } from '@/lib/types';
+import type { Empresa, EmpresaUpdatePatch, MetodoEmpresa } from '@/lib/types';
 
 interface UseEmpresasState {
   empresas: Empresa[];
@@ -27,6 +27,8 @@ interface UseEmpresasState {
   archive: (rfc: string) => Promise<void>;
   /** Reactiva una empresa archivada. */
   unarchive: (rfc: string) => Promise<void>;
+  /** Patch parcial: regimenes_fiscales / actividades_economicas. */
+  update: (rfc: string, patch: EmpresaUpdatePatch) => Promise<void>;
 }
 
 /**
@@ -131,9 +133,17 @@ export function useEmpresas(): UseEmpresasState {
     [apiClient, refresh],
   );
 
+  const update = useCallback(
+    async (rfc: string, patch: EmpresaUpdatePatch) => {
+      await apiClient.updateEmpresa(rfc, patch);
+      refresh();
+    },
+    [apiClient, refresh],
+  );
+
   return {
     empresas, loading, error, refresh,
     addCiec, addFiel, remove, seleccionar, activarSesion,
-    archive, unarchive,
+    archive, unarchive, update,
   };
 }

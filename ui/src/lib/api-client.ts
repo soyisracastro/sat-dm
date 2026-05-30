@@ -24,6 +24,7 @@ import type {
   JobEvent,
   EmpresasResponse,
   EmpresaCiecRequest,
+  EmpresaUpdatePatch,
   ActivarEmpresaResponse,
   SolicitudesResponse,
   HistorialResponse,
@@ -99,6 +100,17 @@ export class SatApiClient {
 
   private async del<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: 'DELETE' });
+  }
+
+  private async patch<T>(
+    path: string,
+    body: Record<string, unknown> = {},
+  ): Promise<T> {
+    return this.request<T>(path, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
   }
 
   /** URL absoluta para un path del agente (p. ej. para EventSource). */
@@ -377,6 +389,17 @@ export class SatApiClient {
   async unarchiveEmpresa(rfc: string): Promise<{ ok: boolean; rfc: string }> {
     return this.post<{ ok: boolean; rfc: string }>(
       `/empresas/${encodeURIComponent(rfc)}/unarchive`,
+    );
+  }
+
+  /** Aplica un patch parcial a la empresa (regimenes_fiscales, actividades_economicas). */
+  async updateEmpresa(
+    rfc: string,
+    patch: EmpresaUpdatePatch,
+  ): Promise<{ ok: boolean; rfc: string }> {
+    return this.patch<{ ok: boolean; rfc: string }>(
+      `/empresas/${encodeURIComponent(rfc)}`,
+      patch as unknown as Record<string, unknown>,
     );
   }
 
