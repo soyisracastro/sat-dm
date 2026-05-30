@@ -154,7 +154,7 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
             >
               <span className="text-muted-foreground">
                 {regimenes.length === 0
-                  ? `Selecciona uno o más regímenes (${tipo})`
+                  ? 'Selecciona uno o más regímenes'
                   : `${regimenes.length} régimen${regimenes.length === 1 ? '' : 'es'} seleccionado${regimenes.length === 1 ? '' : 's'}`}
               </span>
               <Icon icon="ph:caret-down-light" className="size-4" />
