@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CaptchaModal } from '@/components/descarga/captcha-modal';
 import { JobProgress } from '@/components/descarga/job-progress';
+import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
 
 const TIPOS = [
   { value: 'R', label: 'Recibidos' },
@@ -46,29 +47,41 @@ export default function NuevaDescargaPage() {
   }, [empresas, rfc]);
 
   const empresa = empresas.find((e) => e.rfc === rfc);
-  const tieneCiec = !!empresa?.metodos.includes('ciec');
+  const metodo = metodoPortalPreferido(empresa);
   const corriendo = job.estado !== 'idle' && job.estado !== 'done'
     && job.estado !== 'error' && job.estado !== 'cancelled';
 
   function iniciar() {
-    if (!empresa || !tieneCiec) return;
-    job.iniciar(
-      () =>
-        apiClient.ciecCfdi({
-          rfc: empresa.rfc,
-          fecha_inicio: desde,
-          fecha_fin: hasta,
-          tipo_comprobante: tipo,
-        }),
-      { rfc: empresa.rfc },
-    );
+    if (!empresa || !metodo) return;
+    if (metodo === 'fiel') {
+      job.iniciar(
+        () =>
+          apiClient.cfdiFiel({
+            fecha_inicio: desde,
+            fecha_fin: hasta,
+            tipo_comprobante: tipo,
+          }),
+        { rfc: empresa.rfc },
+      );
+    } else {
+      job.iniciar(
+        () =>
+          apiClient.ciecCfdi({
+            rfc: empresa.rfc,
+            fecha_inicio: desde,
+            fecha_fin: hasta,
+            tipo_comprobante: tipo,
+          }),
+        { rfc: empresa.rfc },
+      );
+    }
   }
 
   return (
     <div className="max-w-2xl space-y-6">
       <PageHeading
         title="Nueva descarga"
-        description="Descarga CFDIs del portal del SAT (CIEC). El captcha aparece aquí mismo."
+        description="Descarga CFDIs del portal del SAT. Si la empresa tiene e.firma se usa esa (sin captcha); si no, CIEC."
       />
 
       {empresas.length === 0 ? (
@@ -99,10 +112,10 @@ export default function NuevaDescargaPage() {
                 </option>
               ))}
             </select>
-            {empresa && !tieneCiec && (
+            {empresa && !metodo && (
               <p className="text-xs text-amber-600">
-                Esta empresa no tiene CIEC registrada. Agrégala en Empresas o usa la
-                descarga por Web Service (e.firma).
+                Esta empresa no tiene e.firma ni CIEC. Agrégala en Empresas o usa la
+                descarga por Web Service.
               </p>
             )}
           </div>
@@ -140,13 +153,22 @@ export default function NuevaDescargaPage() {
             </div>
           </div>
 
-          <Button onClick={iniciar} disabled={!tieneCiec || corriendo} className="w-full">
-            {empresa?.metodos.includes('ciec') ? (
-              <Icon icon="ph:key-light" className="size-4" />
-            ) : (
-              <Icon icon="ph:download-simple-light" className="size-4" />
-            )}
-            Descargar por CIEC
+          {metodo && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Icon
+                icon={metodo === 'fiel' ? 'ph:shield-check-light' : 'ph:key-light'}
+                className="size-3.5"
+              />
+              Usando: {etiquetaMetodo(metodo)}
+            </div>
+          )}
+
+          <Button onClick={iniciar} disabled={!metodo || corriendo} className="w-full">
+            <Icon
+              icon={metodo === 'fiel' ? 'ph:shield-check-light' : 'ph:key-light'}
+              className="size-4"
+            />
+            Iniciar descarga
           </Button>
         </Card>
       )}

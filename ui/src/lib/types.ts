@@ -192,6 +192,15 @@ export interface CiecDocRequest {
   ciec?: string;
 }
 
+// POST /cfdi/fiel — descarga CFDIs vía portal con la e.firma en sesión.
+// Sin rfc/credenciales: las toma de _get_fiel() del agente.
+export interface CfdiFielRequest {
+  fecha_inicio: string;
+  fecha_fin: string;
+  tipo_comprobante?: string;
+  max_registros?: number;
+}
+
 // Respuesta al iniciar cualquier job (/ciec/*)
 export interface JobIniciado {
   job_id: string;
