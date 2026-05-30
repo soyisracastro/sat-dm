@@ -19,6 +19,7 @@ import type {
   DeduplicarResult,
   CiecCfdiRequest,
   CiecDocRequest,
+  CfdiFielRequest,
   JobIniciado,
   JobEstadoResponse,
   JobEvent,
@@ -316,6 +317,11 @@ export class SatApiClient {
   // -----------------------------------------------------------------------
   // Documentos vía e.firma (FIEL en sesión; sin captcha)
   // -----------------------------------------------------------------------
+
+  /** Inicia una descarga de CFDIs vía portal con la e.firma en sesión (sin captcha). */
+  async cfdiFiel(req: CfdiFielRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/cfdi/fiel', req as unknown as Record<string, unknown>);
+  }
 
   async constanciaFiel(): Promise<DocumentoResponse> {
     return this.post<DocumentoResponse>('/constancia/fiel');
