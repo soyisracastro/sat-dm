@@ -177,8 +177,55 @@ def list_empresas() -> list[dict]:
             "csf_descargada_en": info.get("csf_descargada_en"),
             "opinion_path": info.get("opinion_path"),
             "opinion_descargada_en": info.get("opinion_descargada_en"),
+            "regimenes_fiscales": info.get("regimenes_fiscales", []),
+            "actividades_economicas": info.get("actividades_economicas", []),
         })
     return result
+
+
+# Campos editables por update_empresa(). Cualquier otra key del patch se ignora.
+_EDITABLE_FIELDS = {"regimenes_fiscales", "actividades_economicas"}
+
+
+def update_empresa(rfc: str, patch: dict):
+    """
+    Aplica un patch parcial a la empresa. Solo acepta keys en `_EDITABLE_FIELDS`;
+    el resto se ignora silenciosamente (defensa básica).
+    Valida shapes:
+      - regimenes_fiscales:    list[{clave: str, descripcion: str}]
+      - actividades_economicas: list[{descripcion: str, principal?: bool}]
+    Lanza ValueError si el shape es inválido y KeyError si el RFC no existe.
+    """
+    data = load_empresas()
+    if rfc not in data["empresas"]:
+        raise KeyError(f"No se encontró empresa con RFC {rfc}")
+
+    for key, value in patch.items():
+        if key not in _EDITABLE_FIELDS:
+            continue
+        if not isinstance(value, list):
+            raise ValueError(f"{key} debe ser una lista")
+        if key == "regimenes_fiscales":
+            for item in value:
+                if not isinstance(item, dict) \
+                        or not isinstance(item.get("clave"), str) \
+                        or not isinstance(item.get("descripcion"), str):
+                    raise ValueError("régimen inválido: requiere clave y descripcion (str)")
+            data["empresas"][rfc][key] = [
+                {"clave": i["clave"], "descripcion": i["descripcion"]} for i in value
+            ]
+        elif key == "actividades_economicas":
+            for item in value:
+                if not isinstance(item, dict) \
+                        or not isinstance(item.get("descripcion"), str):
+                    raise ValueError("actividad inválida: requiere descripcion (str)")
+                if "principal" in item and not isinstance(item["principal"], bool):
+                    raise ValueError("actividad.principal debe ser bool")
+            data["empresas"][rfc][key] = [
+                {k: v for k, v in i.items() if k in ("descripcion", "principal")}
+                for i in value
+            ]
+    save_empresas(data)
 
 
 def archive_empresa(rfc: str):

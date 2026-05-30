@@ -203,6 +203,21 @@ class EmpresaCiecRequest(BaseModel):
     ciec: str
 
 
+class RegimenFiscalItem(BaseModel):
+    clave: str
+    descripcion: str
+
+
+class ActividadEconomicaItem(BaseModel):
+    descripcion: str
+    principal: Optional[bool] = None
+
+
+class EmpresaUpdateRequest(BaseModel):
+    regimenes_fiscales: Optional[list[RegimenFiscalItem]] = None
+    actividades_economicas: Optional[list[ActividadEconomicaItem]] = None
+
+
 class DescargasDirRequest(BaseModel):
     dir: str
 
@@ -1334,6 +1349,23 @@ def empresas_unarchive(rfc: str):
         config_store.unarchive_empresa(rfc)
     except KeyError:
         raise HTTPException(status_code=404, detail="empresa no encontrada")
+    return {"ok": True, "rfc": rfc}
+
+
+@app.patch("/empresas/{rfc}")
+def empresas_update(rfc: str, req: EmpresaUpdateRequest):
+    """
+    Actualiza campos editables de la empresa (regimenes_fiscales, actividades_economicas).
+    Body parcial: solo los campos presentes (no nulos) se aplican.
+    """
+    from ..cli import config_store
+    patch = req.model_dump(exclude_none=True)
+    try:
+        config_store.update_empresa(rfc, patch)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "rfc": rfc}
 
 

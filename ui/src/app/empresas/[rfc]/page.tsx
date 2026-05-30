@@ -14,13 +14,14 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
+import { ConfiguracionFiscalCard } from '@/components/empresas/configuracion-fiscal-card';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import type { Empresa } from '@/lib/types';
 
 export default function EmpresaDetallePage() {
   const params = useParams<{ rfc: string }>();
   const rfc = decodeURIComponent(params.rfc);
-  const { empresas, loading, addCiec, addFiel, activarSesion } = useEmpresas();
+  const { empresas, loading, addCiec, addFiel, activarSesion, update } = useEmpresas();
   const empresa = empresas.find((e) => e.rfc === rfc);
 
   const volver = (
@@ -73,6 +74,11 @@ export default function EmpresaDetallePage() {
         {tieneFiel && <VencimientoBadge vencimiento={empresa.vencimiento} />}
       </div>
 
+      <ConfiguracionFiscalCard
+        empresa={empresa}
+        onGuardar={(patch) => update(empresa.rfc, patch)}
+      />
+
       <CiecSection
         empresa={empresa}
         onGuardar={(ciec) => addCiec(empresa.rfc, empresa.nombre, ciec)}
@@ -105,6 +111,7 @@ function CiecSection({
   onGuardar: (ciec: string) => Promise<void>;
 }) {
   const tiene = empresa.metodos.includes('ciec');
+  const [mostrarForm, setMostrarForm] = useState(!tiene);
   const [ciec, setCiec] = useState('');
   const [saving, setSaving] = useState(false);
   const [ok, setOk] = useState(false);
@@ -120,11 +127,34 @@ function CiecSection({
       await onGuardar(ciec);
       setCiec('');
       setOk(true);
+      // Si ya tenía CIEC, colapsa el form de vuelta al resumen.
+      if (tiene) setMostrarForm(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
+  }
+
+  // Empresa ya tiene CIEC y el form está colapsado → resumen + botón.
+  if (tiene && !mostrarForm) {
+    return (
+      <Card className="space-y-3 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Icon icon="ph:key-light" className="size-4 text-primary" />
+            <span className="text-sm font-medium">CIEC</span>
+            {ok && <Guardado />}
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setMostrarForm(true)}>
+            Cambiar contraseña CIEC
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          La contraseña CIEC está guardada en el keychain del sistema.
+        </p>
+      </Card>
+    );
   }
 
   return (
@@ -151,6 +181,19 @@ function CiecSection({
         <Button type="submit" disabled={!ciec || saving}>
           {saving ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : 'Guardar'}
         </Button>
+        {tiene && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setMostrarForm(false);
+              setCiec('');
+              setError(null);
+            }}
+          >
+            Cancelar
+          </Button>
+        )}
       </form>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </Card>
@@ -167,6 +210,7 @@ function FielSection({
   const tiene = empresa.metodos.includes('fiel');
   const sem = tiene ? semaforoVencimiento(empresa.vencimiento) : null;
   const avisaRenovar = sem !== null && sem.estado !== 'verde';
+  const [mostrarForm, setMostrarForm] = useState(!tiene);
   const [cer, setCer] = useState<File | null>(null);
   const [key, setKey] = useState<File | null>(null);
   const [password, setPassword] = useState('');
@@ -190,11 +234,49 @@ function FielSection({
       if (cerRef.current) cerRef.current.value = '';
       if (keyRef.current) keyRef.current.value = '';
       setOk(true);
+      if (tiene) setMostrarForm(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
+  }
+
+  // Empresa ya tiene FIEL y el form está colapsado → resumen + botón.
+  if (tiene && !mostrarForm) {
+    return (
+      <Card className="space-y-3 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Icon icon="ph:shield-check-light" className="size-4 text-primary" />
+            <span className="text-sm font-medium">e.firma</span>
+            {ok && <Guardado />}
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setMostrarForm(true)}>
+            Renovar e.firma
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {sem ? `Vence el ${sem.fecha} · ${sem.label}` : 'Certificado registrado.'}
+        </p>
+        {avisaRenovar && sem && (
+          <Alert
+            variant={sem.estado === 'rojo' ? 'destructive' : 'default'}
+            className={
+              sem.estado === 'amarillo'
+                ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300'
+                : undefined
+            }
+          >
+            <AlertDescription className="text-xs">
+              {sem.vencida
+                ? `Esta e.firma venció el ${sem.fecha}. Renuévala subiendo el nuevo .cer y .key.`
+                : `Esta e.firma ${sem.label.toLowerCase()} (vence el ${sem.fecha}). Conviene renovarla.`}
+            </AlertDescription>
+          </Alert>
+        )}
+      </Card>
+    );
   }
 
   return (
@@ -245,10 +327,29 @@ function FielSection({
           <Input id="pass" type="password" value={password}
                  onChange={(e) => { setPassword(e.target.value); setOk(false); }} />
         </div>
-        <Button type="submit" disabled={!cer || !key || !password || saving}>
-          {saving ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:shield-check-light" className="size-4" />}
-          {tiene ? 'Renovar e.firma' : 'Agregar e.firma'}
-        </Button>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={!cer || !key || !password || saving}>
+            {saving ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:shield-check-light" className="size-4" />}
+            {tiene ? 'Renovar e.firma' : 'Agregar e.firma'}
+          </Button>
+          {tiene && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setMostrarForm(false);
+                setCer(null);
+                setKey(null);
+                setPassword('');
+                if (cerRef.current) cerRef.current.value = '';
+                if (keyRef.current) keyRef.current.value = '';
+                setError(null);
+              }}
+            >
+              Cancelar
+            </Button>
+          )}
+        </div>
       </form>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </Card>

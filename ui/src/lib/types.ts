@@ -229,6 +229,16 @@ export interface JobEvent {
 
 export type MetodoEmpresa = 'fiel' | 'ciec';
 
+export interface RegimenFiscalConfig {
+  clave: string;
+  descripcion: string;
+}
+
+export interface ActividadEconomicaConfig {
+  descripcion: string;
+  principal?: boolean;
+}
+
 // GET /empresas → { empresas: Empresa[] }
 export interface Empresa {
   rfc: string;
@@ -246,6 +256,16 @@ export interface Empresa {
   /** Path local de la última Opinión de Cumplimiento 32-D descargada. */
   opinion_path?: string | null;
   opinion_descargada_en?: string | null;
+  /** Régimen(es) fiscal(es) declarados. Por ahora se llenan a mano; eventualmente
+   * desde el parser de CSF. */
+  regimenes_fiscales?: RegimenFiscalConfig[];
+  /** Actividades económicas — descripción libre + marca opcional de la principal. */
+  actividades_economicas?: ActividadEconomicaConfig[];
+}
+
+export interface EmpresaUpdatePatch {
+  regimenes_fiscales?: RegimenFiscalConfig[];
+  actividades_economicas?: ActividadEconomicaConfig[];
 }
 
 export interface EmpresasResponse {
