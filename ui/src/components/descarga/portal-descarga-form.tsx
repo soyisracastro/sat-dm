@@ -1,0 +1,187 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+
+import { Icon } from '@/components/ui/icon';
+import { useServer } from '@/providers/server-provider';
+import { useCiecJob } from '@/hooks/use-ciec-job';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { CaptchaModal } from '@/components/descarga/captcha-modal';
+import { JobProgress } from '@/components/descarga/job-progress';
+import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
+import type { Empresa } from '@/lib/types';
+
+type TipoComprobante = 'R' | 'E' | 'RE';
+
+function ymd(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+interface PortalDescargaFormProps {
+  /** Empresa cuya descarga se va a iniciar — siempre la activa del catálogo. */
+  empresa: Empresa;
+  /** Llamado cuando termina un job exitoso, para que el padre refresque la lista. */
+  onJobDone?: () => void;
+}
+
+/**
+ * Form de descarga rápida (scraping del portal del SAT). Escoge método
+ * (e.firma vs CIEC) según las credenciales de la empresa que recibe por prop.
+ * Diseñado para fijar la empresa activa — el caller resuelve qué empresa
+ * y solo le pasa el objeto; aquí no hay selector.
+ */
+export function PortalDescargaForm({ empresa, onJobDone }: PortalDescargaFormProps) {
+  const { apiClient } = useServer();
+  const job = useCiecJob();
+
+  const hoy = useMemo(() => new Date(), []);
+  const [tipo, setTipo] = useState<TipoComprobante>('RE');
+  const [desde, setDesde] = useState(ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 1)));
+  const [hasta, setHasta] = useState(ymd(new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0)));
+
+  const metodo = metodoPortalPreferido(empresa);
+  const corriendo = job.estado !== 'idle' && job.estado !== 'done'
+    && job.estado !== 'error' && job.estado !== 'cancelled';
+
+  // Refresca al padre cuando el job pasa a 'done' (p. ej. para actualizar la
+  // lista de descargas recientes sin recargar la página).
+  useEffect(() => {
+    if (onJobDone && job.estado === 'done') onJobDone();
+  }, [job.estado, onJobDone]);
+
+  function iniciar() {
+    if (!metodo) return;
+    if (metodo === 'fiel') {
+      job.iniciar(
+        () =>
+          apiClient.cfdiFiel({
+            fecha_inicio: desde,
+            fecha_fin: hasta,
+            tipo_comprobante: tipo,
+          }),
+        { rfc: empresa.rfc },
+      );
+    } else {
+      job.iniciar(
+        () =>
+          apiClient.ciecCfdi({
+            rfc: empresa.rfc,
+            fecha_inicio: desde,
+            fecha_fin: hasta,
+            tipo_comprobante: tipo,
+          }),
+        { rfc: empresa.rfc },
+      );
+    }
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Icon icon="ph:lightning-light" className="size-5" />
+            Iniciar descarga
+          </CardTitle>
+          <CardDescription>
+            Define el rango y los comprobantes. La descarga corre contra el portal del SAT con
+            las credenciales de la empresa activa.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            {/* Rango de fechas */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="desde">Fecha inicio</Label>
+                <Input
+                  id="desde"
+                  type="date"
+                  value={desde}
+                  disabled={corriendo}
+                  onChange={(e) => setDesde(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hasta">Fecha fin</Label>
+                <Input
+                  id="hasta"
+                  type="date"
+                  value={hasta}
+                  disabled={corriendo}
+                  onChange={(e) => setHasta(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Comprobantes */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Comprobantes</Label>
+                <Select
+                  value={tipo}
+                  onValueChange={(v) => setTipo(v as TipoComprobante)}
+                  disabled={corriendo}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="E">Emitidos</SelectItem>
+                    <SelectItem value="R">Recibidos</SelectItem>
+                    <SelectItem value="RE">Ambos</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Chip de método */}
+              {metodo && (
+                <div className="flex items-end pb-1">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Icon
+                      icon={metodo === 'fiel' ? 'ph:shield-check-light' : 'ph:key-light'}
+                      className="size-3.5"
+                    />
+                    Usando: {etiquetaMetodo(metodo)}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Submit */}
+            <Button
+              onClick={iniciar}
+              disabled={!metodo || corriendo}
+              className="w-full sm:w-auto"
+            >
+              <Icon
+                icon={metodo === 'fiel' ? 'ph:shield-check-light' : 'ph:key-light'}
+                className="size-4"
+              />
+              Iniciar descarga
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <JobProgress
+        estado={job.estado}
+        log={job.log}
+        resultado={job.resultado}
+        error={job.error}
+      />
+
+      <CaptchaModal captcha={job.captcha} onResolver={job.responderCaptcha} />
+    </>
+  );
+}

@@ -37,18 +37,11 @@ const FEATURE_CARDS: FeatureCard[] = [
     requiresFiel: false,
   },
   {
-    href: '/nueva-descarga',
+    href: '/descarga',
     title: 'Descargar CFDIs',
-    description: 'CFDIs del portal del SAT (CIEC), con el captcha aquí mismo.',
+    description: 'CFDIs del SAT — Web Service si tienes e.firma, portal con CIEC si no.',
     icon: 'ph:download-simple-light',
     requiresFiel: false,
-  },
-  {
-    href: '/descarga',
-    title: 'Descarga por e.firma (WS)',
-    description: 'Descarga masiva por el Web Service oficial del SAT.',
-    icon: 'ph:download-simple-light',
-    requiresFiel: true,
   },
   {
     href: '/validacion',
