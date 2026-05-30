@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
+import Link from 'next/link';
 
 import { useHistorial } from '@/hooks/use-historial';
+import { useEmpresas } from '@/hooks/use-empresas';
 import { useServer } from '@/providers/server-provider';
 import { PageHeading } from '@/components/layout/page-heading';
 import { Button } from '@/components/ui/button';
@@ -18,13 +20,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import type { CanalDescarga, HistorialItem, TipoDescarga } from '@/lib/types';
 
 const TIPO_META: Record<TipoDescarga, { label: string; icon: string }> = {
@@ -54,9 +49,13 @@ function fechaLegible(iso: string): string {
 
 export default function HistorialPage() {
   const { descargas, loading, error, refresh } = useHistorial();
+  const { empresas } = useEmpresas();
   const { apiClient } = useServer();
-  const [empresaFiltro, setEmpresaFiltro] = useState('todas');
   const [accionError, setAccionError] = useState<string | null>(null);
+
+  // Empresa activa = la marcada como default en el catálogo del agente. El
+  // historial solo muestra sus descargas; para ver otra, actívala en /empresas.
+  const empresaActiva = empresas.find((e) => e.default);
 
   const abrir = useCallback(
     async (ruta: string, modo: 'carpeta' | 'archivo') => {
@@ -70,25 +69,19 @@ export default function HistorialPage() {
     [apiClient],
   );
 
-  // Empresas presentes en el historial (para el filtro).
-  const empresas = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const d of descargas) {
-      if (d.rfc) map.set(d.rfc, d.nombre || d.rfc);
-    }
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [descargas]);
+  const filtradas = empresaActiva
+    ? descargas.filter((d) => d.rfc === empresaActiva.rfc)
+    : [];
 
-  const filtradas =
-    empresaFiltro === 'todas'
-      ? descargas
-      : descargas.filter((d) => d.rfc === empresaFiltro);
+  const description = empresaActiva
+    ? `Descargas completadas de ${empresaActiva.nombre} (${empresaActiva.rfc}).`
+    : 'Selecciona una empresa activa en Empresas para ver su historial.';
 
   return (
     <div className="space-y-6">
       <PageHeading
         title="Historial"
-        description="Descargas completadas (CFDIs, constancia, opinión) por empresa."
+        description={description}
         action={
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
             {loading ? (
@@ -107,25 +100,18 @@ export default function HistorialPage() {
         </Alert>
       )}
 
-      {empresas.length > 1 && (
-        <div className="w-64">
-          <Select value={empresaFiltro} onValueChange={setEmpresaFiltro}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Filtrar por empresa" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas las empresas</SelectItem>
-              {empresas.map(([rfc, nombre]) => (
-                <SelectItem key={rfc} value={rfc}>
-                  {nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {filtradas.length === 0 ? (
+      {!empresaActiva ? (
+        <Alert>
+          <Icon icon="ph:info-light" className="size-4" />
+          <AlertDescription>
+            No hay empresa activa. Actívala desde{' '}
+            <Link href="/empresas" className="font-medium underline underline-offset-2">
+              Empresas
+            </Link>
+            .
+          </AlertDescription>
+        </Alert>
+      ) : filtradas.length === 0 ? (
         <Card className="flex flex-col items-center gap-2 p-10 text-center">
           <Icon icon="ph:clock-counter-clockwise-light" className="size-8 text-muted-foreground" />
           <p className="text-sm font-medium">Aún no hay descargas registradas</p>
@@ -139,7 +125,6 @@ export default function HistorialPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Fecha</TableHead>
-                <TableHead>Empresa</TableHead>
                 <TableHead>Descarga</TableHead>
                 <TableHead className="text-right">CFDIs</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
@@ -190,10 +175,6 @@ function DescargaRow({
     <TableRow>
       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
         {fechaLegible(d.timestamp)}
-      </TableCell>
-      <TableCell>
-        <div className="font-medium leading-tight">{d.nombre || d.rfc}</div>
-        {d.rfc && <div className="font-mono text-xs text-muted-foreground">{d.rfc}</div>}
       </TableCell>
       <TableCell>
         <div className="flex flex-col gap-1">
