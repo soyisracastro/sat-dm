@@ -10,12 +10,16 @@ import { DescargaForm, type DescargaFormParams } from '@/components/descarga/des
 import { PollingDisplay } from '@/components/descarga/polling-display';
 import { PackageList } from '@/components/descarga/package-list';
 import { SolicitudesList } from '@/components/descarga/solicitudes-list';
+import { PortalDescargaForm } from '@/components/descarga/portal-descarga-form';
+import { PortalDescargasRecientes } from '@/components/descarga/portal-descargas-recientes';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { useServer } from '@/providers/server-provider';
 import { useDescarga } from '@/hooks/use-descarga';
 import { useSolicitudes } from '@/hooks/use-solicitudes';
 import { useEmpresas } from '@/hooks/use-empresas';
+import { useHistorial } from '@/hooks/use-historial';
 
 /**
  * Convierte errores técnicos de requests al SAT (timeouts, conexión rota,
@@ -70,7 +74,13 @@ export default function DescargaPage() {
     refresh: refreshSolicitudes,
   } = useSolicitudes(fielStatus.rfc);
   const { empresas } = useEmpresas();
-  const empresaActiva = empresas.find((e) => e.rfc === fielStatus.rfc);
+  const { descargas: historial, refresh: refreshHistorial } = useHistorial();
+
+  // Empresa activa: la marcada como default en el catálogo del agente. Es la
+  // empresa cuya FIEL está en sesión (si tiene FIEL) y la primera que el usuario
+  // ve preseleccionada en todos los flujos.
+  const empresaActiva = empresas.find((e) => e.default);
+  const tieneFiel = !!empresaActiva?.metodos.includes('fiel');
   const tieneCiec = !!empresaActiva?.metodos.includes('ciec');
 
   // Flag de "submit en curso": cubre la ventana entre que el usuario hace
@@ -195,13 +205,30 @@ export default function DescargaPage() {
   const showPolling = state === 'polling' || isRequesting || state === 'ready';
   const showPackages = state === 'ready' || state === 'downloading' || state === 'done';
 
+  // -------------------------------------------------------------------------
+  // Despacho según credenciales de la empresa activa.
+  // -------------------------------------------------------------------------
+  // 1. Empresa con FIEL → Web Service (volumen grande, 24-72h) + CTA a /rapida.
+  // 2. Empresa con solo CIEC → scraping inline (no hay opción de WS).
+  // 3. Empresa sin nada → empty state hacia /empresas.
+  // El "no hay empresa activa" cae en el caso 3 (tieneFiel y tieneCiec ambos false).
+  // -------------------------------------------------------------------------
+
+  const description = !empresaActiva
+    ? 'Selecciona una empresa activa en Empresas para descargar sus CFDIs.'
+    : tieneFiel
+      ? 'Descarga masiva por el Web Service oficial del SAT con tu e.firma. Ideal para grandes volúmenes (puede tardar 24–72 h).'
+      : tieneCiec
+        ? 'Descarga directa desde el portal del SAT con tu CIEC. Sujeta a captcha y a la cuota diaria del portal.'
+        : 'Esta empresa no tiene credenciales.';
+
   return (
     <div className="space-y-6">
       <PageHeading
-        title="Descarga Masiva"
-        description="Descarga CFDIs (XMLs) del Web Service oficial del SAT usando tu e-firma (FIEL)."
+        title="Descargar CFDIs"
+        description={description}
         action={
-          state !== 'idle' ? (
+          tieneFiel && state !== 'idle' ? (
             <Button variant="outline" size="sm" onClick={reset}>
               <Icon icon="ph:arrow-counter-clockwise-light" className="size-4" />
               Nueva solicitud
@@ -222,115 +249,187 @@ export default function DescargaPage() {
         </Alert>
       )}
 
-      {/* FIEL not loaded */}
-      {isConnected && !fielLoaded && (
+      {/* ----------------------------------------------------------------- */}
+      {/* Caso 3: sin credenciales (incluye "sin empresa activa")            */}
+      {/* ----------------------------------------------------------------- */}
+      {isConnected && !tieneFiel && !tieneCiec && (
         <Alert>
-          <Icon icon="ph:warning-circle-light" className="size-4" />
-          <AlertTitle>e-Firma no cargada</AlertTitle>
+          <Icon icon="ph:info-light" className="size-4" />
+          <AlertTitle>
+            {empresaActiva ? 'Esta empresa no tiene método de autenticación' : 'Sin empresa activa'}
+          </AlertTitle>
           <AlertDescription>
-            Debes cargar tu e-firma (FIEL) antes de solicitar una descarga masiva.
-            Ve a la seccion de Configuracion para cargar tus archivos .cer y .key.
+            Agrega tu <strong>e.firma</strong> (recomendado — desbloquea descarga masiva por Web
+            Service y elimina el captcha) o tu <strong>CIEC</strong> (descarga directa con captcha)
+            en{' '}
+            <Link href="/empresas" className="font-medium underline underline-offset-2">
+              Empresas
+            </Link>
+            .
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Espera larga (>30s): aviso intermedio para que el usuario sepa
-          que el SAT está lento y pueda cambiarse a CIEC sin esperar el
-          error final (que puede tardar 5+ min entre reintentos). */}
-      {submitting && esperaLarga && (
-        <Alert variant="warning">
-          <Icon icon="ph:hourglass-medium-light" className="size-4" />
-          <AlertTitle>El SAT está tardando más de lo normal</AlertTitle>
-          <AlertDescription className="space-y-2">
-            <div>
-              La solicitud puede tardar varios minutos cuando el Web Service
-              del SAT está saturado. Seguimos reintentando.
-            </div>
-            {tieneCiec && (
-              <div>
-                Si no quieres esperar, puedes descargar con la CIEC (limitada
-                a 500 XML por día).{' '}
-                <Link
-                  href="/nueva-descarga"
-                  className="font-medium underline underline-offset-2"
-                >
-                  Clic aquí
-                </Link>
-                .
-              </div>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Error */}
-      {(error || submitError) && (() => {
-        const esSat = esErrorDelSat(submitError || error);
-        const mensaje = esSat
-          ? 'El SAT no está respondiendo como se debe. Inténtalo más tarde.'
-          : submitError || traducirError(error);
-        return (
-          <Alert variant="destructive">
-            <Icon icon="ph:warning-circle-light" className="size-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription className="space-y-2">
-              <div>{mensaje}</div>
-              {esSat && tieneCiec && (
-                <div>
-                  También puedes descargar con la CIEC (limitada a 500 XML por día).{' '}
-                  <Link
-                    href="/nueva-descarga"
-                    className="font-medium underline underline-offset-2"
-                  >
-                    Clic aquí
-                  </Link>
-                  .
-                </div>
-              )}
+      {/* ----------------------------------------------------------------- */}
+      {/* Caso 2: solo CIEC → scraping inline                                */}
+      {/* ----------------------------------------------------------------- */}
+      {isConnected && empresaActiva && !tieneFiel && tieneCiec && (
+        <>
+          <Alert>
+            <Icon icon="ph:info-light" className="size-4" />
+            <AlertTitle>Con e.firma desbloqueas más opciones</AlertTitle>
+            <AlertDescription>
+              Agrega la e.firma de esta empresa en{' '}
+              <Link href="/empresas" className="font-medium underline underline-offset-2">
+                Empresas
+              </Link>{' '}
+              para acceder a descarga masiva por Web Service y para descargar el portal sin captcha.
             </AlertDescription>
           </Alert>
-        );
-      })()}
 
-      {/* Form */}
-      {showForm && (
-        <DescargaForm
-          onSubmit={handleSubmit}
-          isLoading={isRequesting}
-          disabled={!isConnected || !fielLoaded}
-        />
+          <PortalDescargaForm empresa={empresaActiva} onJobDone={refreshHistorial} />
+
+          <PortalDescargasRecientes rfc={empresaActiva.rfc} descargas={historial} />
+        </>
       )}
 
-      {/* Polling status */}
-      {showPolling && (
-        <PollingDisplay
-          requestId={requestId}
-          codEstado={codEstado}
-          mensaje={mensaje}
-          numeroCfdis={numeroCfdis}
-          isPolling={state === 'polling' || isRequesting}
-        />
-      )}
+      {/* ----------------------------------------------------------------- */}
+      {/* Caso 1: con FIEL → flujo WS + CTA "Descarga rápida"                */}
+      {/* ----------------------------------------------------------------- */}
+      {isConnected && tieneFiel && (
+        <>
+          {/* FIEL no cargada en sesión (e.firma corrupta/contraseña mala/timeout). */}
+          {!fielLoaded && (
+            <Alert>
+              <Icon icon="ph:warning-circle-light" className="size-4" />
+              <AlertTitle>e-Firma no cargada</AlertTitle>
+              <AlertDescription>
+                La empresa activa tiene e.firma registrada, pero no se cargó en sesión.
+                Vuelve a activarla desde{' '}
+                <Link href="/empresas" className="font-medium underline underline-offset-2">
+                  Empresas
+                </Link>
+                .
+              </AlertDescription>
+            </Alert>
+          )}
 
-      {/* Package list and download */}
-      {showPackages && (
-        <PackageList
-          packageIds={packageIds}
-          onDescargar={descargar}
-          isDownloading={state === 'downloading'}
-          archivosDescargados={archivosDescargados}
-          numeroCfdis={numeroCfdis}
-        />
-      )}
+          {/* CTA: Descarga rápida sin esperar al SAT. */}
+          <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center gap-2 font-medium">
+                <Icon icon="ph:lightning-light" className="size-4" />
+                ¿Pocos XMLs y los necesitas ahora?
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Descarga directa desde el portal del SAT, sin esperar al Web Service. Limitada
+                a la cuota diaria del portal.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/descarga/rapida">
+                Descarga rápida
+                <Icon icon="ph:arrow-right-light" className="size-4" />
+              </Link>
+            </Button>
+          </Card>
 
-      {/* Solicitudes recientes — historial WS de la empresa activa */}
-      {fielLoaded && (
-        <SolicitudesList
-          solicitudes={solicitudes}
-          loading={loadingSolicitudes}
-          onDescargar={handleDescargarFromList}
-          onEliminar={handleEliminarFromList}
-        />
+          {/* Espera larga (>30s): aviso intermedio para que el usuario sepa
+              que el SAT está lento y pueda cambiarse a la descarga rápida sin
+              esperar el error final (que puede tardar 5+ min entre reintentos). */}
+          {submitting && esperaLarga && (
+            <Alert variant="warning">
+              <Icon icon="ph:hourglass-medium-light" className="size-4" />
+              <AlertTitle>El SAT está tardando más de lo normal</AlertTitle>
+              <AlertDescription className="space-y-2">
+                <div>
+                  La solicitud puede tardar varios minutos cuando el Web Service
+                  del SAT está saturado. Seguimos reintentando.
+                </div>
+                <div>
+                  Si no quieres esperar, puedes hacer{' '}
+                  <Link
+                    href="/descarga/rapida"
+                    className="font-medium underline underline-offset-2"
+                  >
+                    Descarga rápida
+                  </Link>{' '}
+                  (limitada a la cuota diaria del portal).
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Error */}
+          {(error || submitError) && (() => {
+            const esSat = esErrorDelSat(submitError || error);
+            const mensaje = esSat
+              ? 'El SAT no está respondiendo como se debe. Inténtalo más tarde.'
+              : submitError || traducirError(error);
+            return (
+              <Alert variant="destructive">
+                <Icon icon="ph:warning-circle-light" className="size-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription className="space-y-2">
+                  <div>{mensaje}</div>
+                  {esSat && (
+                    <div>
+                      También puedes hacer{' '}
+                      <Link
+                        href="/descarga/rapida"
+                        className="font-medium underline underline-offset-2"
+                      >
+                        Descarga rápida
+                      </Link>{' '}
+                      (limitada a la cuota diaria del portal).
+                    </div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            );
+          })()}
+
+          {/* Form */}
+          {showForm && (
+            <DescargaForm
+              onSubmit={handleSubmit}
+              isLoading={isRequesting}
+              disabled={!isConnected || !fielLoaded}
+            />
+          )}
+
+          {/* Polling status */}
+          {showPolling && (
+            <PollingDisplay
+              requestId={requestId}
+              codEstado={codEstado}
+              mensaje={mensaje}
+              numeroCfdis={numeroCfdis}
+              isPolling={state === 'polling' || isRequesting}
+            />
+          )}
+
+          {/* Package list and download */}
+          {showPackages && (
+            <PackageList
+              packageIds={packageIds}
+              onDescargar={descargar}
+              isDownloading={state === 'downloading'}
+              archivosDescargados={archivosDescargados}
+              numeroCfdis={numeroCfdis}
+            />
+          )}
+
+          {/* Solicitudes recientes — historial WS de la empresa activa */}
+          {fielLoaded && (
+            <SolicitudesList
+              solicitudes={solicitudes}
+              loading={loadingSolicitudes}
+              onDescargar={handleDescargarFromList}
+              onEliminar={handleEliminarFromList}
+            />
+          )}
+        </>
       )}
     </div>
   );
