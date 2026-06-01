@@ -6,6 +6,8 @@ captura de PDF) se prueba manualmente con credenciales.
 
 from datetime import date
 
+import pytest
+
 from sat_descarga.portal import cfdi
 from sat_descarga.portal.cfdi import _normalizar_tipos, _es_uuid, _dias
 
@@ -73,6 +75,11 @@ def test_descargar_cfdi_fiel_arma_login_lambda(monkeypatch):
 
 def test_descargar_bifurca_segun_login_inyectado(monkeypatch):
     # Cuando se pasa login=, NO se debe llamar _login_ciec; y viceversa.
+    # `monkeypatch.setattr("playwright.sync_api…")` requiere que el módulo
+    # se pueda importar — playwright vive en el extra opcional `ciec`, así
+    # que en CI base lo saltamos. La cobertura local con el extra `ciec`
+    # instalado sigue siendo válida.
+    pytest.importorskip("playwright")
     llamadas = {"ciec": 0, "inyectado": 0}
     monkeypatch.setattr(cfdi.CIECClient, "_login_ciec",
                         lambda self, page, pedir_captcha=None: llamadas.__setitem__("ciec", llamadas["ciec"] + 1))
