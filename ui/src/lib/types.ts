@@ -469,3 +469,118 @@ export interface ValidarSatResponse {
   no_encontrados: number;
   errores: number;
 }
+
+// ---------------------------------------------------------------------------
+// Procesador de comprobantes — Pagos
+// ---------------------------------------------------------------------------
+
+export type PagoStatus = 'sin_complemento' | 'pago_parcial' | 'pagado_completo' | 'sobrante';
+
+export interface PagosFiltros {
+  desde: string | null;
+  hasta: string | null;
+  busqueda: string | null;
+  status: PagoStatus[] | null;
+  solo_extemporaneos: boolean;
+}
+
+export interface PagosStats {
+  total_ingresos_ppd: number;       // respeta filtros
+  total_global_ppd: number;         // sin filtros — para detectar buffer vacío
+  sin_complemento: number;
+  pagos_parciales: number;
+  pagos_completos: number;
+  sobrantes: number;
+  monto_total_sin_pagar: number;
+  total_pagos: number;              // total CFDIs tipo P
+  pagos_huerfanos: number;
+  incidencias_pue: number;
+  porcentaje_conciliados: number;
+  complementos_extemporaneos: number;
+  monto_complementos_extemporaneos: number;
+}
+
+export interface FacturaPPD {
+  uuid: string;
+  fecha: string;
+  serie: string | null;
+  folio: string | null;
+  emisor_rfc: string;
+  emisor_nombre: string;
+  receptor_rfc: string;
+  receptor_nombre: string;
+  total: number;
+  total_pagado: number;
+  saldo_pendiente: number;
+  num_pagos: number;
+  moneda: string;
+  estado_sat: 'Vigente' | 'Cancelado' | 'No encontrado' | null;
+  status: PagoStatus;
+  warnings: string[];
+}
+
+export interface FacturasPPDResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: FacturaPPD[];
+}
+
+export interface PagoRelacionadoDetalle {
+  cfdi_pago_uuid: string;
+  fecha_emision_complemento: string;
+  cfdi_pago_fecha_pago: string;
+  cfdi_pago_forma: string | null;
+  docto_num_parcialidad: number;
+  docto_imp_saldo_ant: number;
+  docto_imp_pagado: number;
+  docto_imp_saldo_insoluto: number;
+  docto_moneda: string | null;
+  pago_emisor_rfc: string;
+  pago_emisor_nombre: string;
+}
+
+export interface ReporteAnalisisFechas {
+  reporte: 'analisis-fechas';
+  items: {
+    cfdi_pago_uuid: string;
+    fecha_emision_complemento: string;
+    cfdi_pago_fecha_pago: string;
+    emisor_rfc: string;
+    emisor_nombre: string;
+    monto_complemento: number;
+    limite: string;
+    dias_retraso: number;
+    factura_uuid: string;
+    factura_folio: string | null;
+  }[];
+}
+
+export interface ReportePagosHuerfanos {
+  reporte: 'huerfanos';
+  items: {
+    cfdi_pago_uuid: string;
+    fecha_emision: string;
+    emisor_rfc: string;
+    emisor_nombre: string;
+    monto: number;
+    documentos_referenciados: string | null; // pipe-separated UUIDs
+  }[];
+}
+
+export interface ReporteIncidenciasPue {
+  reporte: 'incidencias-pue';
+  items: {
+    factura_uuid: string | null;
+    factura_fecha: string | null;
+    emisor_rfc: string | null;
+    emisor_nombre: string | null;
+    factura_total: number | null;
+    factura_metodo_pago: string | null;
+    complemento_uuid: string;
+    cfdi_pago_fecha_pago: string;
+    monto_pagado: number;
+    docto_metodo_pago: string | null;
+    descripcion_riesgo: string;
+  }[];
+}
