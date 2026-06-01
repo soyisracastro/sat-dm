@@ -82,32 +82,6 @@ export interface SolicitudFolioRequest {
   extraer: boolean;
 }
 
-// POST /validar — request body
-export interface CfdiValidarInput {
-  uuid: string;
-  emisor_rfc: string;
-  receptor_rfc: string;
-  total: number;
-}
-
-export interface ValidarRequest {
-  cfdis: CfdiValidarInput[];
-  concurrency?: number;
-}
-
-export interface ValidarResult {
-  uuid: string;
-  estado: string;
-  es_cancelable: string | null;
-  estatus_cancelacion: string | null;
-  validacion_efos: string | null;
-  error: string | null;
-}
-
-export interface ValidarResponse {
-  results: ValidarResult[];
-}
-
 // POST /organizar (planned endpoint — models match organizador.py)
 export interface OrganizadorRequest {
   origen: string;
@@ -347,4 +321,151 @@ export interface DocumentoResponse {
 // Generic API error shape
 export interface ApiErrorDetail {
   detail: string;
+}
+
+// ---------------------------------------------------------------------------
+// Procesador de comprobantes — CFDI
+// ---------------------------------------------------------------------------
+
+export type CfdiTipo = 'I' | 'E' | 'T' | 'N' | 'P';
+
+export interface CfdiFiltros {
+  desde: string | null;
+  hasta: string | null;
+  tipo: CfdiTipo | null;
+  /**
+   * Dirección del CFDI relativa a la empresa activa:
+   * - 'E' = "yo soy emisor"  (los receptores son mis clientes)
+   * - 'R' = "yo soy receptor" (los emisores son mis proveedores)
+   * - null = ambos
+   * Se calcula al cargar comparando emisor/receptor con el RFC activo.
+   */
+  direccion: 'E' | 'R' | null;
+  busqueda: string | null;
+  solo_con_errores: boolean;
+  monto_min: number | null;
+  monto_max: number | null;
+}
+
+export interface CfdiRecord {
+  uuid: string;
+  file_name: string | null;
+  version: string | null;
+  tipo: CfdiTipo | string;
+  fecha: string;
+  fecha_timbrado: string | null;
+  serie: string | null;
+  folio: string | null;
+  emisor_rfc: string;
+  emisor_nombre: string;
+  emisor_regimen_fiscal: string | null;
+  receptor_rfc: string;
+  receptor_nombre: string;
+  receptor_uso_cfdi: string | null;
+  sub_total: number;
+  descuento: number;
+  total: number;
+  iva_trasladado: number;
+  ieps_trasladado: number;
+  iva_retenido: number;
+  isr_retenido: number;
+  forma_pago: string | null;
+  metodo_pago: string | null;
+  moneda: string;
+  tipo_cambio: number;
+  lugar_expedicion: string | null;
+  direccion: 'E' | 'R' | null;
+  estado_sat: 'Vigente' | 'Cancelado' | 'No encontrado' | null;
+  validado_en: string | null;
+  warnings: string[];
+  cargado_en: string;
+}
+
+export interface CfdiListResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: CfdiRecord[];
+}
+
+export interface CfdiStats {
+  total_comprobantes: number;        // respeta filtros activos
+  total_global: number;              // count global SIN filtros — para detectar "buffer vacío"
+  monto_total: number;
+  iva_trasladado: number;
+  ieps_trasladado: number;
+  iva_retenido: number;
+  isr_retenido: number;
+  con_errores: number;
+  por_tipo: Record<string, number>;
+}
+
+export interface ReporteTotalesMes {
+  reporte: 'totales-mes';
+  items: {
+    mes: string;
+    comprobantes: number;
+    sub_total: number;
+    iva_trasladado: number;
+    ieps_trasladado: number;
+    iva_retenido: number;
+    isr_retenido: number;
+    total: number;
+  }[];
+}
+
+export interface TopContraparte {
+  rfc: string;
+  nombre: string;
+  comprobantes: number;
+  monto: number;
+}
+
+export interface ReporteTopContrapartes {
+  reporte: 'top-contrapartes';
+  emisores: TopContraparte[];
+  receptores: TopContraparte[];
+}
+
+export interface ItemIntegridad {
+  uuid: string;
+  tipo: string;
+  fecha: string;
+  serie: string | null;
+  folio: string | null;
+  emisor_rfc: string;
+  emisor_nombre: string;
+  receptor_rfc: string;
+  receptor_nombre: string;
+  total: number;
+  warnings: string[];
+}
+
+export interface ReporteIntegridad {
+  reporte: 'integridad';
+  items: ItemIntegridad[];
+}
+
+export interface ProcesadorCargarResponse {
+  agregados: number;
+  duplicados: number;
+  errores: { filename: string; mensaje: string }[];
+  archivos_encontrados?: number; // solo en cargar-desde-empresa
+}
+
+export interface CargarDesdeEmpresaRequest {
+  rfc: string;
+  desde?: string;
+  hasta?: string;
+  /** 'E' (emitidos) o 'R' (recibidos). Reservado para uso programático
+   *  futuro (calculadoras IVA, etc.) omitirlo para escanear ambos. */
+  tipo?: 'E' | 'R';
+}
+
+export interface ValidarSatResponse {
+  validados: number;
+  vigentes: number;
+  cancelados: number;
+  no_encontrados: number;
+  errores: number;
 }
