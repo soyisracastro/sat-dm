@@ -17,34 +17,53 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import type {
-  FacturaPPD,
-  FacturasPPDResponse,
-  PagoRelacionadoDetalle,
+  NominaConceptoDetalle,
+  NominaRecibo,
+  NominaRecibosResponse,
 } from '@/lib/types';
 
 interface Props {
-  data: FacturasPPDResponse | null;
+  data: NominaRecibosResponse | null;
   page: number;
   pageSize: number;
   loading: boolean;
   onPage: (p: number) => void;
 }
 
+const PERIODICIDAD_LABEL: Record<string, string> = {
+  '01': 'Diario',
+  '02': 'Semanal',
+  '03': 'Catorcenal',
+  '04': 'Quincenal',
+  '05': 'Mensual',
+  '06': 'Bimestral',
+  '07': 'Unidad de obra',
+  '08': 'Comisión',
+  '09': 'Precio alzado',
+  '10': 'Decenal',
+  '99': 'Otra',
+};
+
 function formatoFecha(iso: string): string {
+  if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
-function formatoMXN(n: number, moneda = 'MXN'): string {
+function formatoMXN(n: number): string {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
-    currency: moneda || 'MXN',
+    currency: 'MXN',
     minimumFractionDigits: 2,
   }).format(n);
 }
 
-function badgeEstadoSat(estado: FacturaPPD['estado_sat']) {
+function badgeEstadoSat(estado: NominaRecibo['estado_sat']) {
   if (!estado) {
     return (
       <Badge variant="secondary" className="text-[10px]">
@@ -73,30 +92,7 @@ function badgeEstadoSat(estado: FacturaPPD['estado_sat']) {
   );
 }
 
-const STATUS_BADGE: Record<FacturaPPD['status'], { label: string; cls: string; bg: string }> = {
-  sin_complemento: {
-    label: 'Sin complemento',
-    cls: 'bg-rose-100 text-rose-700',
-    bg: 'bg-rose-50/40',
-  },
-  pago_parcial: {
-    label: 'Parcial',
-    cls: 'bg-amber-100 text-amber-700',
-    bg: 'bg-amber-50/40',
-  },
-  pagado_completo: {
-    label: 'Pagado',
-    cls: 'bg-emerald-100 text-emerald-700',
-    bg: '',
-  },
-  sobrante: {
-    label: 'Sobrante',
-    cls: 'bg-sky-100 text-sky-700',
-    bg: 'bg-sky-50/40',
-  },
-};
-
-export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) {
+export function NominaRecibosTable({ data, page, pageSize, loading, onPage }: Props) {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -132,64 +128,74 @@ export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-28">Fecha</TableHead>
-            <TableHead>Emisor</TableHead>
-            <TableHead>Receptor</TableHead>
-            <TableHead className="text-right">Total</TableHead>
-            <TableHead className="text-right">Pagado</TableHead>
-            <TableHead className="text-right">Saldo</TableHead>
-            <TableHead className="w-20 text-center">Pagos</TableHead>
-            <TableHead>Status</TableHead>
+            <TableHead className="w-28">Fecha pago</TableHead>
+            <TableHead>Empleado</TableHead>
+            <TableHead>NSS</TableHead>
+            <TableHead>Periodicidad</TableHead>
+            <TableHead className="w-16 text-center">Tipo</TableHead>
+            <TableHead className="text-right">Días</TableHead>
+            <TableHead className="text-right">Percepciones</TableHead>
+            <TableHead className="text-right">Deducciones</TableHead>
+            <TableHead className="text-right">Neto</TableHead>
             <TableHead>Estado SAT</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((f) => {
-            const status = STATUS_BADGE[f.status];
-            const abierto = expandido === f.uuid;
+          {items.map((r) => {
+            const abierto = expandido === r.cfdi_uuid;
             return (
-              <Fragment key={f.uuid}>
-                <TableRow className={cn(status.bg)}>
+              <Fragment key={r.cfdi_uuid}>
+                <TableRow>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    {formatoFecha(f.fecha)}
+                    {formatoFecha(r.fecha_pago)}
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium leading-tight">{f.emisor_nombre}</div>
-                    <div className="font-mono text-xs text-muted-foreground">{f.emisor_rfc}</div>
+                    <div className="font-medium leading-tight">{r.receptor_nombre}</div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      {r.receptor_rfc}
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="font-medium leading-tight">{f.receptor_nombre}</div>
-                    <div className="font-mono text-xs text-muted-foreground">{f.receptor_rfc}</div>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {r.nss || '—'}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
-                    {formatoMXN(f.total, f.moneda)}
+                  <TableCell className="text-xs">
+                    {PERIODICIDAD_LABEL[r.periodicidad_pago ?? ''] ??
+                      r.periodicidad_pago ??
+                      '—'}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
-                    {formatoMXN(f.total_pagado, f.moneda)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
-                    {formatoMXN(f.saldo_pendiente, f.moneda)}
-                  </TableCell>
-                  <TableCell className="text-center font-mono text-sm">{f.num_pagos}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className={cn('text-[10px]', status.cls)}>
-                      {status.label}
+                  <TableCell className="text-center">
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        'text-[10px]',
+                        r.tipo_nomina === 'E'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-blue-50 text-blue-700',
+                      )}
+                    >
+                      {r.tipo_nomina ?? '—'}
                     </Badge>
-                    {f.warnings.length > 0 && (
-                      <div className="text-[10px] text-amber-700 mt-0.5">
-                        {f.warnings.join(' · ')}
-                      </div>
-                    )}
                   </TableCell>
-                  <TableCell>{badgeEstadoSat(f.estado_sat)}</TableCell>
+                  <TableCell className="text-right font-mono text-sm">
+                    {r.num_dias_pagados}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm">
+                    {formatoMXN(r.total_percepciones)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm">
+                    {formatoMXN(r.total_deducciones)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm font-semibold">
+                    {formatoMXN(r.neto)}
+                  </TableCell>
+                  <TableCell>{badgeEstadoSat(r.estado_sat)}</TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => setExpandido(abierto ? null : f.uuid)}
-                      title="Ver pagos relacionados"
-                      disabled={f.num_pagos === 0}
+                      onClick={() => setExpandido(abierto ? null : r.cfdi_uuid)}
+                      title="Ver conceptos"
                     >
                       <Icon
                         icon={abierto ? 'ph:caret-up-light' : 'ph:caret-down-light'}
@@ -200,8 +206,8 @@ export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) 
                 </TableRow>
                 {abierto && (
                   <TableRow>
-                    <TableCell colSpan={10} className="bg-muted/30">
-                      <PagosDetalleDrilldown uuid={f.uuid} moneda={f.moneda} />
+                    <TableCell colSpan={11} className="bg-muted/30">
+                      <ConceptosDrilldown uuid={r.cfdi_uuid} recibo={r} />
                     </TableCell>
                   </TableRow>
                 )}
@@ -242,15 +248,27 @@ export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) 
   );
 }
 
-function PagosDetalleDrilldown({ uuid, moneda }: { uuid: string; moneda: string }) {
+const CLASE_LABEL: Record<string, string> = {
+  Percepcion: 'Percepción',
+  Deduccion: 'Deducción',
+  OtroPago: 'Otro pago',
+};
+
+function ConceptosDrilldown({
+  uuid,
+  recibo,
+}: {
+  uuid: string;
+  recibo: NominaRecibo;
+}) {
   const { apiClient } = useServer();
-  const [items, setItems] = useState<PagoRelacionadoDetalle[] | null>(null);
+  const [items, setItems] = useState<NominaConceptoDetalle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
     apiClient
-      .procesadorPagosDetalleFactura(uuid)
+      .procesadorNominaConceptosDeRecibo(uuid)
       .then((r) => {
         if (mounted) setItems(r.items);
       })
@@ -268,49 +286,69 @@ function PagosDetalleDrilldown({ uuid, moneda }: { uuid: string; moneda: string 
   if (!items) {
     return (
       <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-        <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" /> Cargando pagos…
+        <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" />
+        Cargando conceptos…
       </div>
     );
   }
   if (items.length === 0) {
-    return <div className="p-3 text-xs text-muted-foreground">Sin pagos relacionados.</div>;
+    return <div className="p-3 text-xs text-muted-foreground">Sin conceptos.</div>;
   }
 
   return (
-    <div className="space-y-1 p-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        Pagos relacionados ({items.length})
+    <div className="space-y-2 p-2">
+      <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground sm:grid-cols-4">
+        <div>
+          <span className="font-medium">CURP:</span>{' '}
+          <span className="font-mono">{recibo.curp || '—'}</span>
+        </div>
+        <div>
+          <span className="font-medium">SBC:</span>{' '}
+          <span className="font-mono">{formatoMXN(recibo.salario_base_cot_apor)}</span>
+        </div>
+        <div>
+          <span className="font-medium">SDI:</span>{' '}
+          <span className="font-mono">{formatoMXN(recibo.salario_diario_integrado)}</span>
+        </div>
+        <div>
+          <span className="font-medium">Puesto:</span> {recibo.puesto || '—'}
+        </div>
       </div>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>UUID Complemento</TableHead>
-            <TableHead>Fecha pago</TableHead>
-            <TableHead>Forma</TableHead>
-            <TableHead className="text-center">Parcialidad</TableHead>
-            <TableHead className="text-right">Saldo ant.</TableHead>
-            <TableHead className="text-right">Pagado</TableHead>
-            <TableHead className="text-right">Saldo insoluto</TableHead>
+            <TableHead>Clase</TableHead>
+            <TableHead>Tipo</TableHead>
+            <TableHead>Concepto</TableHead>
+            <TableHead className="text-right">Gravado</TableHead>
+            <TableHead className="text-right">Exento</TableHead>
+            <TableHead className="text-right">Importe</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((p, i) => (
-            <TableRow key={`${p.cfdi_pago_uuid}-${i}`}>
-              <TableCell className="font-mono text-xs">{p.cfdi_pago_uuid}</TableCell>
-              <TableCell className="text-xs">{formatoFecha(p.cfdi_pago_fecha_pago)}</TableCell>
-              <TableCell className="text-xs">{p.cfdi_pago_forma || '—'}</TableCell>
-              <TableCell className="text-center text-xs">{p.docto_num_parcialidad}</TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {formatoMXN(p.docto_imp_saldo_ant, moneda)}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {formatoMXN(p.docto_imp_pagado, moneda)}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {formatoMXN(p.docto_imp_saldo_insoluto, moneda)}
-              </TableCell>
-            </TableRow>
-          ))}
+          {items.map((c, i) => {
+            const importe = c.clase === 'Percepcion'
+              ? c.importe_gravado + c.importe_exento
+              : c.importe;
+            return (
+              <TableRow key={`${c.clase}-${c.tipo_concepto}-${i}`}>
+                <TableCell className="text-xs">
+                  {CLASE_LABEL[c.clase] ?? c.clase}
+                </TableCell>
+                <TableCell className="font-mono text-xs">{c.tipo_concepto}</TableCell>
+                <TableCell className="text-xs">{c.concepto ?? '—'}</TableCell>
+                <TableCell className="text-right font-mono text-xs">
+                  {c.clase === 'Percepcion' ? formatoMXN(c.importe_gravado) : '—'}
+                </TableCell>
+                <TableCell className="text-right font-mono text-xs">
+                  {c.clase === 'Percepcion' ? formatoMXN(c.importe_exento) : '—'}
+                </TableCell>
+                <TableCell className="text-right font-mono text-xs">
+                  {formatoMXN(importe)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

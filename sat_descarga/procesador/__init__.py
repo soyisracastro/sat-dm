@@ -12,7 +12,15 @@ Ver el plan en /Users/isca/.claude/plans/analiza-el-proyecto-y-wild-parnas.md
 para el roadmap multi-PR (CFDI → Pagos → Nómina).
 """
 
-from .cfdi_parser import CfdiData, ConceptoCfdi, parse_cfdi
+from .cfdi_parser import (
+    CfdiData,
+    ConceptoCfdi,
+    ConceptoNomina,
+    DatosNomina,
+    DatosPago,
+    DocumentoRelacionado,
+    parse_cfdi,
+)
 from .db import ProcesadorDB, abrir_db
 from .catalogos import (
     FORMAS_PAGO,
@@ -22,11 +30,28 @@ from .catalogos import (
     MONEDAS,
     MAX_FILE_SIZE,
     MAX_BATCH_SIZE,
+    # Nómina
+    TIPO_NOMINA,
+    PERIODICIDAD_PAGO,
+    TIPO_CONTRATO,
+    TIPO_REGIMEN,
+    TIPO_JORNADA,
+    RIESGO_TRABAJO,
+    TIPO_PERCEPCION,
+    TIPO_DEDUCCION,
+    TIPO_OTRO_PAGO,
+    TIPO_INCAPACIDAD,
+    BANCO,
+    ESTADO,
 )
 
 __all__ = [
     "CfdiData",
     "ConceptoCfdi",
+    "ConceptoNomina",
+    "DatosNomina",
+    "DatosPago",
+    "DocumentoRelacionado",
     "parse_cfdi",
     "ProcesadorDB",
     "abrir_db",
@@ -37,4 +62,16 @@ __all__ = [
     "MONEDAS",
     "MAX_FILE_SIZE",
     "MAX_BATCH_SIZE",
+    "TIPO_NOMINA",
+    "PERIODICIDAD_PAGO",
+    "TIPO_CONTRATO",
+    "TIPO_REGIMEN",
+    "TIPO_JORNADA",
+    "RIESGO_TRABAJO",
+    "TIPO_PERCEPCION",
+    "TIPO_DEDUCCION",
+    "TIPO_OTRO_PAGO",
+    "TIPO_INCAPACIDAD",
+    "BANCO",
+    "ESTADO",
 ]

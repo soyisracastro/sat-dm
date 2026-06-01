@@ -48,7 +48,7 @@ const PROCESADORES: Procesador[] = [
     description:
       'CFDIs de Nómina 1.2 con desglose por empleado, conciliación IMSS y reportes de ISR retenido.',
     icon: 'ph:users-three-light',
-    disponible: false,
+    disponible: true,
   },
 ];
 

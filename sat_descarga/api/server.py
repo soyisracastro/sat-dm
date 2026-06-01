@@ -2002,6 +2002,159 @@ def procesador_pagos_exportar(
 
 
 # ---------------------------------------------------------------------------
+# Procesador de comprobantes — Nómina
+# ---------------------------------------------------------------------------
+#
+# Vista especializada sobre el buffer compartido `cfdis` + tablas
+# `nomina_recibos` y `nomina_conceptos` (migración 005). 3 reportes:
+# Deductibilidad fiscal, Conciliación IMSS, Periodo vs Periodo.
+# NO tiene endpoints de cargar/borrar — los XMLs entran por `/procesador/cfdi/cargar`
+# y el borrado por `/procesador/cfdi/borrar`.
+
+
+class NominaFiltrosRequest(BaseModel):
+    desde: Optional[str] = None
+    hasta: Optional[str] = None
+    busqueda: Optional[str] = None
+    tipo_nomina: Optional[str] = None        # 'O' | 'E'
+    periodicidad: Optional[str] = None
+    solo_con_errores: Optional[bool] = False
+
+
+def _filtros_nomina_de_query(
+    desde: Optional[str],
+    hasta: Optional[str],
+    busqueda: Optional[str],
+    tipo_nomina: Optional[str],
+    periodicidad: Optional[str],
+    solo_con_errores: bool,
+) -> dict:
+    return {
+        "desde": desde,
+        "hasta": hasta,
+        "busqueda": busqueda,
+        "tipo_nomina": tipo_nomina,
+        "periodicidad": periodicidad,
+        "solo_con_errores": solo_con_errores,
+    }
+
+
+@app.get("/procesador/nomina")
+def procesador_nomina_listar(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    tipo_nomina: Optional[str] = None,
+    periodicidad: Optional[str] = None,
+    solo_con_errores: bool = False,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """Recibos paginados (1 fila por CFDI tipo N)."""
+    from ..procesador import abrir_db
+    from ..procesador.reportes_nomina import listar_recibos
+
+    filtros = _filtros_nomina_de_query(
+        desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
+    )
+    return listar_recibos(abrir_db(), filtros, page=page, page_size=page_size)
+
+
+@app.get("/procesador/nomina/stats")
+def procesador_nomina_stats(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    tipo_nomina: Optional[str] = None,
+    periodicidad: Optional[str] = None,
+    solo_con_errores: bool = False,
+):
+    from ..procesador import abrir_db
+    from ..procesador.reportes_nomina import stats_nomina
+
+    filtros = _filtros_nomina_de_query(
+        desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
+    )
+    return stats_nomina(abrir_db(), filtros)
+
+
+@app.get("/procesador/nomina/recibo/{uuid}/conceptos")
+def procesador_nomina_conceptos_de_recibo(uuid: str):
+    """Drilldown: conceptos de un recibo de nómina ordenados por clase."""
+    from ..procesador import abrir_db
+    from ..procesador.reportes_nomina import conceptos_de_recibo
+    return {"uuid": uuid, "items": conceptos_de_recibo(abrir_db(), uuid)}
+
+
+@app.get("/procesador/nomina/reporte/{nombre}")
+def procesador_nomina_reporte(
+    nombre: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    tipo_nomina: Optional[str] = None,
+    periodicidad: Optional[str] = None,
+    solo_con_errores: bool = False,
+):
+    """Reportes: 'deducibilidad' | 'imss' | 'periodo-vs-periodo'."""
+    from ..procesador import abrir_db
+    from ..procesador import reportes_nomina as rep
+
+    filtros = _filtros_nomina_de_query(
+        desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
+    )
+    db = abrir_db()
+    if nombre == "deducibilidad":
+        return rep.reporte_deducibilidad(db, filtros)
+    if nombre == "imss":
+        return rep.reporte_imss(db, filtros)
+    if nombre == "periodo-vs-periodo":
+        return rep.reporte_periodo_vs_periodo(db, filtros)
+    raise HTTPException(status_code=404, detail=f"Reporte desconocido: {nombre}")
+
+
+@app.get("/procesador/nomina/filtros")
+def procesador_nomina_filtros_get():
+    from ..procesador import abrir_db
+    f = abrir_db().filtros_get(key="nomina_actuales")
+    return f or {
+        "desde": None, "hasta": None, "busqueda": None,
+        "tipo_nomina": None, "periodicidad": None, "solo_con_errores": False,
+    }
+
+
+@app.put("/procesador/nomina/filtros")
+def procesador_nomina_filtros_set(req: NominaFiltrosRequest):
+    from ..procesador import abrir_db
+    abrir_db().filtros_set(req.dict(), key="nomina_actuales")
+    return {"ok": True}
+
+
+@app.get("/procesador/nomina/exportar")
+def procesador_nomina_exportar(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    tipo_nomina: Optional[str] = None,
+    periodicidad: Optional[str] = None,
+    solo_con_errores: bool = False,
+):
+    """XLSX multi-sheet del procesador de Nómina (con disclaimer fiscal)."""
+    from ..procesador import abrir_db
+    from ..procesador.exportar_nomina import to_xlsx
+
+    filtros = _filtros_nomina_de_query(
+        desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
+    )
+    data = to_xlsx(abrir_db(), filtros)
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="nomina.xlsx"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

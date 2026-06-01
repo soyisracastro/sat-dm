@@ -44,6 +44,13 @@ import type {
   ReporteAnalisisFechas,
   ReportePagosHuerfanos,
   ReporteIncidenciasPue,
+  NominaFiltros,
+  NominaStats,
+  NominaRecibosResponse,
+  NominaConceptoDetalle,
+  ReporteDeducibilidad,
+  ReporteImss,
+  ReportePeriodoVsPeriodo,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -653,6 +660,101 @@ export class SatApiClient {
       busqueda: filtros?.busqueda,
     });
     const r = await fetch(this.url(`/procesador/pagos/exportar?${qs}`));
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Error al exportar: ${r.status} ${text}`);
+    }
+    return await r.blob();
+  }
+
+  // -------------------------------------------------------------------------
+  // Procesador de comprobantes — Nómina
+  // -------------------------------------------------------------------------
+  // Vista especializada sobre el buffer compartido `cfdis` + tablas
+  // `nomina_recibos` y `nomina_conceptos`. Mismo flujo de carga que CFDI:
+  // los XMLs entran por `procesadorCargar`. Filtros propios con key
+  // `'nomina_actuales'` en el backend.
+
+  private _filtrosNominaParams(filtros?: Partial<NominaFiltros>): Record<string, unknown> {
+    return {
+      desde: filtros?.desde,
+      hasta: filtros?.hasta,
+      busqueda: filtros?.busqueda,
+      tipo_nomina: filtros?.tipo_nomina,
+      periodicidad: filtros?.periodicidad,
+      solo_con_errores: filtros?.solo_con_errores ? 'true' : undefined,
+    };
+  }
+
+  /** Recibos de nómina paginados (1 fila por CFDI tipo N). */
+  async procesadorNominaListar(
+    filtros?: Partial<NominaFiltros>,
+    page = 1,
+    pageSize = 50,
+  ): Promise<NominaRecibosResponse> {
+    const qs = _filtrosToQuery({
+      ...this._filtrosNominaParams(filtros),
+      page,
+      page_size: pageSize,
+    });
+    return this.request<NominaRecibosResponse>(`/procesador/nomina?${qs}`);
+  }
+
+  /** KPIs del procesador de Nómina. */
+  async procesadorNominaStats(filtros?: Partial<NominaFiltros>): Promise<NominaStats> {
+    const qs = _filtrosToQuery(this._filtrosNominaParams(filtros));
+    return this.request<NominaStats>(`/procesador/nomina/stats?${qs}`);
+  }
+
+  /** Drilldown: conceptos de un recibo de nómina ordenados por clase. */
+  async procesadorNominaConceptosDeRecibo(
+    uuid: string,
+  ): Promise<{ uuid: string; items: NominaConceptoDetalle[] }> {
+    return this.request(
+      `/procesador/nomina/recibo/${encodeURIComponent(uuid)}/conceptos`,
+    );
+  }
+
+  /** Reporte específico (Deductibilidad / IMSS / Periodo vs Periodo). */
+  async procesadorNominaReporte(
+    nombre: 'deducibilidad',
+    filtros?: Partial<NominaFiltros>,
+  ): Promise<ReporteDeducibilidad>;
+  async procesadorNominaReporte(
+    nombre: 'imss',
+    filtros?: Partial<NominaFiltros>,
+  ): Promise<ReporteImss>;
+  async procesadorNominaReporte(
+    nombre: 'periodo-vs-periodo',
+    filtros?: Partial<NominaFiltros>,
+  ): Promise<ReportePeriodoVsPeriodo>;
+  async procesadorNominaReporte(
+    nombre: string,
+    filtros?: Partial<NominaFiltros>,
+  ): Promise<ReporteDeducibilidad | ReporteImss | ReportePeriodoVsPeriodo> {
+    const qs = _filtrosToQuery(this._filtrosNominaParams(filtros));
+    return this.request(`/procesador/nomina/reporte/${nombre}?${qs}`);
+  }
+
+  /** Filtros persistidos del procesador de Nómina. */
+  async procesadorNominaFiltrosGet(): Promise<NominaFiltros> {
+    return this.request<NominaFiltros>('/procesador/nomina/filtros');
+  }
+
+  async procesadorNominaFiltrosSet(
+    filtros: Partial<NominaFiltros>,
+  ): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('/procesador/nomina/filtros', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(filtros),
+    });
+  }
+
+  /** Descarga XLSX multi-sheet del procesador de Nómina (con disclaimer fiscal). */
+  async procesadorNominaExportar(filtros?: Partial<NominaFiltros>): Promise<Blob> {
+    const qs = _filtrosToQuery(this._filtrosNominaParams(filtros));
+    const r = await fetch(this.url(`/procesador/nomina/exportar?${qs}`));
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Error al exportar: ${r.status} ${text}`);
