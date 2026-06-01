@@ -1505,6 +1505,379 @@ def set_descargas_dir_endpoint(req: DescargasDirRequest):
 
 
 # ---------------------------------------------------------------------------
+# Procesador de comprobantes — CFDI
+# ---------------------------------------------------------------------------
+#
+# Buffer persistente en SQLite (~/.sat-descarga/procesador.db). El usuario
+# carga XMLs explícitamente (drag&drop / examinar carpeta / desde empresa);
+# no se autoescanea el filesystem. Lo cargado se queda hasta que el usuario
+# pulse "Borrar". Filtros también persisten para que la sesión se recupere
+# al reabrir la app. Ver el plan en /Users/isca/.claude/plans para detalle.
+
+
+class CargarDesdeEmpresaRequest(BaseModel):
+    rfc: str
+    desde: Optional[str] = None  # YYYY-MM-DD (inclusive)
+    hasta: Optional[str] = None  # YYYY-MM-DD (inclusive)
+    # 'E' (emitidos) o 'R' (recibidos). Cuando se omite, escanea ambos —
+    # reservado para uso programático futuro (p. ej. una calculadora de IVA
+    # que necesite cruzar el total emitido vs recibido del periodo).
+    tipo: Optional[str] = None
+
+
+class ValidarSatRequest(BaseModel):
+    # Si se omite, valida solo los CFDIs del buffer sin estado_sat asignado.
+    uuids: Optional[List[str]] = None
+
+
+class ProcesadorFiltrosRequest(BaseModel):
+    desde: Optional[str] = None
+    hasta: Optional[str] = None
+    tipo: Optional[str] = None
+    direccion: Optional[str] = None  # 'E' | 'R' | None
+    busqueda: Optional[str] = None
+    solo_con_errores: Optional[bool] = False
+    monto_min: Optional[float] = None
+    monto_max: Optional[float] = None
+
+
+def _filtros_de_query(
+    desde: Optional[str],
+    hasta: Optional[str],
+    tipo: Optional[str],
+    busqueda: Optional[str],
+    solo_con_errores: bool,
+    monto_min: Optional[float],
+    monto_max: Optional[float],
+    direccion: Optional[str] = None,
+) -> dict:
+    """Construye el dict de filtros para `procesador.db`."""
+    return {
+        "desde": desde,
+        "hasta": hasta,
+        "tipo": tipo,
+        "direccion": direccion,
+        "busqueda": busqueda,
+        "solo_con_errores": bool(solo_con_errores),
+        "monto_min": monto_min,
+        "monto_max": monto_max,
+    }
+
+
+def _rfc_activo() -> Optional[str]:
+    """Devuelve el RFC de la empresa activa (sesión FIEL o catálogo)."""
+    rfc = _session.get("rfc") if isinstance(_session, dict) else None
+    if rfc:
+        return rfc
+    try:
+        from ..cli import config_store
+        return config_store.get_default()
+    except Exception:
+        return None
+
+
+@app.post("/procesador/cfdi/cargar")
+async def procesador_cargar(files: List[UploadFile] = File(...)):
+    """
+    Recibe `.xml` por multipart y los agrega al buffer del procesador.
+    Hasta `MAX_BATCH_SIZE` archivos por request.
+    """
+    from ..procesador import abrir_db, parse_cfdi, MAX_BATCH_SIZE
+    from ..procesador.cfdi_parser import CfdiParseError
+    from ..procesador.validaciones import validar_y_anotar
+
+    if len(files) > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Demasiados archivos en un batch (máx {MAX_BATCH_SIZE})",
+        )
+
+    db = abrir_db()
+    parseados = []
+    errores: list[dict] = []
+
+    for f in files:
+        try:
+            contenido = await f.read()
+            cfdi = parse_cfdi(contenido, file_name=f.filename or "")
+            validar_y_anotar(cfdi)
+            parseados.append(cfdi)
+        except CfdiParseError as e:
+            errores.append({"filename": f.filename, "mensaje": str(e)})
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[procesador] error parseando %s", f.filename)
+            errores.append({"filename": f.filename, "mensaje": str(e)})
+
+    # Drag&drop: la dirección se infiere comparando con el RFC activo.
+    resultado = db.agregar(parseados, mi_rfc=_rfc_activo())
+    return {
+        "agregados": resultado["agregados"],
+        "duplicados": resultado["duplicados"],
+        "errores": errores,
+    }
+
+
+@app.post("/procesador/cfdi/cargar-desde-empresa")
+def procesador_cargar_desde_empresa(req: CargarDesdeEmpresaRequest):
+    """
+    Escanea `descargas/cfdi/<RFC>/.../*.xml` filtrando por fecha (opcional)
+    y agrega los CFDIs encontrados al buffer.
+    """
+    from ..procesador import abrir_db, parse_cfdi
+    from ..procesador.cfdi_parser import CfdiParseError
+    from ..procesador.validaciones import validar_y_anotar
+    from ..core import paths
+
+    base = paths.dir_cfdi_base(req.rfc, salida_base=_descargas_base())
+    if not base.exists():
+        return {"agregados": 0, "duplicados": 0, "errores": [], "archivos_encontrados": 0}
+
+    # Filtrar por subcarpeta según el tipo solicitado. Si el caller omite
+    # `tipo`, escanea ambos (uso programático futuro).
+    if req.tipo == "E":
+        scan_dirs = [base / "emitidos"]
+    elif req.tipo == "R":
+        scan_dirs = [base / "recibidos"]
+    else:
+        scan_dirs = [base]
+
+    xmls: list = []
+    for d in scan_dirs:
+        if d.exists():
+            xmls.extend(d.rglob("*.xml"))
+
+    db = abrir_db()
+    parseados = []
+    errores: list[dict] = []
+
+    desde = req.desde or ""
+    hasta = req.hasta + "T23:59:59" if req.hasta else ""
+
+    for xml_path in xmls:
+        try:
+            contenido = xml_path.read_bytes()
+            cfdi = parse_cfdi(contenido, file_name=xml_path.name)
+            # Filtro de fecha post-parseo (la fecha real vive en el XML)
+            if desde and cfdi.fecha_emision and cfdi.fecha_emision < desde:
+                continue
+            if hasta and cfdi.fecha_emision and cfdi.fecha_emision > hasta:
+                continue
+            validar_y_anotar(cfdi)
+            parseados.append(cfdi)
+        except CfdiParseError as e:
+            errores.append({"filename": xml_path.name, "mensaje": str(e)})
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[procesador] error parseando %s", xml_path.name)
+            errores.append({"filename": xml_path.name, "mensaje": str(e)})
+
+    # En "cargar-desde-empresa" la dirección está implícita por el `tipo`
+    # solicitado (E/R) — se la pasamos directa y de paso usamos `mi_rfc` como
+    # respaldo si `tipo` viene en None.
+    resultado = db.agregar(
+        parseados,
+        mi_rfc=req.rfc,
+        direccion_fija=req.tipo if req.tipo in ("E", "R") else None,
+    )
+    return {
+        "agregados": resultado["agregados"],
+        "duplicados": resultado["duplicados"],
+        "errores": errores,
+        "archivos_encontrados": len(xmls),
+    }
+
+
+@app.post("/procesador/cfdi/validar-sat")
+def procesador_validar_sat(req: ValidarSatRequest):
+    """
+    Valida contra el endpoint público del SAT los CFDIs indicados (o todos los
+    que no tengan `estado_sat` aún). Actualiza la columna correspondiente y
+    devuelve un summary por estado.
+    """
+    from ..procesador import abrir_db
+    from ..utils.validacion import validar_masivo
+
+    db = abrir_db()
+
+    if req.uuids:
+        uuids = req.uuids
+    else:
+        uuids = db.uuids_sin_validar()
+
+    if not uuids:
+        return {"validados": 0, "vigentes": 0, "cancelados": 0,
+                "no_encontrados": 0, "errores": 0}
+
+    # Construye payloads para validar_masivo
+    payloads = []
+    with db.cursor() as cur:
+        placeholders = ",".join("?" for _ in uuids)
+        cur.execute(
+            f"""
+            SELECT uuid, emisor_rfc, receptor_rfc, total
+            FROM cfdis WHERE uuid IN ({placeholders})
+            """,
+            uuids,
+        )
+        for r in cur.fetchall():
+            payloads.append({
+                "uuid": r["uuid"],
+                "emisor_rfc": r["emisor_rfc"] or "",
+                "receptor_rfc": r["receptor_rfc"] or "",
+                "total": r["total"] or 0.0,
+            })
+
+    resultados = validar_masivo(payloads, concurrency=10)
+
+    contadores = {"vigentes": 0, "cancelados": 0, "no_encontrados": 0, "errores": 0}
+    for est in resultados:
+        estado = (est.estado or "").strip()
+        if estado.lower().startswith("vigente"):
+            contadores["vigentes"] += 1
+            db.actualizar_estado_sat(est.uuid, "Vigente")
+        elif estado.lower().startswith("cancel"):
+            contadores["cancelados"] += 1
+            db.actualizar_estado_sat(est.uuid, "Cancelado")
+        elif estado.lower().startswith("no encontrado") or estado.lower().startswith("not"):
+            contadores["no_encontrados"] += 1
+            db.actualizar_estado_sat(est.uuid, "No encontrado")
+        else:
+            contadores["errores"] += 1
+
+    return {"validados": len(resultados), **contadores}
+
+
+@app.get("/procesador/cfdi")
+def procesador_listar(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    tipo: Optional[str] = None,
+    direccion: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    solo_con_errores: bool = False,
+    monto_min: Optional[float] = None,
+    monto_max: Optional[float] = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """Lista paginada del buffer del procesador con filtros."""
+    from ..procesador import abrir_db
+    filtros = _filtros_de_query(
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+    )
+    db = abrir_db()
+    return db.listar(filtros, page=page, page_size=page_size)
+
+
+@app.get("/procesador/cfdi/stats")
+def procesador_stats(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    tipo: Optional[str] = None,
+    direccion: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    solo_con_errores: bool = False,
+    monto_min: Optional[float] = None,
+    monto_max: Optional[float] = None,
+):
+    """KPIs agregados (stats cards)."""
+    from ..procesador import abrir_db
+    from ..procesador.reportes_cfdi import stats_generales
+    filtros = _filtros_de_query(
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+    )
+    return stats_generales(abrir_db(), filtros)
+
+
+@app.get("/procesador/cfdi/reporte/{nombre}")
+def procesador_reporte(
+    nombre: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    tipo: Optional[str] = None,
+    direccion: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    solo_con_errores: bool = False,
+    monto_min: Optional[float] = None,
+    monto_max: Optional[float] = None,
+):
+    """Reportes específicos: `totales-mes`, `top-contrapartes`, `integridad`."""
+    from ..procesador import abrir_db
+    from ..procesador import reportes_cfdi as rep
+
+    filtros = _filtros_de_query(
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+    )
+    db = abrir_db()
+    if nombre == "totales-mes":
+        return {"reporte": "totales-mes", "items": rep.totales_por_mes(db, filtros)}
+    if nombre == "top-contrapartes":
+        return {"reporte": "top-contrapartes", **rep.top_contrapartes(db, filtros)}
+    if nombre == "integridad":
+        return {"reporte": "integridad", "items": rep.integridad(db, filtros)}
+    raise HTTPException(status_code=404, detail=f"Reporte desconocido: {nombre}")
+
+
+@app.get("/procesador/cfdi/filtros")
+def procesador_filtros_get():
+    from ..procesador import abrir_db
+    return abrir_db().filtros_get()
+
+
+@app.put("/procesador/cfdi/filtros")
+def procesador_filtros_set(req: ProcesadorFiltrosRequest):
+    from ..procesador import abrir_db
+    db = abrir_db()
+    db.filtros_set(req.dict())
+    return {"ok": True}
+
+
+@app.delete("/procesador/cfdi")
+def procesador_borrar():
+    """Vacía el buffer completo (CFDIs + filtros)."""
+    from ..procesador import abrir_db
+    abrir_db().borrar()
+    return {"ok": True}
+
+
+@app.get("/procesador/cfdi/exportar")
+def procesador_exportar(
+    formato: str = "xlsx",
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    tipo: Optional[str] = None,
+    direccion: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    solo_con_errores: bool = False,
+    monto_min: Optional[float] = None,
+    monto_max: Optional[float] = None,
+):
+    """Descarga el buffer filtrado como XLSX o CSV."""
+    from ..procesador import abrir_db
+    from ..procesador.exportar import to_csv, to_xlsx
+
+    filtros = _filtros_de_query(
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+    )
+    db = abrir_db()
+
+    if formato == "xlsx":
+        data = to_xlsx(db, filtros)
+        return StreamingResponse(
+            iter([data]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="cfdis.xlsx"'},
+        )
+    if formato == "csv":
+        data = to_csv(db, filtros)
+        return StreamingResponse(
+            iter([data]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="cfdis.csv"'},
+        )
+    raise HTTPException(status_code=400, detail=f"Formato no soportado: {formato}")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

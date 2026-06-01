@@ -30,6 +30,15 @@ import type {
   SolicitudesResponse,
   HistorialResponse,
   DocumentoResponse,
+  CfdiListResponse,
+  CfdiStats,
+  CfdiFiltros,
+  CargarDesdeEmpresaRequest,
+  ProcesadorCargarResponse,
+  ReporteTotalesMes,
+  ReporteTopContrapartes,
+  ReporteIntegridad,
+  ValidarSatResponse,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -457,4 +466,119 @@ export class SatApiClient {
       body: JSON.stringify({ dir }),
     });
   }
+
+  // -----------------------------------------------------------------------
+  // Procesador de comprobantes — CFDI
+  // -----------------------------------------------------------------------
+
+  /** Sube XMLs por multipart al buffer del procesador (drag&drop, examinar). */
+  async procesadorCargar(files: File[]): Promise<ProcesadorCargarResponse> {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return this.request<ProcesadorCargarResponse>('/procesador/cfdi/cargar', {
+      method: 'POST',
+      body: form,
+    });
+  }
+
+  /** Importa CFDIs ya descargados por el agente para una empresa registrada. */
+  async procesadorCargarDesdeEmpresa(
+    req: CargarDesdeEmpresaRequest,
+  ): Promise<ProcesadorCargarResponse> {
+    return this.post<ProcesadorCargarResponse>(
+      '/procesador/cfdi/cargar-desde-empresa',
+      req as unknown as Record<string, unknown>,
+    );
+  }
+
+  /** Valida contra el SAT los CFDIs del buffer (o los uuids indicados). */
+  async procesadorValidarSat(uuids?: string[]): Promise<ValidarSatResponse> {
+    return this.post<ValidarSatResponse>('/procesador/cfdi/validar-sat', {
+      uuids: uuids ?? null,
+    });
+  }
+
+  /** Lista paginada del buffer con filtros. */
+  async procesadorListar(
+    filtros?: Partial<CfdiFiltros>,
+    page = 1,
+    pageSize = 50,
+  ): Promise<CfdiListResponse> {
+    const qs = _filtrosToQuery({ ...filtros, page, page_size: pageSize });
+    return this.request<CfdiListResponse>(`/procesador/cfdi?${qs}`);
+  }
+
+  /** Stats agregados (cards superiores). */
+  async procesadorStats(filtros?: Partial<CfdiFiltros>): Promise<CfdiStats> {
+    const qs = _filtrosToQuery(filtros ?? {});
+    return this.request<CfdiStats>(`/procesador/cfdi/stats?${qs}`);
+  }
+
+  /** Reporte específico: 'totales-mes' | 'top-contrapartes' | 'integridad'. */
+  async procesadorReporte(
+    nombre: 'totales-mes',
+    filtros?: Partial<CfdiFiltros>,
+  ): Promise<ReporteTotalesMes>;
+  async procesadorReporte(
+    nombre: 'top-contrapartes',
+    filtros?: Partial<CfdiFiltros>,
+  ): Promise<ReporteTopContrapartes>;
+  async procesadorReporte(
+    nombre: 'integridad',
+    filtros?: Partial<CfdiFiltros>,
+  ): Promise<ReporteIntegridad>;
+  async procesadorReporte(
+    nombre: string,
+    filtros?: Partial<CfdiFiltros>,
+  ): Promise<ReporteTotalesMes | ReporteTopContrapartes | ReporteIntegridad> {
+    const qs = _filtrosToQuery(filtros ?? {});
+    return this.request(`/procesador/cfdi/reporte/${nombre}?${qs}`);
+  }
+
+  /** Filtros persistidos (lectura). */
+  async procesadorFiltrosGet(): Promise<CfdiFiltros> {
+    return this.request<CfdiFiltros>('/procesador/cfdi/filtros');
+  }
+
+  /** Filtros persistidos (escritura). */
+  async procesadorFiltrosSet(filtros: Partial<CfdiFiltros>): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('/procesador/cfdi/filtros', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(filtros),
+    });
+  }
+
+  /** Vacía el buffer completo. */
+  async procesadorBorrar(): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('/procesador/cfdi', { method: 'DELETE' });
+  }
+
+  /** Descarga el buffer filtrado como Blob (xlsx o csv). */
+  async procesadorExportar(
+    formato: 'xlsx' | 'csv',
+    filtros?: Partial<CfdiFiltros>,
+  ): Promise<Blob> {
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), formato });
+    const r = await fetch(this.url(`/procesador/cfdi/exportar?${qs}`));
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Error al exportar: ${r.status} ${text}`);
+    }
+    return await r.blob();
+  }
+}
+
+
+function _filtrosToQuery(filtros: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filtros)) {
+    if (value === null || value === undefined || value === '') continue;
+    if (typeof value === 'boolean') {
+      if (value) params.set(key, 'true');
+      continue;
+    }
+    params.set(key, String(value));
+  }
+  return params.toString();
 }
