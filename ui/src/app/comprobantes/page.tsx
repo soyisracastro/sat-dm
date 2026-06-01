@@ -40,7 +40,7 @@ const PROCESADORES: Procesador[] = [
     description:
       'Relaciona facturas PPD con sus complementos de pago. Detecta pagos huérfanos y complementos extemporáneos.',
     icon: 'ph:link-light',
-    disponible: false,
+    disponible: true,
   },
   {
     href: '/comprobantes/nomina',

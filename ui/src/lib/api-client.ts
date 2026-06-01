@@ -37,6 +37,13 @@ import type {
   ReporteTopContrapartes,
   ReporteIntegridad,
   ValidarSatResponse,
+  PagosFiltros,
+  PagosStats,
+  FacturasPPDResponse,
+  PagoRelacionadoDetalle,
+  ReporteAnalisisFechas,
+  ReportePagosHuerfanos,
+  ReporteIncidenciasPue,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -548,6 +555,104 @@ export class SatApiClient {
   ): Promise<Blob> {
     const qs = _filtrosToQuery({ ...(filtros ?? {}), formato });
     const r = await fetch(this.url(`/procesador/cfdi/exportar?${qs}`));
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Error al exportar: ${r.status} ${text}`);
+    }
+    return await r.blob();
+  }
+
+  // -----------------------------------------------------------------------
+  // Procesador de comprobantes — Pagos
+  // -----------------------------------------------------------------------
+  //
+  // Vista especializada sobre el buffer compartido. NO tiene cargar/borrar —
+  // los XMLs entran por `procesadorCargar` (CFDI). Filtros propios con key
+  // `'pagos_actuales'` en el backend.
+
+  /** Facturas PPD paginadas con status calculado. */
+  async procesadorPagosListar(
+    filtros?: Partial<PagosFiltros>,
+    page = 1,
+    pageSize = 50,
+  ): Promise<FacturasPPDResponse> {
+    const params: Record<string, unknown> = {
+      desde: filtros?.desde,
+      hasta: filtros?.hasta,
+      busqueda: filtros?.busqueda,
+      page,
+      page_size: pageSize,
+    };
+    if (filtros?.status && filtros.status.length > 0) {
+      params.status = filtros.status.join(',');
+    }
+    const qs = _filtrosToQuery(params);
+    return this.request<FacturasPPDResponse>(`/procesador/pagos?${qs}`);
+  }
+
+  /** KPIs del procesador de Pagos. */
+  async procesadorPagosStats(filtros?: Partial<PagosFiltros>): Promise<PagosStats> {
+    const qs = _filtrosToQuery({
+      desde: filtros?.desde,
+      hasta: filtros?.hasta,
+      busqueda: filtros?.busqueda,
+    });
+    return this.request<PagosStats>(`/procesador/pagos/stats?${qs}`);
+  }
+
+  /** Drilldown: complementos asociados a una factura PPD. */
+  async procesadorPagosDetalleFactura(
+    uuid: string,
+  ): Promise<{ uuid: string; items: PagoRelacionadoDetalle[] }> {
+    return this.request(`/procesador/pagos/factura/${encodeURIComponent(uuid)}/pagos`);
+  }
+
+  /** Reporte específico. */
+  async procesadorPagosReporte(
+    nombre: 'analisis-fechas',
+    filtros?: Partial<PagosFiltros>,
+  ): Promise<ReporteAnalisisFechas>;
+  async procesadorPagosReporte(
+    nombre: 'huerfanos',
+    filtros?: Partial<PagosFiltros>,
+  ): Promise<ReportePagosHuerfanos>;
+  async procesadorPagosReporte(
+    nombre: 'incidencias-pue',
+    filtros?: Partial<PagosFiltros>,
+  ): Promise<ReporteIncidenciasPue>;
+  async procesadorPagosReporte(
+    nombre: string,
+    filtros?: Partial<PagosFiltros>,
+  ): Promise<ReporteAnalisisFechas | ReportePagosHuerfanos | ReporteIncidenciasPue> {
+    const qs = _filtrosToQuery({
+      desde: filtros?.desde,
+      hasta: filtros?.hasta,
+      busqueda: filtros?.busqueda,
+    });
+    return this.request(`/procesador/pagos/reporte/${nombre}?${qs}`);
+  }
+
+  /** Filtros persistidos del procesador de Pagos. */
+  async procesadorPagosFiltrosGet(): Promise<PagosFiltros> {
+    return this.request<PagosFiltros>('/procesador/pagos/filtros');
+  }
+
+  async procesadorPagosFiltrosSet(filtros: Partial<PagosFiltros>): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('/procesador/pagos/filtros', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(filtros),
+    });
+  }
+
+  /** Descarga XLSX multi-sheet del procesador de Pagos. */
+  async procesadorPagosExportar(filtros?: Partial<PagosFiltros>): Promise<Blob> {
+    const qs = _filtrosToQuery({
+      desde: filtros?.desde,
+      hasta: filtros?.hasta,
+      busqueda: filtros?.busqueda,
+    });
+    const r = await fetch(this.url(`/procesador/pagos/exportar?${qs}`));
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Error al exportar: ${r.status} ${text}`);

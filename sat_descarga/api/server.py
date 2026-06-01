@@ -1878,6 +1878,130 @@ def procesador_exportar(
 
 
 # ---------------------------------------------------------------------------
+# Procesador de comprobantes — Pagos
+# ---------------------------------------------------------------------------
+#
+# Vista especializada sobre el buffer compartido `cfdis` + tabla
+# `pagos_relaciones` (migración 004). Relaciona PPD ↔ complemento, detecta
+# huérfanos, extemporáneos e incidencias PUE+complemento. NO tiene endpoints
+# de cargar/borrar — los XMLs entran por `/procesador/cfdi/cargar`.
+
+
+class PagosFiltrosRequest(BaseModel):
+    desde: Optional[str] = None
+    hasta: Optional[str] = None
+    busqueda: Optional[str] = None
+    status: Optional[List[str]] = None  # ['sin_complemento', 'pago_parcial', ...]
+    solo_extemporaneos: Optional[bool] = False
+
+
+def _filtros_pagos_de_query(
+    desde: Optional[str],
+    hasta: Optional[str],
+    busqueda: Optional[str],
+) -> dict:
+    return {"desde": desde, "hasta": hasta, "busqueda": busqueda}
+
+
+@app.get("/procesador/pagos")
+def procesador_pagos_listar(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    status: Optional[str] = None,  # CSV: "sin_complemento,pago_parcial"
+    page: int = 1,
+    page_size: int = 50,
+):
+    """Facturas PPD paginadas con status calculado."""
+    from ..procesador import abrir_db
+    from ..procesador import reportes_pagos as rep
+
+    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    status_list = [s for s in (status or "").split(",") if s] or None
+    return rep.facturas_ppd(
+        abrir_db(), filtros, status_in=status_list, page=page, page_size=page_size,
+    )
+
+
+@app.get("/procesador/pagos/stats")
+def procesador_pagos_stats(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+):
+    from ..procesador import abrir_db
+    from ..procesador.reportes_pagos import stats_pagos
+    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    return stats_pagos(abrir_db(), filtros)
+
+
+@app.get("/procesador/pagos/factura/{uuid}/pagos")
+def procesador_pagos_detalle_factura(uuid: str):
+    """Drilldown: pagos asociados a una factura PPD específica."""
+    from ..procesador import abrir_db
+    from ..procesador.reportes_pagos import detalle_pagos_de_ppd
+    return {"uuid": uuid, "items": detalle_pagos_de_ppd(abrir_db(), uuid)}
+
+
+@app.get("/procesador/pagos/reporte/{nombre}")
+def procesador_pagos_reporte(
+    nombre: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+):
+    """Reportes: `analisis-fechas`, `huerfanos`, `incidencias-pue`."""
+    from ..procesador import abrir_db
+    from ..procesador import reportes_pagos as rep
+
+    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    db = abrir_db()
+    if nombre == "analisis-fechas":
+        return {"reporte": "analisis-fechas", "items": rep.analisis_fechas(db, filtros)}
+    if nombre == "huerfanos":
+        return {"reporte": "huerfanos", "items": rep.pagos_huerfanos(db, filtros)}
+    if nombre == "incidencias-pue":
+        return {"reporte": "incidencias-pue", "items": rep.incidencias_pue(db, filtros)}
+    raise HTTPException(status_code=404, detail=f"Reporte desconocido: {nombre}")
+
+
+@app.get("/procesador/pagos/filtros")
+def procesador_pagos_filtros_get():
+    from ..procesador import abrir_db
+    f = abrir_db().filtros_get(key="pagos_actuales")
+    # Default explicito si nunca se han guardado.
+    return f or {
+        "desde": None, "hasta": None, "busqueda": None,
+        "status": None, "solo_extemporaneos": False,
+    }
+
+
+@app.put("/procesador/pagos/filtros")
+def procesador_pagos_filtros_set(req: PagosFiltrosRequest):
+    from ..procesador import abrir_db
+    abrir_db().filtros_set(req.dict(), key="pagos_actuales")
+    return {"ok": True}
+
+
+@app.get("/procesador/pagos/exportar")
+def procesador_pagos_exportar(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    busqueda: Optional[str] = None,
+):
+    """XLSX multi-sheet del procesador de Pagos."""
+    from ..procesador import abrir_db
+    from ..procesador.exportar_pagos import to_xlsx
+    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    data = to_xlsx(abrir_db(), filtros)
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="pagos.xlsx"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

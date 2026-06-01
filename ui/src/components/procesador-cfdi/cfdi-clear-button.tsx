@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useServer } from '@/providers/server-provider';
@@ -17,13 +17,22 @@ import {
 } from '@/components/ui/dialog';
 
 interface Props {
-  /** Total de CFDIs en el buffer — se muestra en el dialog. */
-  total: number;
+  /**
+   * Total de items que se borrarán; se interpola en la descripción default.
+   * Ignorado si se pasa `descripcion` custom.
+   */
+  total?: number;
+  /**
+   * Descripción custom del dialog. Por default usa "los {total} CFDIs cargados",
+   * pero la página de Pagos pasa una descripción más precisa que aclara que
+   * borra TODO el buffer (incluyendo PPDs + complementos del procesador CFDI).
+   */
+  descripcion?: ReactNode;
   /** Callback tras borrar exitoso. */
   onBorrado: () => void;
 }
 
-export function CfdiClearButton({ total, onBorrado }: Props) {
+export function CfdiClearButton({ total = 0, descripcion, onBorrado }: Props) {
   const { apiClient } = useServer();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -42,6 +51,13 @@ export function CfdiClearButton({ total, onBorrado }: Props) {
     }
   }
 
+  const descripcionFinal = descripcion ?? (
+    <>
+      Esto eliminará los {total.toLocaleString('es-MX')} CFDIs cargados y los filtros
+      activos. La acción no se puede deshacer.
+    </>
+  );
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -53,10 +69,7 @@ export function CfdiClearButton({ total, onBorrado }: Props) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>¿Vaciar el procesador?</DialogTitle>
-          <DialogDescription>
-            Esto eliminará los {total.toLocaleString('es-MX')} CFDIs cargados y los filtros
-            activos. La acción no se puede deshacer.
-          </DialogDescription>
+          <DialogDescription>{descripcionFinal}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>

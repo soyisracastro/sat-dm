@@ -164,6 +164,93 @@ class ProcesadorDB:
                     """,
                     (str(version),),
                 )
+            # Hooks post-migración con código Python (cuando el SQL puro no
+            # alcanza para la transformación).
+            if version == 4:
+                self._repoblar_pagos_relaciones()
+
+    def _repoblar_pagos_relaciones(self) -> None:
+        """
+        Tras la migración 004, lee los CFDIs tipo P existentes (con `datos_pago`
+        en `raw_json`) e inserta sus `DoctoRelacionado` en la nueva tabla
+        `pagos_relaciones`. Idempotente: usa INSERT OR IGNORE indirecto al
+        verificar duplicados por (cfdi_pago_uuid, docto_uuid, docto_num_parcialidad).
+        """
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "SELECT uuid, raw_json FROM cfdis WHERE tipo = 'P'"
+            )
+            filas_p = cur.fetchall()
+
+            insertadas = 0
+            for row in filas_p:
+                uuid_p = row["uuid"]
+                try:
+                    raw = json.loads(row["raw_json"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                dp = raw.get("datos_pago")
+                if not dp:
+                    continue
+
+                # ¿Ya hay relaciones para este CFDI? Si sí, lo saltamos.
+                check = self._conn.execute(
+                    "SELECT 1 FROM pagos_relaciones WHERE cfdi_pago_uuid = ? LIMIT 1",
+                    (uuid_p,),
+                )
+                if check.fetchone():
+                    continue
+
+                count = self._insertar_pagos_relaciones(uuid_p, dp)
+                insertadas += count
+
+            if insertadas:
+                logger.info(
+                    "[procesador] migración 004: %d relaciones repobladas desde raw_json",
+                    insertadas,
+                )
+
+    def _insertar_pagos_relaciones(self, cfdi_pago_uuid: str, datos_pago: dict) -> int:
+        """
+        Inserta filas en `pagos_relaciones` a partir del dict `datos_pago`
+        (forma serializada de `DatosPago`). Devuelve el conteo insertado.
+        """
+        docs = datos_pago.get("documentos_relacionados") or []
+        if not docs:
+            return 0
+
+        count = 0
+        for d in docs:
+            self._conn.execute(
+                """
+                INSERT INTO pagos_relaciones (
+                    cfdi_pago_uuid, cfdi_pago_fecha_pago, cfdi_pago_monto,
+                    cfdi_pago_forma, cfdi_pago_moneda,
+                    docto_uuid, docto_serie, docto_folio,
+                    docto_metodo_pago, docto_num_parcialidad,
+                    docto_imp_saldo_ant, docto_imp_pagado, docto_imp_saldo_insoluto,
+                    docto_moneda
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cfdi_pago_uuid,
+                    datos_pago.get("fecha_pago") or "",
+                    float(datos_pago.get("monto_pago") or 0.0),
+                    datos_pago.get("forma_de_pago") or "",
+                    datos_pago.get("moneda_pago") or "",
+                    d.get("id_documento") or "",
+                    d.get("serie") or "",
+                    d.get("folio") or "",
+                    d.get("metodo_de_pago_dr") or "",
+                    int(d.get("num_parcialidad") or 0),
+                    float(d.get("imp_saldo_ant") or 0.0),
+                    float(d.get("imp_pagado") or 0.0),
+                    float(d.get("imp_saldo_insoluto") or 0.0),
+                    d.get("moneda_dr") or "",
+                ),
+            )
+            count += 1
+        return count
 
     # ------------------------------------------------------------------
     # CFDIs
@@ -261,6 +348,34 @@ class ProcesadorDB:
                             concepto.valor_unitario, concepto.importe, concepto.descuento,
                         ),
                     )
+
+                # Si es CFDI tipo P con datos_pago, además normaliza sus
+                # DoctoRelacionado a la tabla `pagos_relaciones` para que el
+                # procesador de Pagos pueda hacer queries SQL puras sin tocar
+                # `raw_json`.
+                if cfdi.tipo_comprobante == "P" and cfdi.datos_pago is not None:
+                    dp_dict = (
+                        cfdi.datos_pago
+                        if isinstance(cfdi.datos_pago, dict)
+                        else cfdi.datos_pago.__dict__
+                    )
+                    # `documentos_relacionados` puede venir como lista de
+                    # objetos dataclass o ya como lista de dicts (raw_json).
+                    docs = dp_dict.get("documentos_relacionados") or []
+                    docs_dict = [
+                        d if isinstance(d, dict) else d.__dict__ for d in docs
+                    ]
+                    self._insertar_pagos_relaciones(
+                        cfdi.uuid,
+                        {
+                            "fecha_pago": dp_dict.get("fecha_pago", ""),
+                            "monto_pago": dp_dict.get("monto_pago", 0.0),
+                            "forma_de_pago": dp_dict.get("forma_de_pago", ""),
+                            "moneda_pago": dp_dict.get("moneda_pago", ""),
+                            "documentos_relacionados": docs_dict,
+                        },
+                    )
+
                 agregados += 1
 
         return {"agregados": agregados, "duplicados": duplicados}
@@ -269,6 +384,7 @@ class ProcesadorDB:
         """Vacía todas las tablas del procesador."""
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM conceptos")
+            self._conn.execute("DELETE FROM pagos_relaciones")
             self._conn.execute("DELETE FROM cfdis")
             self._conn.execute("DELETE FROM filtros")
 
@@ -346,28 +462,35 @@ class ProcesadorDB:
     # Filtros persistidos
     # ------------------------------------------------------------------
 
-    def filtros_get(self) -> CfdiFiltros:
+    def filtros_get(self, key: str = "actuales") -> dict:
+        """
+        Lee los filtros persistidos para un procesador. `key` distingue cada
+        uno: 'actuales' (CFDI), 'pagos_actuales' (Pagos), etc.
+        Si no hay nada guardado o el JSON es inválido devuelve `filtros_vacios()`
+        para el de CFDI; para otros procesadores devuelve `{}` (el caller hace
+        merge con su propio default).
+        """
         with self._lock:
             cur = self._conn.execute(
-                "SELECT value FROM filtros WHERE key = 'actuales'"
+                "SELECT value FROM filtros WHERE key = ?", (key,)
             )
             row = cur.fetchone()
         if row is None:
-            return filtros_vacios()
+            return filtros_vacios() if key == "actuales" else {}
         try:
             return json.loads(row[0])
         except (json.JSONDecodeError, TypeError):
-            return filtros_vacios()
+            return filtros_vacios() if key == "actuales" else {}
 
-    def filtros_set(self, filtros: CfdiFiltros) -> None:
+    def filtros_set(self, filtros: dict, key: str = "actuales") -> None:
         payload = json.dumps(filtros, ensure_ascii=False)
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO filtros (key, value) VALUES ('actuales', ?)
+                INSERT INTO filtros (key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
-                (payload,),
+                (key, payload),
             )
 
     # ------------------------------------------------------------------
