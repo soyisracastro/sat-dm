@@ -67,6 +67,56 @@ class DatosPago:
 
 
 @dataclass
+class ConceptoNomina:
+    """Un concepto dentro de Percepciones / Deducciones / OtrosPagos."""
+    clase: str = ""                  # 'Percepcion' | 'Deduccion' | 'OtroPago'
+    tipo_concepto: str = ""          # clave SAT (TipoPercepcion / TipoDeduccion / TipoOtroPago)
+    clave_interna: str = ""
+    concepto: str = ""
+    importe_gravado: float = 0.0
+    importe_exento: float = 0.0
+    importe: float = 0.0
+    subsidio_causado: float = 0.0    # solo para OtroPago tipo 002 (Subsidio al Empleo)
+
+
+@dataclass
+class DatosNomina:
+    """Datos del complemento de Nómina 1.2 (CFDI tipo N)."""
+    # Emisor del complemento (patrón)
+    registro_patronal: str = ""
+    # Trabajador
+    curp: str = ""
+    nss: str = ""
+    num_empleado: str = ""
+    puesto: str = ""
+    departamento: str = ""
+    tipo_contrato: str = ""
+    tipo_regimen: str = ""
+    tipo_jornada: str = ""
+    periodicidad_pago: str = ""
+    fecha_inicio_rel_laboral: str = ""
+    antiguedad: str = ""
+    salario_base_cot_apor: float = 0.0
+    salario_diario_integrado: float = 0.0
+    riesgo_trabajo: str = ""
+    banco: str = ""
+    cuenta_bancaria: str = ""
+    sindicalizado: str = ""
+    clave_ent_fed: str = ""
+    # Recibo
+    tipo_nomina: str = ""            # 'O' | 'E'
+    fecha_pago: str = ""
+    fecha_inicial_pago: str = ""
+    fecha_final_pago: str = ""
+    num_dias_pagados: float = 0.0
+    total_percepciones: float = 0.0
+    total_deducciones: float = 0.0
+    total_otros_pagos: float = 0.0
+    # Conceptos (Percepciones + Deducciones + OtrosPagos)
+    conceptos: list[ConceptoNomina] = field(default_factory=list)
+
+
+@dataclass
 class CfdiData:
     """
     Vista plana de un CFDI extraído del XML. Los nombres siguen snake_case y
@@ -123,6 +173,9 @@ class CfdiData:
 
     # Específico de Pagos (tipo P)
     datos_pago: Optional[DatosPago] = None
+
+    # Específico de Nómina (tipo N)
+    datos_nomina: Optional[DatosNomina] = None
 
     # Validación (poblada por procesador.validaciones)
     warnings: list[str] = field(default_factory=list)
@@ -303,6 +356,175 @@ def _extraer_pagos(root) -> Optional[DatosPago]:
     )
 
 
+def _find_child_local(parent, local_name: str):
+    """Primer hijo directo (no descendiente) con local-name = local_name."""
+    if parent is None:
+        return None
+    for child in parent:
+        if etree.QName(child).localname == local_name:
+            return child
+    return None
+
+
+def _findall_child_local(parent, local_name: str) -> list:
+    """Hijos directos con local-name = local_name."""
+    if parent is None:
+        return []
+    return [c for c in parent if etree.QName(c).localname == local_name]
+
+
+def _extraer_trabajador_nomina(nomina) -> dict:
+    """Receptor del complemento (datos del trabajador)."""
+    receptor = _find_child_local(nomina, "Receptor")
+    if receptor is None:
+        return {}
+    return {
+        "curp": _attr(receptor, "Curp"),
+        "nss": _attr(receptor, "NumSeguridadSocial"),
+        "num_empleado": _attr(receptor, "NumEmpleado"),
+        "puesto": _attr(receptor, "Puesto"),
+        "departamento": _attr(receptor, "Departamento"),
+        "tipo_contrato": _attr(receptor, "TipoContrato"),
+        "tipo_regimen": _attr(receptor, "TipoRegimen"),
+        "tipo_jornada": _attr(receptor, "TipoJornada"),
+        "periodicidad_pago": _attr(receptor, "PeriodicidadPago"),
+        "fecha_inicio_rel_laboral": _attr(receptor, "FechaInicioRelLaboral"),
+        "antiguedad": _attr(receptor, "Antigüedad") or _attr(receptor, "Antiguedad"),
+        "salario_base_cot_apor": _to_float(_attr(receptor, "SalarioBaseCotApor")),
+        "salario_diario_integrado": _to_float(_attr(receptor, "SalarioDiarioIntegrado")),
+        "riesgo_trabajo": _attr(receptor, "RiesgoTrabajo"),
+        "banco": _attr(receptor, "Banco"),
+        "cuenta_bancaria": _attr(receptor, "CuentaBancaria"),
+        "sindicalizado": _attr(receptor, "Sindicalizado"),
+        "clave_ent_fed": _attr(receptor, "ClaveEntFed"),
+    }
+
+
+def _extraer_emisor_complemento(nomina) -> dict:
+    """Emisor del complemento (patrón)."""
+    emisor = _find_child_local(nomina, "Emisor")
+    if emisor is None:
+        return {}
+    return {"registro_patronal": _attr(emisor, "RegistroPatronal")}
+
+
+def _extraer_percepciones(nomina) -> list[ConceptoNomina]:
+    nodo = _find_child_local(nomina, "Percepciones")
+    if nodo is None:
+        return []
+    out: list[ConceptoNomina] = []
+    for item in _findall_child_local(nodo, "Percepcion"):
+        out.append(
+            ConceptoNomina(
+                clase="Percepcion",
+                tipo_concepto=_attr(item, "TipoPercepcion"),
+                clave_interna=_attr(item, "Clave"),
+                concepto=_attr(item, "Concepto"),
+                importe_gravado=_to_float(_attr(item, "ImporteGravado")),
+                importe_exento=_to_float(_attr(item, "ImporteExento")),
+                importe=0.0,
+                subsidio_causado=0.0,
+            )
+        )
+    return out
+
+
+def _extraer_deducciones(nomina) -> list[ConceptoNomina]:
+    nodo = _find_child_local(nomina, "Deducciones")
+    if nodo is None:
+        return []
+    out: list[ConceptoNomina] = []
+    for item in _findall_child_local(nodo, "Deduccion"):
+        out.append(
+            ConceptoNomina(
+                clase="Deduccion",
+                tipo_concepto=_attr(item, "TipoDeduccion"),
+                clave_interna=_attr(item, "Clave"),
+                concepto=_attr(item, "Concepto"),
+                importe_gravado=0.0,
+                importe_exento=0.0,
+                importe=_to_float(_attr(item, "Importe")),
+                subsidio_causado=0.0,
+            )
+        )
+    return out
+
+
+def _extraer_otros_pagos(nomina) -> list[ConceptoNomina]:
+    nodo = _find_child_local(nomina, "OtrosPagos")
+    if nodo is None:
+        return []
+    out: list[ConceptoNomina] = []
+    for item in _findall_child_local(nodo, "OtroPago"):
+        tipo = _attr(item, "TipoOtroPago")
+        subsidio = 0.0
+        # Subsidio al Empleo (tipo 002) tiene sub-elemento `SubsidioAlEmpleo`
+        # con atributo `SubsidioCausado`.
+        if tipo == "002":
+            sub = _find_child_local(item, "SubsidioAlEmpleo")
+            if sub is not None:
+                subsidio = _to_float(_attr(sub, "SubsidioCausado"))
+        out.append(
+            ConceptoNomina(
+                clase="OtroPago",
+                tipo_concepto=tipo,
+                clave_interna=_attr(item, "Clave"),
+                concepto=_attr(item, "Concepto"),
+                importe_gravado=0.0,
+                importe_exento=0.0,
+                importe=_to_float(_attr(item, "Importe")),
+                subsidio_causado=subsidio,
+            )
+        )
+    return out
+
+
+def _extraer_nomina(root) -> Optional[DatosNomina]:
+    """Si hay complemento `nomina12:Nomina`/`Nomina`, extrae todos sus campos."""
+    nomina = _find_local(root, "Nomina")
+    if nomina is None:
+        return None
+
+    trabajador = _extraer_trabajador_nomina(nomina)
+    emisor = _extraer_emisor_complemento(nomina)
+
+    conceptos: list[ConceptoNomina] = []
+    conceptos.extend(_extraer_percepciones(nomina))
+    conceptos.extend(_extraer_deducciones(nomina))
+    conceptos.extend(_extraer_otros_pagos(nomina))
+
+    return DatosNomina(
+        registro_patronal=emisor.get("registro_patronal", ""),
+        curp=trabajador.get("curp", ""),
+        nss=trabajador.get("nss", ""),
+        num_empleado=trabajador.get("num_empleado", ""),
+        puesto=trabajador.get("puesto", ""),
+        departamento=trabajador.get("departamento", ""),
+        tipo_contrato=trabajador.get("tipo_contrato", ""),
+        tipo_regimen=trabajador.get("tipo_regimen", ""),
+        tipo_jornada=trabajador.get("tipo_jornada", ""),
+        periodicidad_pago=trabajador.get("periodicidad_pago", ""),
+        fecha_inicio_rel_laboral=trabajador.get("fecha_inicio_rel_laboral", ""),
+        antiguedad=trabajador.get("antiguedad", ""),
+        salario_base_cot_apor=trabajador.get("salario_base_cot_apor", 0.0),
+        salario_diario_integrado=trabajador.get("salario_diario_integrado", 0.0),
+        riesgo_trabajo=trabajador.get("riesgo_trabajo", ""),
+        banco=trabajador.get("banco", ""),
+        cuenta_bancaria=trabajador.get("cuenta_bancaria", ""),
+        sindicalizado=trabajador.get("sindicalizado", ""),
+        clave_ent_fed=trabajador.get("clave_ent_fed", ""),
+        tipo_nomina=_attr(nomina, "TipoNomina"),
+        fecha_pago=_attr(nomina, "FechaPago"),
+        fecha_inicial_pago=_attr(nomina, "FechaInicialPago"),
+        fecha_final_pago=_attr(nomina, "FechaFinalPago"),
+        num_dias_pagados=_to_float(_attr(nomina, "NumDiasPagados")),
+        total_percepciones=_to_float(_attr(nomina, "TotalPercepciones")),
+        total_deducciones=_to_float(_attr(nomina, "TotalDeducciones")),
+        total_otros_pagos=_to_float(_attr(nomina, "TotalOtrosPagos")),
+        conceptos=conceptos,
+    )
+
+
 # ---------------------------------------------------------------------------
 # API pública
 # ---------------------------------------------------------------------------
@@ -378,5 +600,9 @@ def parse_cfdi(xml_content: Union[str, bytes], file_name: str = "") -> CfdiData:
     # Complemento Pagos (solo tipo P)
     if data.tipo_comprobante == "P":
         data.datos_pago = _extraer_pagos(root)
+
+    # Complemento Nómina 1.2 (solo tipo N)
+    if data.tipo_comprobante == "N":
+        data.datos_nomina = _extraer_nomina(root)
 
     return data

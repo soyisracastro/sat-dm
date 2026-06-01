@@ -7,16 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { CfdiCargarMasButton } from '@/components/procesador-cfdi/cfdi-cargar-mas-button';
 import { CfdiClearButton } from '@/components/procesador-cfdi/cfdi-clear-button';
-import { CfdiExportButtons } from '@/components/procesador-cfdi/cfdi-export-buttons';
-import { CfdiFiltersPanel } from '@/components/procesador-cfdi/cfdi-filters';
-import { CfdiReportes } from '@/components/procesador-cfdi/cfdi-reportes';
-import { CfdiStats } from '@/components/procesador-cfdi/cfdi-stats';
-import { CfdiTable } from '@/components/procesador-cfdi/cfdi-table';
 import { CfdiUploader } from '@/components/procesador-cfdi/cfdi-uploader';
 import { CfdiValidarButton } from '@/components/procesador-cfdi/cfdi-validar-button';
-import { useProcesadorCfdi } from '@/hooks/use-procesador-cfdi';
+import { NominaExportButton } from '@/components/procesador-nomina/nomina-export-button';
+import { NominaFiltersPanel } from '@/components/procesador-nomina/nomina-filters';
+import { NominaRecibosTable } from '@/components/procesador-nomina/nomina-recibos-table';
+import { NominaStatsCards } from '@/components/procesador-nomina/nomina-stats';
+import { useProcesadorNomina } from '@/hooks/use-procesador-nomina';
 
-export default function ProcesadorCfdiPage() {
+export default function ProcesadorNominaPage() {
   const {
     filtros,
     setFiltro,
@@ -30,19 +29,15 @@ export default function ProcesadorCfdiPage() {
     loading,
     recargar,
     hidratado,
-  } = useProcesadorCfdi();
+  } = useProcesadorNomina();
 
-  const total = data?.total ?? 0;
-  // Buffer "vacío" = NO hay CFDIs en la DB del todo. Si los hay pero los filtros
-  // los excluyen, NO es buffer vacío — la tabla muestra "sin resultados" y los
-  // filtros siguen visibles para que el usuario los ajuste.
-  const bufferVacio = hidratado && stats !== null && stats.total_global === 0;
+  const bufferVacio = hidratado && stats !== null && stats.total_global_recibos === 0;
 
   return (
     <div className="space-y-6">
       <PageHeading
-        title="Procesador de CFDI"
-        description="Carga XMLs, filtra y genera reportes."
+        title="Procesador de Nómina"
+        description="Recibos de nómina (CFDI 4.0 + Complemento Nómina 1.2)."
         action={
           <Button variant="outline" size="sm" asChild>
             <Link href="/comprobantes">
@@ -53,38 +48,46 @@ export default function ProcesadorCfdiPage() {
         }
       />
 
-      {/* Empty state: buffer vacío → uploader grande, sin filtros ni reportes. */}
+      {/* Empty state: reusa el mismo CfdiUploader del procesador CFDI. */}
       {bufferVacio && <CfdiUploader onCargado={recargar} />}
 
-      {/* Estado normal: hay CFDIs en el buffer. */}
+      {/* Estado normal: hay recibos en el buffer. */}
       {!bufferVacio && stats !== null && (
         <>
-          {/* Acciones */}
+          <NominaStatsCards stats={stats} />
+
           <div className="flex flex-wrap items-center justify-end gap-2">
             <CfdiValidarButton onValidado={recargar} />
             <CfdiCargarMasButton onCargado={recargar} />
-            <CfdiExportButtons filtros={filtros} />
-            <CfdiClearButton total={stats.total_comprobantes} onBorrado={recargar} />
+            <NominaExportButton filtros={filtros} />
+            <CfdiClearButton
+              onBorrado={recargar}
+              descripcion={
+                <>
+                  Esto vaciará <strong>todo el procesador de comprobantes</strong>:
+                  los {stats.total_global_recibos.toLocaleString('es-MX')} recibos de
+                  nómina, así como las facturas PPD y los CFDIs cargados en los
+                  otros procesadores. Los filtros activos también se restablecen.
+                  La acción no se puede deshacer.
+                </>
+              }
+            />
           </div>
 
-          <CfdiStats stats={stats} />
-
-          <CfdiFiltersPanel
+          <NominaFiltersPanel
             filtros={filtros}
             setFiltro={setFiltro}
             reset={reset}
             filtrosActivos={filtrosActivos}
           />
 
-          <CfdiTable
+          <NominaRecibosTable
             data={data}
             page={page}
             pageSize={pageSize}
             loading={loading}
             onPage={setPage}
           />
-
-          {total > 0 && <CfdiReportes filtros={filtros} />}
         </>
       )}
     </div>

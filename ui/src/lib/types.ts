@@ -584,3 +584,210 @@ export interface ReporteIncidenciasPue {
     descripcion_riesgo: string;
   }[];
 }
+
+// ---------------------------------------------------------------------------
+// Procesador de comprobantes — Nómina
+// ---------------------------------------------------------------------------
+
+export type TipoNomina = 'O' | 'E';
+export type ClaseConcepto = 'Percepcion' | 'Deduccion' | 'OtroPago';
+
+export interface NominaFiltros {
+  desde: string | null;
+  hasta: string | null;
+  busqueda: string | null;
+  tipo_nomina: TipoNomina | null;
+  periodicidad: string | null;
+  solo_con_errores: boolean;
+}
+
+export interface NominaStats {
+  total_recibos: number;           // respeta filtros
+  total_global_recibos: number;    // sin filtros — empty state
+  total_empleados: number;
+  total_conceptos: number;
+  nominas_ordinarias: number;
+  nominas_extraordinarias: number;
+  total_percepciones: number;
+  total_deducciones: number;
+  total_otros_pagos: number;
+  neto_a_pagar: number;
+  conceptos_con_errores: number;
+}
+
+export interface NominaRecibo {
+  cfdi_uuid: string;
+  fecha: string;                   // fecha del CFDI
+  fecha_pago: string;
+  fecha_inicial_pago: string;
+  fecha_final_pago: string;
+  emisor_rfc: string;
+  emisor_nombre: string;
+  receptor_rfc: string;
+  receptor_nombre: string;
+  registro_patronal: string | null;
+  curp: string | null;
+  nss: string | null;
+  num_empleado: string | null;
+  puesto: string | null;
+  departamento: string | null;
+  tipo_contrato: string | null;
+  tipo_regimen: string | null;
+  tipo_jornada: string | null;
+  periodicidad_pago: string | null;
+  fecha_inicio_rel_laboral: string | null;
+  antiguedad: string | null;
+  salario_base_cot_apor: number;
+  salario_diario_integrado: number;
+  riesgo_trabajo: string | null;
+  banco: string | null;
+  cuenta_bancaria: string | null;
+  sindicalizado: string | null;
+  clave_ent_fed: string | null;
+  tipo_nomina: TipoNomina | null;
+  num_dias_pagados: number;
+  total_percepciones: number;
+  total_deducciones: number;
+  total_otros_pagos: number;
+  neto: number;
+  estado_sat: 'Vigente' | 'Cancelado' | 'No encontrado' | null;
+  warnings: string[];
+}
+
+export interface NominaRecibosResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: NominaRecibo[];
+}
+
+export interface NominaConceptoDetalle {
+  clase: ClaseConcepto;
+  tipo_concepto: string;
+  clave_interna: string | null;
+  concepto: string | null;
+  importe_gravado: number;
+  importe_exento: number;
+  importe: number;
+  subsidio_causado: number;
+}
+
+export interface EmployeeIsrBreakdown {
+  rfc: string;
+  nombre: string;
+  percepciones_gravadas: number;
+  isr_retenido: number;
+  isr_teorico: number;
+  diferencia: number;
+  periodicidad: string;
+  periodos_detectados: number;
+  meses_detectados: number;
+  advertencia_periodo: string | null;
+}
+
+export interface IsrAnalisis {
+  year_detected: number;
+  tarifa_label: string;
+  isr_bruto: number;
+  subsidio_aplicado: number;
+  isr_teorico: number;
+  isr_diferencia: number;
+  limite_spe: number;
+  aplica_spe: boolean;
+}
+
+export interface ReporteDeducibilidad {
+  reporte: 'deducibilidad';
+  periodo_inicio: string;
+  periodo_fin: string;
+  total_percepciones: number;
+  percepciones_gravadas: number;
+  percepciones_exentas: number;
+  total_deducciones: number;
+  seguro_social: number;
+  isr_retenido: number;
+  aportaciones_retiro_cesantia: number;
+  otros_deducciones: number;
+  salario_neto: number;
+  isr_analisis: IsrAnalisis;
+  empleados_analizados: number;
+  desglose_por_empleado: EmployeeIsrBreakdown[];
+  advertencias_periodo: string[];
+  recomendaciones: string[];
+  detalle_analisis: {
+    cumplimiento_retenciones: string;
+    adecuacion_fiscal: string;
+    observaciones: string[];
+  };
+}
+
+export interface ImssRegistro {
+  rfc: string;
+  nss: string;
+  nombre: string;
+  fechas_registro: string[];
+  salario_base_cot_apor: number;
+  salario_diario_integrado: number;
+  dias_trabajados: number;
+  aportaciones_patronal: number;
+  aportaciones_obrero: number;
+  seguro_social: number;
+  tipo_regimen: string;
+  riesgo_trabajo: string;
+  observaciones: string[];
+}
+
+export interface ReporteImss {
+  reporte: 'imss';
+  periodo_inicio: string;
+  periodo_fin: string;
+  total_empleados: number;
+  registros: ImssRegistro[];
+  totales: {
+    suma_sbc: number;
+    suma_dias: number;
+    suma_aportaciones_patronal: number;
+    suma_aportaciones_obrero: number;
+    suma_seguro_social: number;
+  };
+  alertas: {
+    empleados_sin_nss: string[];
+    sbc_fuera_limites: string[];
+    dias_anomalous: string[];
+  };
+}
+
+export interface PeriodoVariaciones {
+  empleados_variacion: number;
+  empleados_variacion_pct: number;
+  percepciones_variacion: number;
+  percepciones_variacion_pct: number;
+  deducciones_variacion: number;
+  deducciones_variacion_pct: number;
+  empleados_nuevos: string[];
+  empleados_eliminados: string[];
+  conceptos_nuevos: string[];
+  conceptos_eliminados: string[];
+}
+
+export interface PeriodoMetricas {
+  inicio: string;
+  fin: string;
+  total_empleados: number;
+  total_percepciones: number;
+  total_deducciones: number;
+  promedio_por_empleado: number;
+}
+
+export interface ReportePeriodoVsPeriodo {
+  reporte: 'periodo-vs-periodo';
+  insuficiente: boolean;
+  mensaje_insuficiente: string | null;
+  periodo_previo: PeriodoMetricas | null;
+  periodo_actual: PeriodoMetricas | null;
+  variaciones: PeriodoVariaciones | null;
+  analisis_detallado: {
+    tendencia: string;
+    observaciones: string[];
+  } | null;
+}

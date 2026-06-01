@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from ..cli import config_store
-from .cfdi_parser import CfdiData, ConceptoCfdi
+from .cfdi_parser import CfdiData, ConceptoCfdi, DatosNomina
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +168,8 @@ class ProcesadorDB:
             # alcanza para la transformación).
             if version == 4:
                 self._repoblar_pagos_relaciones()
+            if version == 5:
+                self._repoblar_nomina()
 
     def _repoblar_pagos_relaciones(self) -> None:
         """
@@ -209,6 +211,130 @@ class ProcesadorDB:
                     "[procesador] migración 004: %d relaciones repobladas desde raw_json",
                     insertadas,
                 )
+
+    def _repoblar_nomina(self) -> None:
+        """
+        Tras la migración 005, lee los CFDIs tipo N existentes (con `datos_nomina`
+        en `raw_json`) e inserta sus filas en `nomina_recibos` y `nomina_conceptos`.
+        Idempotente: salta CFDIs que ya tengan recibo en la tabla.
+
+        NOTA: CFDIs cargados antes de mergear este PR no tienen `datos_nomina`
+        en `raw_json` (porque el parser de entonces no lo extraía), y se skipean.
+        El usuario tendrá que recargarlos para verlos en la vista de nómina.
+        """
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "SELECT uuid, raw_json FROM cfdis WHERE tipo = 'N'"
+            )
+            filas_n = cur.fetchall()
+
+            insertadas = 0
+            for row in filas_n:
+                uuid_n = row["uuid"]
+                try:
+                    raw = json.loads(row["raw_json"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                dn = raw.get("datos_nomina")
+                if not dn:
+                    continue
+
+                # ¿Ya hay recibo para este CFDI? Idempotencia.
+                check = self._conn.execute(
+                    "SELECT 1 FROM nomina_recibos WHERE cfdi_uuid = ? LIMIT 1",
+                    (uuid_n,),
+                )
+                if check.fetchone():
+                    continue
+
+                self._insertar_nomina(uuid_n, dn)
+                insertadas += 1
+
+            if insertadas:
+                logger.info(
+                    "[procesador] migración 005: %d recibos de nómina repoblados desde raw_json",
+                    insertadas,
+                )
+
+    def _insertar_nomina(self, cfdi_uuid: str, datos: "DatosNomina | dict") -> None:
+        """
+        Inserta una fila en `nomina_recibos` y N filas en `nomina_conceptos`
+        a partir del dict o dataclass `datos`. Espejo de `_insertar_pagos_relaciones`.
+        """
+        if isinstance(datos, dict):
+            d = datos
+        else:
+            d = datos.__dict__
+
+        # Conceptos pueden venir como dataclasses o ya como dicts (raw_json).
+        conceptos_raw = d.get("conceptos") or []
+        conceptos = [c if isinstance(c, dict) else c.__dict__ for c in conceptos_raw]
+
+        self._conn.execute(
+            """
+            INSERT INTO nomina_recibos (
+                cfdi_uuid, registro_patronal, curp, nss, num_empleado, puesto,
+                departamento, tipo_contrato, tipo_regimen, tipo_jornada,
+                periodicidad_pago, fecha_inicio_rel_laboral, antiguedad,
+                salario_base_cot_apor, salario_diario_integrado, riesgo_trabajo,
+                banco, cuenta_bancaria, sindicalizado, clave_ent_fed,
+                tipo_nomina, fecha_pago, fecha_inicial_pago, fecha_final_pago,
+                num_dias_pagados, total_percepciones, total_deducciones, total_otros_pagos
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                cfdi_uuid,
+                d.get("registro_patronal") or "",
+                d.get("curp") or "",
+                d.get("nss") or "",
+                d.get("num_empleado") or "",
+                d.get("puesto") or "",
+                d.get("departamento") or "",
+                d.get("tipo_contrato") or "",
+                d.get("tipo_regimen") or "",
+                d.get("tipo_jornada") or "",
+                d.get("periodicidad_pago") or "",
+                d.get("fecha_inicio_rel_laboral") or "",
+                d.get("antiguedad") or "",
+                float(d.get("salario_base_cot_apor") or 0.0),
+                float(d.get("salario_diario_integrado") or 0.0),
+                d.get("riesgo_trabajo") or "",
+                d.get("banco") or "",
+                d.get("cuenta_bancaria") or "",
+                d.get("sindicalizado") or "",
+                d.get("clave_ent_fed") or "",
+                d.get("tipo_nomina") or "",
+                d.get("fecha_pago") or "",
+                d.get("fecha_inicial_pago") or "",
+                d.get("fecha_final_pago") or "",
+                float(d.get("num_dias_pagados") or 0.0),
+                float(d.get("total_percepciones") or 0.0),
+                float(d.get("total_deducciones") or 0.0),
+                float(d.get("total_otros_pagos") or 0.0),
+            ),
+        )
+
+        for c in conceptos:
+            self._conn.execute(
+                """
+                INSERT INTO nomina_conceptos (
+                    cfdi_uuid, clase, tipo_concepto, clave_interna, concepto,
+                    importe_gravado, importe_exento, importe, subsidio_causado
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cfdi_uuid,
+                    c.get("clase") or "",
+                    c.get("tipo_concepto") or "",
+                    c.get("clave_interna") or "",
+                    c.get("concepto") or "",
+                    float(c.get("importe_gravado") or 0.0),
+                    float(c.get("importe_exento") or 0.0),
+                    float(c.get("importe") or 0.0),
+                    float(c.get("subsidio_causado") or 0.0),
+                ),
+            )
 
     def _insertar_pagos_relaciones(self, cfdi_pago_uuid: str, datos_pago: dict) -> int:
         """
@@ -349,6 +475,12 @@ class ProcesadorDB:
                         ),
                     )
 
+                # Si es CFDI tipo N con datos_nomina, hidrata las tablas
+                # `nomina_recibos` y `nomina_conceptos` para que los reportes
+                # del procesador de Nómina sean SQL puro.
+                if cfdi.tipo_comprobante == "N" and cfdi.datos_nomina is not None:
+                    self._insertar_nomina(cfdi.uuid, cfdi.datos_nomina)
+
                 # Si es CFDI tipo P con datos_pago, además normaliza sus
                 # DoctoRelacionado a la tabla `pagos_relaciones` para que el
                 # procesador de Pagos pueda hacer queries SQL puras sin tocar
@@ -385,6 +517,8 @@ class ProcesadorDB:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM conceptos")
             self._conn.execute("DELETE FROM pagos_relaciones")
+            self._conn.execute("DELETE FROM nomina_conceptos")
+            self._conn.execute("DELETE FROM nomina_recibos")
             self._conn.execute("DELETE FROM cfdis")
             self._conn.execute("DELETE FROM filtros")
 

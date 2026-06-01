@@ -8,6 +8,7 @@ import { Icon } from '@/components/ui/icon';
 import { CfdiCargarMasButton } from '@/components/procesador-cfdi/cfdi-cargar-mas-button';
 import { CfdiClearButton } from '@/components/procesador-cfdi/cfdi-clear-button';
 import { CfdiUploader } from '@/components/procesador-cfdi/cfdi-uploader';
+import { CfdiValidarButton } from '@/components/procesador-cfdi/cfdi-validar-button';
 import { PagosFiltersPanel } from '@/components/procesador-pagos/pagos-filters';
 import { PagosHuerfanosTable } from '@/components/procesador-pagos/pagos-huerfanos-table';
 import { PagosIncidenciasPue } from '@/components/procesador-pagos/pagos-incidencias-pue';
@@ -60,6 +61,7 @@ export default function ProcesadorPagosPage() {
           <PagosStatsCards stats={stats} />
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <CfdiValidarButton onValidado={recargar} />
             <CfdiCargarMasButton onCargado={recargar} />
             <PagosExportButton filtros={filtros} />
             <CfdiClearButton
