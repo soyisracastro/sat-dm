@@ -44,10 +44,10 @@ const FEATURE_CARDS: FeatureCard[] = [
     requiresFiel: false,
   },
   {
-    href: '/validacion',
-    title: 'Validación CFDI',
-    description: 'Verifica el estatus (Vigente / Cancelado) en el SAT.',
-    icon: 'ph:shield-check-light',
+    href: '/comprobantes',
+    title: 'Comprobantes',
+    description: 'Procesa XMLs descargados: tablas, filtros, validación contra SAT, reportes y exportación.',
+    icon: 'ph:files-light',
     requiresFiel: false,
   },
   {

@@ -82,32 +82,6 @@ export interface SolicitudFolioRequest {
   extraer: boolean;
 }
 
-// POST /validar — request body
-export interface CfdiValidarInput {
-  uuid: string;
-  emisor_rfc: string;
-  receptor_rfc: string;
-  total: number;
-}
-
-export interface ValidarRequest {
-  cfdis: CfdiValidarInput[];
-  concurrency?: number;
-}
-
-export interface ValidarResult {
-  uuid: string;
-  estado: string;
-  es_cancelable: string | null;
-  estatus_cancelacion: string | null;
-  validacion_efos: string | null;
-  error: string | null;
-}
-
-export interface ValidarResponse {
-  results: ValidarResult[];
-}
-
 // POST /organizar (planned endpoint — models match organizador.py)
 export interface OrganizadorRequest {
   origen: string;

@@ -10,8 +10,6 @@ import type {
   DescargarResponse,
   DescargaCompletaRequest,
   SolicitudFolioRequest,
-  ValidarRequest,
-  ValidarResponse,
   OrganizadorRequest,
   OrganizadorResult,
   RenombrarRequest,
@@ -234,17 +232,6 @@ export class SatApiClient {
     req: SolicitudFolioRequest,
   ): Promise<DescargarResponse> {
     return this.post<DescargarResponse>('/solicitar-folio', req as unknown as Record<string, unknown>);
-  }
-
-  // -----------------------------------------------------------------------
-  // CFDI Validation (public SAT endpoint — no FIEL required)
-  // -----------------------------------------------------------------------
-
-  /**
-   * Validate the status of CFDIs (Vigente / Cancelado / No Encontrado).
-   */
-  async validar(req: ValidarRequest): Promise<ValidarResponse> {
-    return this.post<ValidarResponse>('/validar', req as unknown as Record<string, unknown>);
   }
 
   // -----------------------------------------------------------------------

@@ -1,11 +1,19 @@
+# DEPRECATED: instalación recomendada con `pip install -e ".[dev]"` que usa
+# `pyproject.toml` como source of truth. Este archivo se conserva por
+# compatibilidad con flujos legacy; mantenerlo sincronizado a mano.
+
 # Core: Web Service oficial del SAT (e-firma)
 requests>=2.31.0
 cryptography>=41.0.0
 lxml>=4.9.0
 urllib3>=2.0.0
 
-# CLI
+# CLI + secretos en keychain del SO
 click>=8.0.0
+keyring>=24.0.0
+
+# Procesador de comprobantes (export XLSX)
+openpyxl>=3.1.0
 
 # Tests
 pytest>=8.0.0
