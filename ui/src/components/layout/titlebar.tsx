@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { Bell } from '@/components/notifications/bell';
+import { FounderBadge } from '@/components/auth/founder-badge';
 
 /**
  * Franja superior de la ventana. En Electron es una región arrastrable
@@ -42,7 +43,11 @@ export function Titlebar() {
       <span className="text-xs font-semibold tracking-tight text-foreground">
         SAT Descarga Masiva
       </span>
-      <div className="ml-auto flex items-center">
+      <div
+        className="ml-auto flex items-center gap-2"
+        style={desktop ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string } : undefined}
+      >
+        <FounderBadge />
         <Bell />
       </div>
     </div>
