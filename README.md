@@ -28,6 +28,8 @@ Dos vías complementarias:
 Este cliente prioriza el Web Service, pero incluye el modo **CIEC** para cuando el
 contribuyente no cuenta con e-firma.
 
+> 📦 **Versionado**: este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/) con tags `vX.Y.Z`. Ver [docs/versionado.md](docs/versionado.md) para la convención completa.
+
 ## Requisitos
 
 - Python 3.9+
