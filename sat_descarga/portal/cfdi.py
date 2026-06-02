@@ -97,6 +97,12 @@ class CIECClient:
                 "  playwright install chromium"
             )
 
+        # En distribución empaquetada, Chromium no viaja en el .exe; lo
+        # descargamos perezosamente en la primera invocación a un endpoint del
+        # portal.
+        from .setup import asegurar_chromium
+        asegurar_chromium()
+
         tipos = _normalizar_tipos(tipo_comprobante)
         base_dir = Path(directorio_salida)
         base_dir.mkdir(parents=True, exist_ok=True)

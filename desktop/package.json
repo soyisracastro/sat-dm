@@ -7,7 +7,10 @@
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
-    "build": "electron-builder"
+    "build:agent": "cd .. && pyinstaller packaging/sat-agent.spec --noconfirm --clean --distpath packaging/dist --workpath packaging/build",
+    "build:ui": "cd ../ui && pnpm install --frozen-lockfile && pnpm build",
+    "build:installer": "electron-builder",
+    "build": "pnpm build:agent && pnpm build:ui && pnpm build:installer"
   },
   "devDependencies": {
     "electron": "^33.2.0",

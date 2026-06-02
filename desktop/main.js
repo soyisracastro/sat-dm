@@ -82,6 +82,65 @@ function waitForHealth(baseUrl, timeoutMs = 30000) {
   });
 }
 
+/**
+ * Resuelve [cmd, cwd] para spawnear el agente Python según el entorno.
+ *
+ * - Producción (empaquetado por electron-builder): usa el binario `sat-agent.exe`
+ *   incluido como extraResource. `app.isPackaged === true` y el binario vive en
+ *   `<resources>/agent/sat-agent.exe` (o sin .exe en macOS/Linux para dev).
+ * - Override por env: SAT_AGENT_CMD permite forzar un comando arbitrario
+ *   (útil para QA o builds custom). Se respeta siempre, incluso en producción.
+ * - Dev (no empaquetado): default a `uv run uvicorn sat_descarga.api.server:app`
+ *   desde la raíz del repo.
+ */
+function resolverComandoAgente(port) {
+  if (process.env.SAT_AGENT_CMD) {
+    return {
+      cmd: process.env.SAT_AGENT_CMD.split(' '),
+      cwd: process.cwd(),
+    };
+  }
+
+  if (app.isPackaged) {
+    const exeName = process.platform === 'win32' ? 'sat-agent.exe' : 'sat-agent';
+    const agentExe = path.join(process.resourcesPath, 'agent', exeName);
+    return {
+      // El agente lee --port y/o $SAT_AGENT_PORT.
+      cmd: [agentExe, '--port', String(port)],
+      // cwd = dir del .exe para que lxml/uvicorn encuentren sus dlls relativos.
+      cwd: path.dirname(agentExe),
+    };
+  }
+
+  // Dev (no empaquetado).
+  return {
+    cmd: ['uv', 'run', 'uvicorn', 'sat_descarga.api.server:app',
+          '--host', '127.0.0.1', '--port', String(port)],
+    cwd: REPO_ROOT,
+  };
+}
+
+/**
+ * Resuelve la URL del renderer (la app Next.js) según el entorno.
+ *
+ * - Override por env: SAT_RENDERER_URL siempre gana (debug, builds custom).
+ * - Producción: bundle estático exportado a ui/out/ → empaquetado como
+ *   extraResource en `<resources>/ui/index.html` → file:// URL.
+ * - Dev (no empaquetado): http://localhost:3001 donde corre `pnpm dev` del UI.
+ */
+function resolverRendererUrl() {
+  if (process.env.SAT_RENDERER_URL) {
+    return process.env.SAT_RENDERER_URL;
+  }
+  if (app.isPackaged) {
+    const indexHtml = path.join(process.resourcesPath, 'ui', 'index.html');
+    // Electron acepta file:// — pathToFileURL produce el formato correcto
+    // (incluyendo escape de espacios en Windows, p. ej. "C:\Program Files").
+    return require('url').pathToFileURL(indexHtml).toString();
+  }
+  return 'http://localhost:3001';
+}
+
 async function startAgent() {
   // Si el dev ya levantó el agente manualmente, conéctate a ese.
   if (process.env.SAT_AGENT_URL) {
@@ -93,14 +152,11 @@ async function startAgent() {
   const port = await getFreePort();
   agentUrl = `http://127.0.0.1:${port}`;
 
-  const cmd = process.env.SAT_AGENT_CMD
-    ? process.env.SAT_AGENT_CMD.split(' ')
-    : ['uv', 'run', 'uvicorn', 'sat_descarga.api.server:app',
-       '--host', '127.0.0.1', '--port', String(port)];
+  const { cmd, cwd } = resolverComandoAgente(port);
 
-  console.log('[agente] iniciando:', cmd.join(' '), '(cwd:', REPO_ROOT + ')');
+  console.log('[agente] iniciando:', cmd.join(' '), '(cwd:', cwd + ')');
   agentProc = spawn(cmd[0], cmd.slice(1), {
-    cwd: REPO_ROOT,
+    cwd,
     env: { ...process.env, SAT_AGENT_PORT: String(port) },
     stdio: 'inherit',
   });
@@ -137,7 +193,7 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  const rendererUrl = process.env.SAT_RENDERER_URL || 'http://localhost:3001';
+  const rendererUrl = resolverRendererUrl();
   win.loadURL(rendererUrl);
 }
 
