@@ -1,5 +1,28 @@
 # Changelog
 
+> **Nota sobre versionado**: Las entradas previas v0.1.0–v1.2.0 corresponden al paquete Python pip-installable y a metadatos desincronizados de subproyectos. **v1.0.0 (esta) inicia la numeración del producto distribuible TodoConta Desktop** (Python + Next + Electron empaquetado). Ver [docs/versionado.md](docs/versionado.md) para la convención SemVer aplicada.
+
+## [Unreleased]
+
+_Cambios mergeados a `main` pero todavía no etiquetados en un release publicado._
+
+---
+
+## [1.0.0] - próximo release
+
+Primer release público del producto **TodoConta Desktop** — instalador Windows distribuible, login obligatorio integrado con `todoconta-apps`, ventana de **Fundadores** (licencia de por vida) para los primeros usuarios.
+
+### Empaquetado y distribución
+
+- Versionado unificado de los 3 subproyectos (`pyproject.toml`, `ui/package.json`, `desktop/package.json`) a `1.0.0`. A partir de aquí, los 3 archivos se sincronizan en cada release.
+- Convención SemVer documentada en `docs/versionado.md`.
+
+### Cambios incompatibles
+
+- **Re-base de numeración**: el paquete Python interno venía en `1.2.0`; el producto distribuible arranca su numeración en `1.0.0`. No hay cambios funcionales — solo el número.
+
+---
+
 ## v1.2.0 (2026-05-25)
 
 Reorganización del proyecto **por canal de acceso** y **CLI unificado**.
