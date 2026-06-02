@@ -42,8 +42,130 @@ app.setName('TodoConta');
 // efecto. Mismo id que usaremos para el appId de electron-builder cuando
 // empaquetemos para producción.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.todoconta.satdescargamasiva');
+  app.setAppUserModelId('com.todoconta.desktop');
 }
+
+// Protocol handler para `todoconta://...` (deep links estilo Notion).
+//
+// Flujo:
+//   1. La app desktop genera un device_code.
+//   2. El user completa el activate en la web.
+//   3. La página `/desktop/activate` de todoconta-apps redirige a
+//      `todoconta://activated?code=XXXXXXXX` al éxito.
+//   4. El SO lanza esta app (o trae al frente si ya está corriendo).
+//   5. Aquí parseamos la URL, enfocamos la ventana y le decimos al renderer
+//      "hay un device_code listo — poll inmediato".
+//
+// En dev (electron .) el registro puede fallar silenciosamente porque el
+// app no está realmente instalada — la prueba real es post-`pnpm build`.
+// Sí funciona en dev para el escenario "app corriendo + URL via second-instance".
+if (process.defaultApp) {
+  // dev: argv[1] es el script
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('todoconta', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('todoconta');
+}
+
+// Single-instance lock: si el usuario lanza la app un segundo tiempo (vía
+// protocolo o doble-click en el ícono), no spawneamos un proceso nuevo —
+// fire del evento `second-instance` en la primera instancia y la traemos
+// al frente.
+const gotInstanceLock = app.requestSingleInstanceLock();
+if (!gotInstanceLock) {
+  app.quit();
+}
+
+// Pendiente: la URL de protocolo capturada al startup ANTES de que la ventana
+// exista. Se enviará al renderer cuando esté lista.
+let pendingProtocolUrl = null;
+
+/** Extrae el device_code de una URL `todoconta://activated?code=XXX`. */
+function parseProtocolUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  if (!url.startsWith('todoconta://')) return null;
+  try {
+    const u = new URL(url);
+    const action = u.host || u.pathname.replace(/^\/+/, '');  // "activated"
+    const code = u.searchParams.get('code');
+    return { action, code };
+  } catch {
+    return null;
+  }
+}
+
+/** Busca una URL `todoconta://...` dentro de un argv. */
+function protocolUrlFromArgv(argv) {
+  return argv.find((a) => typeof a === 'string' && a.startsWith('todoconta://')) || null;
+}
+
+/**
+ * Aplica el evento de deep link: enfoca la ventana y, si el renderer ya
+ * está vivo, le manda el code para que polleé de inmediato. Si no hay
+ * ventana todavía, deja la URL pendiente.
+ */
+function handleProtocolUrl(url) {
+  const parsed = parseProtocolUrl(url);
+  if (!parsed) return;
+
+  const wins = BrowserWindow.getAllWindows();
+  const win = wins[0];
+  if (!win) {
+    pendingProtocolUrl = url;
+    return;
+  }
+
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.moveTop();
+  if (process.platform === 'darwin' && app.dock) {
+    try { app.dock.show(); } catch (_) { /* noop */ }
+    app.focus({ steal: true });
+  }
+  if (process.platform === 'win32') {
+    try { win.flashFrame(true); setTimeout(() => win.flashFrame(false), 600); } catch (_) { /* noop */ }
+  }
+
+  // Notificar al renderer (LoginPage escucha esto y dispara un poll inmediato
+  // con el code recibido).
+  try {
+    win.webContents.send('protocol-activated', parsed);
+  } catch (_) { /* noop */ }
+}
+
+// Captura inicial de URL de protocolo cuando la app se LANZA por primera
+// vez con `todoconta://...`. En Windows/Linux viene en argv; en macOS, vía
+// evento `open-url`.
+const initialUrl = protocolUrlFromArgv(process.argv);
+if (initialUrl) pendingProtocolUrl = initialUrl;
+
+app.on('second-instance', (_event, argv) => {
+  const url = protocolUrlFromArgv(argv);
+  if (url) handleProtocolUrl(url);
+  else {
+    // Segundo launch sin URL: solo traer al frente.
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  }
+});
+
+// macOS: cuando el SO abre la app con `todoconta://...`, esto se dispara
+// (no llega vía argv como en otros SO).
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    // App aún no terminó de arrancar; guardamos para más tarde.
+    pendingProtocolUrl = url;
+  } else {
+    handleProtocolUrl(url);
+  }
+});
 
 let agentProc = null;
 let agentUrl = null;
@@ -193,9 +315,42 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  // Si tenemos una URL de protocolo pendiente (la app se LANZÓ por un
+  // `todoconta://...` antes de que la ventana existiera), la disparamos
+  // cuando el renderer termine de cargar.
+  win.webContents.once('did-finish-load', () => {
+    if (pendingProtocolUrl) {
+      const url = pendingProtocolUrl;
+      pendingProtocolUrl = null;
+      handleProtocolUrl(url);
+    }
+  });
+
   const rendererUrl = resolverRendererUrl();
   win.loadURL(rendererUrl);
 }
+
+// Enfoca y trae al frente la ventana. Lo invoca el LoginPage del renderer
+// cuando completa el activate device-code (estilo Notion / 1Password).
+ipcMain.handle('focus-window', () => {
+  const wins = BrowserWindow.getAllWindows();
+  const win = wins[0];
+  if (!win) return false;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.moveTop();
+  // En macOS, además trae la app entera al foreground.
+  if (process.platform === 'darwin' && app.dock) {
+    try { app.dock.show(); } catch (_) { /* noop */ }
+    app.focus({ steal: true });
+  }
+  // En Windows, hace flash brevemente para que el user vea la transición.
+  if (process.platform === 'win32') {
+    try { win.flashFrame(true); setTimeout(() => win.flashFrame(false), 600); } catch (_) { /* noop */ }
+  }
+  return true;
+});
 
 // Selector de carpeta nativo (lo usa Ajustes para elegir dónde guardar descargas).
 ipcMain.handle('elegir-carpeta', async () => {

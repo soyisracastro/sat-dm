@@ -33,4 +33,26 @@ contextBridge.exposeInMainWorld('satDesktop', {
    * Devuelve true si el SO soporta y se envió, false si no.
    */
   notify: (payload) => ipcRenderer.invoke('notify-native', payload),
+  /**
+   * Enfoca y trae al frente la ventana de la app (sale de minimizado, sube
+   * al frente del SO, hace flash en Windows). Lo usa el flow de login
+   * device-code: cuando el usuario completa la activación en el browser,
+   * la desktop "se vuelve a poner adelante" sin que el usuario tenga que
+   * cambiar de ventana — estilo Notion / 1Password.
+   */
+  focusWindow: () => ipcRenderer.invoke('focus-window'),
+  /**
+   * Suscribe un callback al evento "deep link recibido". El SO lanza/enfoca
+   * la app con una URL `todoconta://activated?code=XXX` cuando el usuario
+   * completa el activate en el browser; el main process la parsea y envía
+   * por IPC. El renderer (LoginPage) usa esto para poll inmediato con el
+   * code recibido.
+   *
+   * Devuelve una función `dispose()` para quitar el listener (cleanup).
+   */
+  onProtocolActivated: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('protocol-activated', handler);
+    return () => ipcRenderer.removeListener('protocol-activated', handler);
+  },
 });

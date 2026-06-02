@@ -23,6 +23,18 @@ productName: TodoConta
 copyright: Copyright © 2026 Israel Castro
 
 # -----------------------------------------------------------------------------
+# Deep links — protocolo `todoconta://`
+# -----------------------------------------------------------------------------
+# Registra el protocolo con el SO al instalar la app, para que la web pueda
+# hacer redirects estilo `todoconta://activated?code=XXX` después del activate
+# (flujo Notion: el SO lanza/enfoca la app automáticamente).
+
+protocols:
+  - name: TodoConta Desktop
+    schemes:
+      - todoconta
+
+# -----------------------------------------------------------------------------
 # Estructura de archivos
 # -----------------------------------------------------------------------------
 

@@ -61,6 +61,15 @@ export default function LoginPage() {
           if (res.status === 'ok') {
             cleanup();
             setPhase('exito');
+            // Estilo Notion / 1Password: cuando la activación se completa en
+            // el browser, la desktop se trae automáticamente al frente. Sin
+            // esto, el usuario tiene que cambiarse de ventana manualmente.
+            const w = window as unknown as {
+              satDesktop?: { focusWindow?: () => Promise<boolean> };
+            };
+            w.satDesktop?.focusWindow?.().catch(() => {
+              /* en browser/dev no hay satDesktop — no-op */
+            });
             // Pequeña pausa para que el usuario vea el estado de éxito antes
             // de que `refresh()` re-renderee el shell con el dashboard.
             setTimeout(() => {
@@ -95,6 +104,39 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Escucha deep links del protocolo `todoconta://activated?code=XXX`.
+  // Cuando la web hace el redirect post-activate, el SO trae a esta app al
+  // frente con el code; aquí hacemos un poll inmediato para no esperar el
+  // próximo tick de polling regular (~2.5s) — UX más snappy.
+  useEffect(() => {
+    const w = window as unknown as {
+      satDesktop?: {
+        onProtocolActivated?: (
+          cb: (payload: { action: string; code: string | null }) => void,
+        ) => () => void;
+      };
+    };
+    const subscribe = w.satDesktop?.onProtocolActivated;
+    if (!subscribe) return;
+
+    const dispose = subscribe(async ({ action, code }) => {
+      if (action !== 'activated' || !code) return;
+      try {
+        const res = await apiClient.authPoll(code);
+        if (res.status === 'ok') {
+          cleanup();
+          setPhase('exito');
+          setTimeout(() => refresh(), 600);
+        }
+        // Si todavía está pending o el code no coincide con el del polling
+        // regular, dejamos que el polling regular lo recoja.
+      } catch (e) {
+        console.warn('[login] poll desde deep link falló:', e);
+      }
+    });
+    return dispose;
+  }, [apiClient, cleanup, refresh]);
+
   const copyCode = useCallback(() => {
     if (deviceCode) {
       navigator.clipboard?.writeText(deviceCode).catch(() => {
@@ -110,7 +152,7 @@ export default function LoginPage() {
   }, [activateUrl]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-linear-to-b from-background to-muted/30 flex items-center justify-center p-6">
       <div className="w-full max-w-md space-y-4">
         <div className="text-center space-y-2">
           <Image
