@@ -49,8 +49,10 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-dist/
-build/
+# Anclados a root: solo /dist y /build de la raíz (pip wheel/sdist), NO los
+# build/ de subproyectos como desktop/build/ (que contiene icon.ico versionado).
+/dist/
+/build/
 *.egg
 
 # UI
@@ -60,6 +62,19 @@ ui/out/
 ui/next-env.d.ts
 ui/tsconfig.tsbuildinfo
 ui/pnpm-lock.yaml
+
+# PyInstaller (agente Windows empaquetado)
+packaging/dist/
+packaging/build/
+packaging/__pycache__/
+
+# electron-builder (instaladores y artefactos de salida)
+desktop/dist/
+desktop/node_modules/
+desktop/pnpm-lock.yaml
+
+# Logs de electron-log / auto-update (cuando se agreguen)
+*.log
 
 # Virtual environment
 .venv/

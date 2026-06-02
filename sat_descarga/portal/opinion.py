@@ -103,6 +103,9 @@ class OpinionClient:
                 "  playwright install chromium"
             )
 
+        from .setup import asegurar_chromium
+        asegurar_chromium()
+
         out_dir = Path(directorio_salida)
         out_dir.mkdir(parents=True, exist_ok=True)
         fecha = datetime.date.today().strftime("%Y%m%d")

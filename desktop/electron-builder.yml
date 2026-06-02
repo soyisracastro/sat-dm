@@ -1,0 +1,135 @@
+# electron-builder config — TodoConta Desktop
+#
+# Empaqueta el shell Electron + el binario PyInstaller del agente Python + el
+# bundle estático de Next.js como un instalador Windows (NSIS).
+#
+# Comando: `pnpm build` desde desktop/ (encadena: build:agent → build:ui →
+# electron-builder). Salida en desktop/dist/.
+#
+# CLAUDE.md / docs/versionado.md describen el flujo de versiones y release.
+
+# -----------------------------------------------------------------------------
+# Identidad
+# -----------------------------------------------------------------------------
+
+# IMMUTABLE: cambiar appId después rompe auto-update (Windows lo trata como app
+# distinta). Mismo id que ya usa main.js en setAppUserModelId.
+appId: com.todoconta.desktop
+
+# Display name (cambiable después; el appId es lo estable).
+productName: TodoConta
+
+# Copyright en metadata del .exe.
+copyright: Copyright © 2026 Israel Castro
+
+# -----------------------------------------------------------------------------
+# Estructura de archivos
+# -----------------------------------------------------------------------------
+
+directories:
+  # Carpeta con recursos del build (icon.ico, license.txt si se agrega).
+  buildResources: build
+  # Carpeta de salida (instaladores generados).
+  output: dist
+
+# Qué se incluye dentro del ASAR de Electron (código de la app).
+files:
+  - main.js
+  - preload.js
+  - assets/**/*
+  - package.json
+  - node_modules/**/*
+
+# Recursos que viajan FUERA del ASAR (binarios externos, archivos grandes).
+extraResources:
+  # Binario PyInstaller del agente Python (carpeta onedir con sat-agent.exe + dlls).
+  # Path relativo al `desktop/`.
+  - from: ../packaging/dist/sat-agent
+    to: agent
+    filter: ['**/*']
+  # Bundle estático del renderer Next.js (output: 'export' → ui/out/).
+  - from: ../ui/out
+    to: ui
+    filter: ['**/*']
+
+# -----------------------------------------------------------------------------
+# Windows (NSIS)
+# -----------------------------------------------------------------------------
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # electron-builder busca por default en buildResources (= build/). Solo
+  # especificamos el nombre del archivo.
+  icon: icon.ico
+  # Nombre que aparece en la pestaña "Publisher" del .exe y SmartScreen.
+  publisherName: TodoConta
+  # Sin firma todavía (cert EV pendiente — ver plan). Cuando se adquiera,
+  # electron-builder leerá WIN_CSC_LINK y WIN_CSC_KEY_PASSWORD del entorno
+  # automáticamente.
+
+nsis:
+  # Wizard tradicional (Siguiente → Siguiente → Instalar), NO oneClick.
+  # Razón: usuarios contables esperan confirmación de pasos.
+  oneClick: false
+  # Install por-usuario en %LOCALAPPDATA%\Programs\TodoConta (sin UAC).
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  runAfterFinish: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: TodoConta
+  uninstallDisplayName: TodoConta
+  # NO borrar ~/.sat-descarga/ al desinstalar (preserva FIELs cargadas, config
+  # de empresas y buffer del procesador). Si el usuario quiere limpiar todo,
+  # debe borrarlo manualmente.
+  deleteAppDataOnUninstall: false
+  # Tamaño de instalación visible en Panel de Control (informativo).
+  artifactName: ${productName}-Setup-${version}.${ext}
+  # license: build/license.txt    # Si se agrega EULA, descomentar.
+
+# -----------------------------------------------------------------------------
+# macOS — config lista pero CI no buildea (target dmg cuando se distribuya)
+# -----------------------------------------------------------------------------
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: icon.png       # En macOS basta .png o .icns
+  category: public.app-category.business
+  # Notarización requiere Apple Developer Program ($99/año) — post v1.0.
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# -----------------------------------------------------------------------------
+# Linux — config lista pero CI no buildea
+# -----------------------------------------------------------------------------
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: icon.png
+  category: Office
+  desktop:
+    Name: TodoConta
+    Comment: Descarga masiva de CFDIs del SAT y procesamiento fiscal local
+    Categories: Office;Finance
+
+appImage:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# -----------------------------------------------------------------------------
+# Publicación (GitHub Releases)
+# -----------------------------------------------------------------------------
+
+publish:
+  - provider: github
+    owner: soyisracastro
+    repo: sat-dm
+    # El CI sube el .exe + latest.yml como draft release; el humano lo publica
+    # manualmente desde la UI de GitHub.
+    releaseType: draft
