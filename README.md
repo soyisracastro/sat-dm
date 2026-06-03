@@ -258,31 +258,206 @@ sat-dm organizar deduplicar ./xmls/
 
 ## Servidor local (FastAPI)
 
-El servidor en `localhost:8787` permite que aplicaciones web (como [todoconta](https://apps.todoconta.com)) interactúen con el SAT sin que la e-firma salga de tu máquina.
+El servidor en `localhost:8787` permite que aplicaciones web (como [todoconta](https://apps.todoconta.com))
+y el shell de escritorio Electron interactúen con el SAT sin que la e-firma salga de tu
+máquina. La e-firma se carga en memoria (o desde el catálogo local en keychain) y nunca se
+envía a ningún servidor remoto.
 
 ```bash
 uv run uvicorn sat_descarga.api.server:app --port 8787
+# Docs interactivas: http://127.0.0.1:8787/docs
 ```
 
-### Endpoints disponibles
+CORS habilitado para `localhost:3000/3001`, `app.todoconta.com` y `todoconta.com`.
+Solo se ejecuta **una operación de portal a la vez** (la sesión es de un usuario);
+si hay un job activo y mandas otro, responde `409`.
 
-| Endpoint | Auth | Descripción |
+### Estado del servidor
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `GET` | `/health` | — | Estado del servidor + e-firma cargada (incluye vencimiento y semáforo de vigencia) |
+
+### Autenticación de e-firma (sesión en memoria)
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/auth/cargar-fiel` | — | Sube `.cer` + `.key` + contraseña (multipart) y deja la e-firma en memoria |
+| `DELETE` | `/auth/fiel` | — | Limpia la e-firma de la sesión y borra archivos temporales |
+
+> Al arrancar, el agente intenta cargar automáticamente la e-firma de la **empresa
+> predeterminada** del catálogo (lifespan de FastAPI), para que `/health` ya refleje
+> `efirma_lista=true` sin pasar por `/auth/cargar-fiel`.
+
+### Web Service oficial (FIEL/SOAP)
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/solicitar` | FIEL | `SolicitaDescarga` → devuelve `RequestID`. Persiste la solicitud en el catálogo |
+| `POST` | `/verificar` | FIEL | `VerificaSolicitud`. Si `poll=true` bloquea hasta `cod_estado=3` |
+| `POST` | `/descargar` | FIEL | Descarga los paquetes ZIP de una solicitud lista (`?id_solicitud=...`) |
+| `POST` | `/solicitar-folio` | FIEL | Descarga por lista de UUIDs específicos (auditorías) |
+| `POST` | `/metadata` | FIEL | Descarga el CSV de metadata (rápido, segundos) y lo devuelve parseado |
+| `POST` | `/descarga-completa` | FIEL | Flujo `solicitar→polling→descargar` en un único call (bloqueante; usar solo para scripts) |
+| `POST` | `/descarga-inteligente` | FIEL | Cuenta vía metadata y autoenruta a CIEC (si `count < umbral_ciec` y se pasa `ciec`) o al Web Service |
+
+### Validación de CFDIs (público, sin FIEL)
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/validar` | — | Verifica `Vigente / Cancelado / No Encontrado` contra `consultaqr.facturaelectronica.sat.gob.mx` (concurrencia configurable) |
+
+### Portal — flujo síncrono (browser visible, captcha en ventana local)
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/ciec/descargar` | CIEC | Descarga CFDIs vía portal con CIEC. Abre Chromium visible, el usuario resuelve el captcha |
+| `POST` | `/constancia/descargar` | CIEC | Constancia de Situación Fiscal (PDF) vía portal con CIEC |
+
+### Portal — jobs con captcha in-app (SSE, browser headless)
+
+Patrón usado por la app de escritorio: el browser corre **headless**, el agente expone el
+captcha como base64 por SSE y la UI lo responde por `POST /jobs/{id}/captcha`. Cada
+endpoint de lanzamiento devuelve `{job_id}`; el progreso (incluyendo `captcha_required`)
+llega por `GET /events/{job_id}`.
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/ciec/cfdi` | CIEC | Lanza job de descarga de CFDIs vía CIEC |
+| `POST` | `/ciec/constancia` | CIEC | Lanza job de Constancia de Situación Fiscal vía CIEC |
+| `POST` | `/ciec/opinion` | CIEC | Lanza job de Opinión de Cumplimiento 32-D vía CIEC |
+| `POST` | `/cfdi/fiel` | FIEL | Lanza job de CFDIs vía portal con e.firma (sin captcha) |
+| `GET` | `/jobs/{job_id}` | — | Estado actual del job (`estado`, `resultado`, `error`) |
+| `POST` | `/jobs/{job_id}/captcha` | — | Entrega la solución (`{solution}`) o cancela (`{solution: null}`) |
+| `GET` | `/events/{job_id}` | — | Stream Server-Sent Events del progreso |
+
+> La CIEC se puede omitir en el body si la empresa ya está registrada — el agente
+> la resuelve desde el keychain del SO.
+
+### Documentos vía e.firma (sin captcha)
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `POST` | `/constancia/fiel` | FIEL | Constancia de Situación Fiscal con la e.firma en sesión (síncrono) |
+| `POST` | `/opinion/fiel` | FIEL | Opinión de Cumplimiento 32-D con la e.firma en sesión (síncrono) |
+
+### Catálogo de empresas (persistente — keychain del SO)
+
+El catálogo vive en `~/.sat-descarga/empresas.json`; las contraseñas (e.firma y CIEC) se
+guardan **en el keychain** del SO, nunca en JSON.
+
+| Método | Endpoint | Descripción |
 |---|---|---|
-| `GET /health` | No | Estado del servidor |
-| `POST /auth/cargar-fiel` | No | Cargar e-firma en memoria |
-| `DELETE /auth/fiel` | No | Descargar e-firma de memoria |
-| `POST /solicitar` | FIEL | Solicitar descarga de CFDIs |
-| `POST /verificar` | FIEL | Verificar estado de solicitud |
-| `POST /descargar` | FIEL | Descargar paquetes listos |
-| `POST /solicitar-folio` | FIEL | Descarga por lista de UUIDs |
-| `POST /metadata` | FIEL | Descarga metadata (CSV rápido) |
-| `POST /validar` | No | Validar estatus CFDI ante SAT |
-| `POST /descarga-completa` | FIEL | Flujo completo (bloquea) |
-| `POST /descarga-inteligente` | FIEL | Auto-elige CIEC o Web Service |
-| `POST /ciec/descargar` | CIEC | Descarga CFDIs via portal web |
-| `POST /constancia/descargar` | CIEC | Descarga la Constancia de Situación Fiscal (PDF) |
+| `GET` | `/empresas` | Lista las empresas registradas (sin credenciales) |
+| `POST` | `/empresas/fiel` | Registra una empresa por e.firma (multipart: `.cer`, `.key`, `password`, `nombre`) |
+| `POST` | `/empresas/ciec` | Registra una empresa por CIEC (`{rfc, nombre, ciec}`) |
+| `DELETE` | `/empresas/{rfc}` | Elimina la empresa y borra sus credenciales del keychain |
+| `PATCH` | `/empresas/{rfc}` | Actualiza campos editables (`regimenes_fiscales`, `actividades_economicas`) |
+| `POST` | `/empresas/{rfc}/activar` | Activa la empresa para la sesión (carga e.firma si tiene FIEL) |
+| `POST` | `/empresas/{rfc}/default` | Marca la empresa como predeterminada |
+| `POST` | `/empresas/{rfc}/archive` | Soft-delete (la oculta de la lista principal) |
+| `POST` | `/empresas/{rfc}/unarchive` | Regresa una empresa archivada a la lista |
+| `GET` | `/empresas/{rfc}/solicitudes` | Historial de solicitudes WS de la empresa |
+| `DELETE` | `/empresas/{rfc}/solicitudes/{id}` | Borra una solicitud del registro local |
+| `GET` | `/empresas/{rfc}/historial` | Historial de descargas completadas de la empresa |
+| `GET` | `/historial` | Historial de TODAS las empresas (con `rfc` + `nombre`) |
+| `POST` | `/abrir` | Abre en el SO una descarga del historial (`{ruta, modo: "carpeta"\|"archivo"}`). Restringido a rutas presentes en el historial |
+
+### Ajustes
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/config/descargas-dir` | Carpeta base de descargas (default `~/Documents/TodoConta`) |
+| `PUT` | `/config/descargas-dir` | Cambia la carpeta base (`{dir}`) |
+
+### Organizador de XMLs
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/organizar` | Mueve/copia XMLs a una estructura (`rfc_emisor/anio/mes`, etc.) |
+| `POST` | `/renombrar` | Renombra masivamente según un patrón (`emisor_fecha_total`, `uuid`, etc.) |
+| `POST` | `/deduplicar` | Elimina duplicados por UUID (soporta `dry_run`) |
+
+### Procesador de comprobantes — CFDI
+
+Buffer persistente en SQLite (`~/.sat-descarga/procesador.db`). Los XMLs se cargan
+explícitamente (drag&drop / examinar / desde empresa) y se mantienen hasta que el
+usuario los borra.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/procesador/cfdi/cargar` | Sube `.xml` por multipart (hasta `MAX_BATCH_SIZE`) y los agrega al buffer |
+| `POST` | `/procesador/cfdi/cargar-desde-empresa` | Escanea `descargas/cfdi/<RFC>/…` y agrega lo que encuentre |
+| `POST` | `/procesador/cfdi/validar-sat` | Valida contra el SAT los CFDIs indicados (o los que no tienen `estado_sat`) |
+| `GET` | `/procesador/cfdi` | Lista paginada con filtros (`desde`, `hasta`, `tipo`, `direccion`, `busqueda`, etc.) |
+| `GET` | `/procesador/cfdi/stats` | KPIs agregados para las cards |
+| `GET` | `/procesador/cfdi/reporte/{nombre}` | `totales-mes` · `top-contrapartes` · `integridad` |
+| `GET`/`PUT` | `/procesador/cfdi/filtros` | Persiste los filtros activos de la sesión |
+| `DELETE` | `/procesador/cfdi` | Vacía el buffer (CFDIs + filtros) |
+| `GET` | `/procesador/cfdi/exportar` | Descarga el buffer filtrado como `xlsx` o `csv` |
+
+### Procesador de comprobantes — Pagos (complemento 2.0)
+
+Vista especializada sobre el buffer compartido + tabla `pagos_relaciones`. Detecta
+huérfanos, extemporáneos e incidencias PUE+complemento. No tiene endpoints de carga
+(los XMLs entran por `/procesador/cfdi/cargar`).
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/procesador/pagos` | Facturas PPD paginadas con `status` calculado |
+| `GET` | `/procesador/pagos/stats` | KPIs de pagos |
+| `GET` | `/procesador/pagos/factura/{uuid}/pagos` | Drilldown: pagos asociados a una PPD |
+| `GET` | `/procesador/pagos/reporte/{nombre}` | `analisis-fechas` · `huerfanos` · `incidencias-pue` |
+| `GET`/`PUT` | `/procesador/pagos/filtros` | Persiste filtros (status, búsqueda, fechas) |
+| `GET` | `/procesador/pagos/exportar` | XLSX multi-sheet del módulo Pagos |
+
+### Procesador de comprobantes — Nómina
+
+Vista especializada con las tablas `nomina_recibos` y `nomina_conceptos`. Tres reportes:
+deductibilidad fiscal, conciliación IMSS y periodo vs periodo.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/procesador/nomina` | Recibos paginados (1 fila por CFDI tipo N) |
+| `GET` | `/procesador/nomina/stats` | KPIs de nómina |
+| `GET` | `/procesador/nomina/recibo/{uuid}/conceptos` | Drilldown: conceptos del recibo ordenados por clase |
+| `GET` | `/procesador/nomina/reporte/{nombre}` | `deducibilidad` · `imss` · `periodo-vs-periodo` |
+| `GET`/`PUT` | `/procesador/nomina/filtros` | Persiste filtros (tipo, periodicidad, fechas) |
+| `GET` | `/procesador/nomina/exportar` | XLSX multi-sheet del módulo Nómina (con disclaimer fiscal) |
+
+### Auth desktop — sesión TodoConta (device-code flow)
+
+Proxy + cache hacia `todoconta-apps`. El Bearer de Supabase se guarda en el keychain del
+SO y **nunca** se inyecta al renderer; este solo conoce el estado derivado.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/auth/init` | Genera un `device_code` y devuelve la URL pública de activación |
+| `POST` | `/auth/poll` | Polling del `device_code` (`pending` / `ok` / `expired` / `not_found`) |
+| `GET` | `/auth/license` | Estado de licencia / Fundador (con cache; `?refresh=true` para invalidar) |
+| `POST` | `/auth/upgrade` | Genera la URL de Stripe Checkout para volverse Fundador |
+| `POST` | `/auth/logout` | Borra la sesión local (keyring + cache). Idempotente |
 
 > `POST /validar` no requiere FIEL — cualquier app puede llamarlo para verificar CFDIs.
+
+### Variante hosted (`api/hosted.py`)
+
+Versión multi-tenant pensada para Railway/Fly: misma forma que el agente local pero con
+auth Bearer (API key), FIEL servida desde Supabase Storage, y sin endpoints de `/ciec`,
+`/empresas` ni procesador (sin scraping de portal).
+
+```bash
+uv run uvicorn sat_descarga.api.hosted:app --port 8787
+```
+
+| Método | Endpoint | Auth | Descripción |
+|---|---|---|---|
+| `GET` | `/health` | — | Estado del servicio hosted |
+| `POST` | `/solicitar` | Bearer | `SolicitaDescarga` (FIEL desde storage) |
+| `POST` | `/verificar` | Bearer | `VerificaSolicitud` |
+| `POST` | `/descargar` | Bearer | Descarga de paquetes |
+| `POST` | `/metadata` | Bearer | Metadata CSV |
+| `POST` | `/validar` | Bearer | Validación pública contra el SAT |
 
 ## Estructura del proyecto
 
