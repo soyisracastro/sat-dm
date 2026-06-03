@@ -1,0 +1,260 @@
+'use client';
+
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
+
+import { useServer } from '@/providers/server-provider';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Icon } from '@/components/ui/icon';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import type {
+  CfdiListResponse,
+  ListasNegrasMetadata,
+  ProcesadorListasNegrasStats,
+} from '@/lib/types';
+
+import { MatchBadge, type EtiquetaLista } from './match-badge';
+import { MetadataChip } from './metadata-chip';
+import { StatsCards } from './stats-cards';
+
+type FiltroEmisor = 'EFOS' | 'Aclarado' | '69' | 'Limpio' | 'SinValidar' | 'todos';
+
+const FILTRO_LABEL: Record<Exclude<FiltroEmisor, 'todos'>, EtiquetaLista | 'SinValidar'> = {
+  EFOS: 'EFOS', Aclarado: 'Aclarado', '69': '69', Limpio: 'Limpio', SinValidar: 'SinValidar',
+};
+
+export function MisCfdisTab() {
+  const { apiClient } = useServer();
+  const [stats, setStats] = useState<ProcesadorListasNegrasStats | null>(null);
+  const [metadata, setMetadata] = useState<ListasNegrasMetadata | null>(null);
+  const [listado, setListado] = useState<CfdiListResponse | null>(null);
+  const [filtro, setFiltro] = useState<FiltroEmisor>('EFOS');
+  const [loading, setLoading] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const refrescar = useCallback(async (etiquetaFiltro: FiltroEmisor) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [s, l] = await Promise.all([
+        apiClient.procesadorListasNegrasStats({}),
+        apiClient.procesadorListar(
+          etiquetaFiltro === 'todos'
+            ? {}
+            : { emisor_lista_negra: etiquetaFiltro },
+          1, 50,
+        ),
+      ]);
+      setStats(s);
+      setListado(l);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [apiClient]);
+
+  useEffect(() => {
+    refrescar(filtro);
+  }, [filtro, refrescar]);
+
+  async function validar(forceRefresh: boolean) {
+    setValidating(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const r = await apiClient.procesadorValidarListasNegras({ force_refresh: forceRefresh });
+      setMetadata(r.metadata);
+      if (r.validados === 0) {
+        setInfo('Todos los RFCs ya están validados (TTL 30 días). Usa "Forzar revalidación" si necesitas refrescar.');
+      } else {
+        setInfo(
+          `Validados ${r.validados} RFCs · EFOS ${r.efos} · Aclarados ${r.aclarados} · ` +
+          `En 69 ${r.lista_69} · Limpios ${r.limpios}`,
+        );
+      }
+      await refrescar(filtro);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  const sinDatos = stats && Object.values(stats).every((v) => v === 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Header con acciones */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Cruce con mis CFDIs</CardTitle>
+              <CardDescription>
+                Detecta <strong>EDOS</strong>: CFDIs cuyo emisor está en lista 69-B con
+                situación Definitivo o Presunto (EFOS). Requiere que tengas comprobantes
+                cargados en{' '}
+                <Link href="/comprobantes/cfdi" className="font-medium underline underline-offset-2">
+                  Comprobantes
+                </Link>
+                .
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <MetadataChip metadata={metadata} />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => validar(true)}
+                disabled={validating || loading}
+                title="Ignora el TTL de 30 días y revalida todos los RFCs"
+              >
+                <Icon icon="ph:arrows-clockwise-light" className="size-4" />
+                Forzar revalidación
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => validar(false)}
+                disabled={validating || loading}
+              >
+                {validating ? (
+                  <>
+                    <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
+                    Validando…
+                  </>
+                ) : (
+                  <>
+                    <Icon icon="ph:shield-check-light" className="size-4" />
+                    Validar listas negras
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {error && (
+        <Alert variant="destructive">
+          <Icon icon="ph:warning-light" className="size-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {info && !error && (
+        <Alert>
+          <Icon icon="ph:info-light" className="size-4" />
+          <AlertDescription>{info}</AlertDescription>
+        </Alert>
+      )}
+
+      <StatsCards stats={stats} loading={loading} />
+
+      {/* Tabla filtrada */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-base">CFDIs por estado del emisor</CardTitle>
+              <CardDescription>
+                Filtra la lista por etiqueta del emisor. Por default muestra solo EFOS.
+              </CardDescription>
+            </div>
+            <Select value={filtro} onValueChange={(v) => setFiltro(v as FiltroEmisor)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="EFOS">EFOS</SelectItem>
+                <SelectItem value="Aclarado">Aclarados</SelectItem>
+                <SelectItem value="69">En lista 69</SelectItem>
+                <SelectItem value="Limpio">Limpios</SelectItem>
+                <SelectItem value="SinValidar">Sin validar</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {sinDatos ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              No hay CFDIs cargados en el procesador.{' '}
+              <Link href="/comprobantes/cfdi" className="font-medium text-foreground underline underline-offset-2">
+                Carga tus XMLs primero
+              </Link>
+              {' '}y vuelve a esta página para validar.
+            </div>
+          ) : listado && listado.items.length === 0 ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              No hay CFDIs con el filtro seleccionado.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Emisor</TableHead>
+                  <TableHead>RFC emisor</TableHead>
+                  <TableHead>Resultado</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {listado?.items.map((cfdi) => {
+                  const etiqueta = (cfdi.emisor_en_lista_negra ?? 'Limpio') as EtiquetaLista;
+                  return (
+                    <TableRow key={cfdi.uuid}>
+                      <TableCell className="text-sm tabular-nums">
+                        {cfdi.fecha?.slice(0, 10) ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-sm">{cfdi.emisor_nombre || '—'}</TableCell>
+                      <TableCell className="font-mono text-xs">{cfdi.emisor_rfc}</TableCell>
+                      <TableCell>
+                        {cfdi.emisor_en_lista_negra ? (
+                          <MatchBadge etiqueta={etiqueta} />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Sin validar</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">
+                        {typeof cfdi.total === 'number'
+                          ? cfdi.total.toLocaleString('es-MX', {
+                              style: 'currency', currency: 'MXN',
+                            })
+                          : '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+        {listado && listado.items.length > 0 && (
+          <div className="border-t px-4 py-2 text-xs text-muted-foreground">
+            {listado.total} {listado.total === 1 ? 'CFDI' : 'CFDIs'} (mostrando primeros{' '}
+            {Math.min(listado.items.length, listado.page_size)})
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}

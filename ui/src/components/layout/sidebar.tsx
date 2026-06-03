@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/empresas', label: 'Empresas', icon: 'ph:buildings-light' },
   { href: '/descarga', label: 'Descargar CFDIs', icon: 'ph:download-simple-light' },
   { href: '/comprobantes', label: 'Comprobantes', icon: 'ph:files-light' },
+  { href: '/listas-negras', label: 'Listas negras', icon: 'ph:shield-check-light' },
   { href: '/organizador', label: 'Organizador', icon: 'ph:folders-light' },
   { href: '/historial', label: 'Historial', icon: 'ph:clock-counter-clockwise-light' },
   { href: '/ajustes', label: 'Ajustes', icon: 'ph:gear-light' },

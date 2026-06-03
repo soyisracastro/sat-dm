@@ -1550,6 +1550,7 @@ def _filtros_de_query(
     monto_min: Optional[float],
     monto_max: Optional[float],
     direccion: Optional[str] = None,
+    emisor_lista_negra: Optional[str] = None,
 ) -> dict:
     """Construye el dict de filtros para `procesador.db`."""
     return {
@@ -1561,6 +1562,7 @@ def _filtros_de_query(
         "solo_con_errores": bool(solo_con_errores),
         "monto_min": monto_min,
         "monto_max": monto_max,
+        "emisor_lista_negra": emisor_lista_negra,
     }
 
 
@@ -1756,13 +1758,15 @@ def procesador_listar(
     solo_con_errores: bool = False,
     monto_min: Optional[float] = None,
     monto_max: Optional[float] = None,
+    emisor_lista_negra: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
 ):
     """Lista paginada del buffer del procesador con filtros."""
     from ..procesador import abrir_db
     filtros = _filtros_de_query(
-        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
+        direccion, emisor_lista_negra,
     )
     db = abrir_db()
     return db.listar(filtros, page=page, page_size=page_size)
@@ -1875,6 +1879,184 @@ def procesador_exportar(
             headers={"Content-Disposition": 'attachment; filename="cfdis.csv"'},
         )
     raise HTTPException(status_code=400, detail=f"Formato no soportado: {formato}")
+
+
+# ---------------------------------------------------------------------------
+# Listas negras del SAT (Art. 69 y 69-B)
+# ---------------------------------------------------------------------------
+#
+# Consume la API de todoconta-apps (Vercel cron mensual → Supabase). La fuente
+# de verdad vive en un solo lugar; aquí solo consultamos y persistimos el
+# último resultado por RFC en el buffer del procesador para filtrar/ordenar.
+#
+# Requiere sesión iniciada (Bearer en keyring). Sin sesión → 401.
+
+
+class ListasNegrasConsultarRequest(BaseModel):
+    rfcs: List[str]
+
+
+class ValidarListasNegrasRequest(BaseModel):
+    # Si se omite, valida todos los RFCs del buffer cuya última validación
+    # esté fuera del TTL (30 días). `force_refresh=true` ignora el TTL.
+    uuids: Optional[List[str]] = None
+    force_refresh: bool = False
+
+
+def _match_to_payload(m) -> dict:
+    """Serializa un MatchListaNegra al shape que consume la UI."""
+    return {
+        "rfc": m.rfc,
+        "en_lista_69b": m.en_lista_69b,
+        "situacion_69b": m.situacion_69b,
+        "fecha_publicacion_69b": m.fecha_publicacion_69b,
+        "en_lista_69": m.en_lista_69,
+        "supuestos_69": m.supuestos_69,
+        "risk_level": m.risk_level,
+        "error": m.error,
+    }
+
+
+def _metadata_to_payload(meta) -> dict:
+    return {
+        "lista_69b_updated_at": meta.lista_69b_updated_at,
+        "lista_69_updated_at": meta.lista_69_updated_at,
+        "record_count_69b": meta.record_count_69b,
+        "record_count_69": meta.record_count_69,
+    }
+
+
+@app.post("/listas-negras/consultar")
+def listas_negras_consultar(req: ListasNegrasConsultarRequest):
+    """Consulta ad-hoc de RFCs contra las listas negras. No toca SQLite.
+
+    Útil para la pestaña "Validar RFCs" de la UI: el usuario pega/sube
+    una lista y obtiene el veredicto sin tener XMLs cargados.
+    """
+    from ..utils.listas_negras import consultar_rfcs
+
+    if not req.rfcs:
+        raise HTTPException(status_code=400, detail="La lista de RFCs está vacía.")
+    try:
+        matches, metadata = consultar_rfcs(req.rfcs)
+    except RuntimeError as e:
+        # Sin sesión / sesión expirada / error de red
+        msg = str(e)
+        status = 401 if "Sesión" in msg or "sesión" in msg else 502
+        raise HTTPException(status_code=status, detail=msg)
+    return {
+        "matches": [_match_to_payload(m) for m in matches],
+        "metadata": _metadata_to_payload(metadata),
+    }
+
+
+@app.get("/listas-negras/metadata")
+def listas_negras_metadata():
+    """Cuándo se actualizaron por última vez las listas en el origen.
+
+    La UI lo muestra como chip "Listas al 2026-06-05" y enseña una advertencia
+    si pasaron > 35 días sin refresh (el cron normal es mensual).
+    """
+    from ..utils.listas_negras import consultar_metadata
+
+    try:
+        metadata = consultar_metadata()
+    except RuntimeError as e:
+        msg = str(e)
+        status = 401 if "Sesión" in msg or "sesión" in msg else 502
+        raise HTTPException(status_code=status, detail=msg)
+    return _metadata_to_payload(metadata)
+
+
+@app.post("/procesador/cfdi/validar-listas-negras")
+def procesador_validar_listas_negras(req: ValidarListasNegrasRequest):
+    """Valida los RFCs del buffer contra listas negras y persiste por fila.
+
+    Si `req.uuids` viene, restringe a los RFCs (emisor + receptor) de esos
+    CFDIs; si no, usa el universo del buffer respetando TTL (30 días) salvo
+    `force_refresh=true`.
+    """
+    from ..utils.listas_negras import consultar_rfcs, clasificar, match_to_json_dict
+    from ..procesador import abrir_db
+    import json as _json
+
+    db = abrir_db()
+
+    if req.uuids:
+        # RFCs únicos de los CFDIs solicitados (ambos lados).
+        with db.cursor() as cur:
+            placeholders = ",".join("?" for _ in req.uuids)
+            cur.execute(
+                f"""
+                SELECT DISTINCT rfc FROM (
+                  SELECT emisor_rfc AS rfc FROM cfdis WHERE uuid IN ({placeholders})
+                  UNION
+                  SELECT receptor_rfc AS rfc FROM cfdis WHERE uuid IN ({placeholders})
+                ) WHERE rfc IS NOT NULL AND rfc != ''
+                """,
+                (*req.uuids, *req.uuids),
+            )
+            rfcs = [r[0] for r in cur.fetchall()]
+    else:
+        rfcs = db.rfcs_sin_validar_listas(force_refresh=req.force_refresh)
+
+    if not rfcs:
+        return {
+            "validados": 0, "efos": 0, "aclarados": 0, "lista_69": 0, "limpios": 0,
+            "metadata": {
+                "lista_69b_updated_at": None, "lista_69_updated_at": None,
+                "record_count_69b": None, "record_count_69": None,
+            },
+        }
+
+    try:
+        matches, metadata = consultar_rfcs(rfcs)
+    except RuntimeError as e:
+        msg = str(e)
+        status = 401 if "Sesión" in msg or "sesión" in msg else 502
+        raise HTTPException(status_code=status, detail=msg)
+
+    contadores = {"efos": 0, "aclarados": 0, "lista_69": 0, "limpios": 0}
+    for m in matches:
+        etiqueta = clasificar(m)
+        db.actualizar_lista_negra_rfc(
+            m.rfc, etiqueta, _json.dumps(match_to_json_dict(m), ensure_ascii=False),
+        )
+        if etiqueta == "EFOS":
+            contadores["efos"] += 1
+        elif etiqueta == "Aclarado":
+            contadores["aclarados"] += 1
+        elif etiqueta == "69":
+            contadores["lista_69"] += 1
+        else:
+            contadores["limpios"] += 1
+
+    return {
+        "validados": len(matches),
+        **contadores,
+        "metadata": _metadata_to_payload(metadata),
+    }
+
+
+@app.get("/procesador/cfdi/listas-negras/stats")
+def procesador_listas_negras_stats(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    tipo: Optional[str] = None,
+    direccion: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    solo_con_errores: bool = False,
+    monto_min: Optional[float] = None,
+    monto_max: Optional[float] = None,
+):
+    """KPIs (EFOS / EDOS / aclarados / 69 / limpios / sin validar) sobre el
+    buffer filtrado. Usa los mismos filtros del procesador CFDI."""
+    from ..procesador import abrir_db
+
+    filtros = _filtros_de_query(
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+    )
+    return abrir_db().stats_listas_negras(filtros)
 
 
 # ---------------------------------------------------------------------------

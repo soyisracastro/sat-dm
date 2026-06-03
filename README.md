@@ -171,6 +171,63 @@ cfdis = [
 resultados = validar_masivo(cfdis, concurrency=10)
 ```
 
+## Listas negras del SAT (EFOS / EDOS)
+
+Validación de RFCs contra el **Art. 69** (incumplidos: créditos firmes, no
+localizados, etc.) y **Art. 69-B** (EFOS: Empresas que Facturan Operaciones
+Simuladas) del CFF. Los datos viven en `todoconta-apps` (Vercel cron mensual
+que descarga del SAT y Datos Abiertos hacia Supabase); el agente Python
+consume esa API — la lógica y el persistencia son open source.
+
+- **EFOS** — RFC en lista 69-B con situación `Definitivo` o `Presunto`.
+- **EDOS** — receptor de un CFDI cuyo emisor es EFOS (se detecta cruzando
+  los emisores del buffer del procesador con la lista). "Empresa que **D**educe
+  **O**peraciones **S**imuladas".
+
+Requiere sesión iniciada en la app desktop (Bearer en keyring del SO).
+
+```bash
+# Un RFC suelto
+sat-dm listas-negras --rfc XAXX010101000
+
+# Lista de RFCs desde archivo (uno por línea o separados por coma/tab)
+sat-dm listas-negras --archivo proveedores.txt -o reporte.csv
+
+# Cruce automático con los CFDIs cargados en el procesador
+sat-dm listas-negras --desde-procesador
+sat-dm listas-negras --desde-procesador --force-refresh   # ignora TTL 30d
+```
+
+Desde Python:
+
+```python
+from sat_descarga import consultar_rfcs, detectar_edos
+
+# Consulta ad-hoc — lotea internamente cada 200 RFCs
+matches, metadata = consultar_rfcs(["AAA010101AAA", "BBB020202BBB"])
+for m in matches:
+    print(m.rfc, m.risk_level, "EFOS" if m.es_efos else "—")
+
+# Cruce con CFDIs (tuples uuid, emisor_rfc) → marca solo emisores en 69-B
+# con situación Definitivo o Presunto
+edos, _ = detectar_edos([
+    ("uuid-1", "EFOS010101AAA"),
+    ("uuid-2", "LIMP010101BBB"),
+])
+```
+
+Endpoints HTTP en el agente local:
+
+- `POST /listas-negras/consultar` — validación ad-hoc (no persiste).
+- `GET /listas-negras/metadata` — fecha del último cron mensual.
+- `POST /procesador/cfdi/validar-listas-negras` — valida los RFCs del buffer
+  y persiste en `cfdis.{emisor,receptor}_en_lista_negra`.
+- `GET /procesador/cfdi/listas-negras/stats` — conteos EFOS / EDOS / Aclarado / 69 / Limpio.
+
+UI: página `/listas-negras` con dos tabs — "Mis CFDIs" (cruce automático con
+los XMLs del procesador, stats cards, tabla filtrada por etiqueta) y "Validar
+RFCs" (textarea ad-hoc + export CSV).
+
 ## Descarga de metadata (sin descargar XMLs)
 
 La metadata es un resumen de tus CFDIs (UUID, RFC, monto, estatus) que el SAT procesa en **segundos** — sin esperar 72 horas ni descargar GBs de XMLs.
@@ -395,6 +452,18 @@ usuario los borra.
 | `GET`/`PUT` | `/procesador/cfdi/filtros` | Persiste los filtros activos de la sesión |
 | `DELETE` | `/procesador/cfdi` | Vacía el buffer (CFDIs + filtros) |
 | `GET` | `/procesador/cfdi/exportar` | Descarga el buffer filtrado como `xlsx` o `csv` |
+
+### Listas negras del SAT (Art. 69 y 69-B)
+
+Consume la API de `todoconta-apps` (cron mensual → Supabase). Requiere sesión
+iniciada (Bearer en keyring). Respuestas `401` cuando no hay sesión o expiró.
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/listas-negras/consultar` | Validación ad-hoc (`{rfcs: [...]}`). No toca SQLite |
+| `GET` | `/listas-negras/metadata` | Fecha del último cron mensual del SAT |
+| `POST` | `/procesador/cfdi/validar-listas-negras` | Valida los RFCs del buffer y persiste por fila (TTL 30 días, `force_refresh=true` lo ignora) |
+| `GET` | `/procesador/cfdi/listas-negras/stats` | KPIs EFOS / EDOS / Aclarado / 69 / Limpio sobre el buffer filtrado |
 
 ### Procesador de comprobantes — Pagos (complemento 2.0)
 
