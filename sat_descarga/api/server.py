@@ -2155,6 +2155,110 @@ def procesador_nomina_exportar(
 
 
 # ---------------------------------------------------------------------------
+# Auth desktop — proxy + cache hacia todoconta-apps (/api/desktop/*)
+# ---------------------------------------------------------------------------
+#
+# La desktop guarda el Bearer token de Supabase en el keyring del SO (vía
+# `license_client`) y expone helpers al renderer para login, license check
+# y upgrade a Fundador. El Bearer NUNCA se inyecta al renderer — vive solo
+# en el proceso Python; el renderer solo conoce el estado derivado (autenticado,
+# is_founder, etc.). Esto reduce la superficie de un XSS en el renderer.
+
+
+class AuthPollRequest(BaseModel):
+    device_code: str
+
+
+@app.post("/auth/init")
+def auth_init():
+    """
+    Genera un device_code y lo registra en el backend de todoconta-apps.
+    Devuelve el code + el URL público que el usuario tiene que abrir.
+    """
+    from . import license_client as lc
+
+    code = lc.generate_device_code()
+    try:
+        result = lc.init_device_code(code)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {
+        "device_code": code,
+        "expires_at": result.get("expires_at"),
+        "activate_url": f"{lc.API_BASE_URL}/desktop/activate?code={code}",
+    }
+
+
+@app.post("/auth/poll")
+def auth_poll(req: AuthPollRequest):
+    """
+    Polling del device_code. Devuelve `{status, ...}` con:
+      - status=pending → el usuario aún no completó.
+      - status=ok      → activado, sesión guardada en keyring.
+      - status=expired → device_code expirado.
+      - status=not_found → device_code desconocido.
+    """
+    from . import license_client as lc
+
+    try:
+        result, session = lc.poll_device_code(req.device_code)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if result == "ok" and session is not None:
+        lc.save_session(session)
+        # Invalidamos el cache de license para que la próxima lectura
+        # refleje al usuario recién logueado.
+        lc.clear_license_cache()
+        return {"status": "ok", "user": {"id": session.user_id, "email": session.email}}
+
+    return {"status": result}
+
+
+@app.get("/auth/license")
+def auth_license(refresh: bool = False):
+    """
+    Estado de licencia/fundador del usuario actual. Si no hay sesión:
+    `{authenticated: false}`. Si hay y la cache es fresh, la devuelve sin
+    pegarle al backend.
+    """
+    from . import license_client as lc
+
+    return lc.get_license_status(force_refresh=refresh)
+
+
+@app.post("/auth/upgrade")
+def auth_upgrade():
+    """
+    Crea una sesión de Stripe Checkout para que el usuario se vuelva Fundador.
+    Devuelve `{url}`; el renderer abre el URL en el navegador del SO.
+    """
+    from . import license_client as lc
+
+    session = lc.load_session()
+    if session is None:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    try:
+        result = lc.init_checkout(session)
+    except PermissionError:
+        # Sesión expirada: limpiamos y obligamos a re-login.
+        lc.clear_session()
+        raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return result
+
+
+@app.post("/auth/logout")
+def auth_logout():
+    """Borra la sesión local (keyring + cache). Idempotente."""
+    from . import license_client as lc
+
+    lc.clear_session()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

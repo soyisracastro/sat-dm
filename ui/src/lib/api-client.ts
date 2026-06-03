@@ -761,6 +761,73 @@ export class SatApiClient {
     }
     return await r.blob();
   }
+
+  // -------------------------------------------------------------------------
+  // Auth + license (proxy hacia todoconta-apps via el agente)
+  // -------------------------------------------------------------------------
+  // El Bearer token NO llega al renderer — vive solo en el proceso Python.
+  // El renderer solo conoce el estado derivado (autenticado, is_founder, etc.)
+
+  /** Genera un device_code y devuelve el URL público de activación. */
+  async authInit(): Promise<AuthInitResponse> {
+    return this.post<AuthInitResponse>('/auth/init', {});
+  }
+
+  /** Polling del device_code hasta que el usuario completa el login web. */
+  async authPoll(device_code: string): Promise<AuthPollResponse> {
+    return this.post<AuthPollResponse>('/auth/poll', { device_code });
+  }
+
+  /** Estado de licencia del usuario actual (cached 24h). */
+  async authLicense(refresh = false): Promise<LicenseStatus> {
+    const qs = refresh ? '?refresh=true' : '';
+    return this.request<LicenseStatus>(`/auth/license${qs}`);
+  }
+
+  /** Crea una Stripe Checkout session y devuelve la URL para abrir. */
+  async authUpgrade(): Promise<{ url: string; session_id?: string }> {
+    return this.post<{ url: string; session_id?: string }>('/auth/upgrade', {});
+  }
+
+  /** Cierra sesión local (borra keyring + cache). */
+  async authLogout(): Promise<{ ok: boolean }> {
+    return this.post<{ ok: boolean }>('/auth/logout', {});
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tipos de auth + license
+// ---------------------------------------------------------------------------
+
+export interface AuthInitResponse {
+  device_code: string;
+  expires_at: string;
+  activate_url: string;
+}
+
+export type AuthPollStatus = 'ok' | 'pending' | 'expired' | 'not_found';
+
+export interface AuthPollResponse {
+  status: AuthPollStatus;
+  user?: { id: string; email: string | null };
+}
+
+export interface LicenseStatus {
+  authenticated: boolean;
+  user_id?: string;
+  email?: string | null;
+  is_founder?: boolean;
+  founder_acquired_at?: string | null;
+  founder_window_open?: boolean;
+  founder_window_closes_at?: string;
+  founder_price_mxn?: number;
+  premium_features_unlocked?: boolean;
+  ai_credits_balance?: number;
+  // Flags del cache local del agente.
+  from_cache?: boolean;
+  stale?: boolean;
+  offline?: boolean;
+  reason?: string;
 }
 
 

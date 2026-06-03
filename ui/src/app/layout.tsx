@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { AuthProvider } from '@/providers/auth-provider';
 import { ServerProvider } from '@/providers/server-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { SonnerProvider } from '@/components/providers/sonner-provider';
@@ -21,9 +22,11 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <ServerProvider>
-            <TooltipProvider>
-              <AppShell>{children}</AppShell>
-            </TooltipProvider>
+            <AuthProvider>
+              <TooltipProvider>
+                <AppShell>{children}</AppShell>
+              </TooltipProvider>
+            </AuthProvider>
           </ServerProvider>
           <SonnerProvider />
         </ThemeProvider>
