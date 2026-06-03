@@ -25,6 +25,8 @@ const { spawn } = require('child_process');
 const path = require('path');
 const net = require('net');
 const http = require('http');
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
@@ -166,6 +168,71 @@ app.on('open-url', (event, url) => {
     handleProtocolUrl(url);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Auto-update (electron-updater)
+// ---------------------------------------------------------------------------
+//
+// Flujo:
+//   1. 30s después de que la ventana esté lista, autoUpdater consulta el
+//      GitHub Release más reciente (configurado vía electron-builder.yml).
+//   2. Si hay versión nueva, descarga el .exe + delta en background SIN
+//      molestar al usuario (no popups intermedios).
+//   3. Cuando termina la descarga (`update-downloaded`), muestra UN solo
+//      dialog: "Reiniciar ahora / Más tarde".
+//   4. Si el user elige "Más tarde", el update se aplica en el próximo
+//      arranque (electron-updater lo deja stageado).
+//
+// En dev (NO empaquetado) NO arranca: electron-updater requiere
+// `app-update.yml` que solo existe en el bundle. Si se invoca en dev,
+// loguea warning y sale.
+
+log.transports.file.level = 'info';
+log.transports.console.level = 'warn';
+autoUpdater.logger = log;
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+function setupAutoUpdaterListeners() {
+  autoUpdater.on('checking-for-update', () => log.info('[updater] buscando update...'));
+  autoUpdater.on('update-available', (info) => log.info('[updater] update disponible:', info.version));
+  autoUpdater.on('update-not-available', () => log.info('[updater] no hay update'));
+  autoUpdater.on('error', (err) => log.warn('[updater] error (silencioso):', err && err.message));
+  autoUpdater.on('download-progress', (p) => log.info(`[updater] descargando ${Math.round(p.percent)}%`));
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    log.info('[updater] update descargado:', info.version);
+    const wins = BrowserWindow.getAllWindows();
+    const parent = wins[0] || null;
+    const choice = await dialog.showMessageBox(parent, {
+      type: 'info',
+      buttons: ['Reiniciar ahora', 'Más tarde'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Actualización lista',
+      message: `TodoConta ${info.version} está lista para instalarse.`,
+      detail: 'Se aplicará al reiniciar la aplicación. Tus datos y empresas se conservan.',
+      noLink: true,
+    });
+    if (choice.response === 0) {
+      // quitAndInstall(isSilent=false, isForceRunAfter=true)
+      autoUpdater.quitAndInstall(false, true);
+    }
+    // "Más tarde" → autoInstallOnAppQuit lo aplica cuando el user cierre.
+  });
+}
+
+function scheduleUpdateCheck() {
+  if (!app.isPackaged) {
+    log.info('[updater] skip en dev (app no empacada).');
+    return;
+  }
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      log.warn('[updater] checkForUpdates falló (silencioso):', err && err.message);
+    });
+  }, 30_000);
+}
 
 let agentProc = null;
 let agentUrl = null;
@@ -410,6 +477,9 @@ app.whenReady().then(async () => {
     // Abrimos la ventana de todos modos; el renderer mostrará "sin conexión".
   }
   createWindow();
+
+  setupAutoUpdaterListeners();
+  scheduleUpdateCheck();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

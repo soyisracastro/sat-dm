@@ -1,0 +1,134 @@
+# Release Windows — TodoConta Desktop
+#
+# Trigger:
+#   - Tag `v*.*.*` pushed a main → build automático.
+#   - workflow_dispatch → build manual desde la UI de GitHub (útil para QA).
+#
+# Output:
+#   - GitHub Release en estado DRAFT con:
+#       - TodoConta-Setup-<version>.exe (instalador NSIS)
+#       - latest.yml (metadata para electron-updater)
+#   - El humano lo publica desde la UI cuando esté listo para anunciar.
+#
+# Secrets requeridos:
+#   - GITHUB_TOKEN — provisto automáticamente por Actions (write a Releases).
+#
+# Secrets opcionales (futuros, cuando se compre el cert EV):
+#   - WIN_CSC_LINK         — PFX en base64 (.pfx → `base64 < cert.pfx`).
+#   - WIN_CSC_KEY_PASSWORD — password del .pfx.
+#   electron-builder los toma automáticamente si están presentes.
+#
+# Tiempo aproximado: 8-12 min.
+
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm 9
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # -------------------------------------------------------------------
+      # Agente Python (PyInstaller)
+      # -------------------------------------------------------------------
+
+      - name: Install Python deps (server + ciec + pyinstaller)
+        # `server` trae uvicorn/fastapi, `ciec` trae playwright (su driver es
+        # parte del bundle; el chromium se descarga en runtime).
+        run: pip install -e ".[server,ciec]" pyinstaller
+
+      - name: Build sat-agent.exe con PyInstaller
+        run: pyinstaller packaging/sat-agent.spec --noconfirm --clean
+
+      - name: Smoke test del agente empacado
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'packaging\dist\sat-agent\sat-agent.exe'
+          if (-not (Test-Path $exe)) {
+            throw "No se encontró el binario en $exe"
+          }
+          $proc = Start-Process -FilePath $exe -ArgumentList '--port','18787' -PassThru -WindowStyle Hidden
+          try {
+            $deadline = (Get-Date).AddSeconds(45)
+            $ok = $false
+            while ((Get-Date) -lt $deadline) {
+              try {
+                $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18787/health' -UseBasicParsing -TimeoutSec 2
+                if ($r.StatusCode -eq 200) { $ok = $true; break }
+              } catch {
+                Start-Sleep -Milliseconds 500
+              }
+            }
+            if (-not $ok) { throw "El agente empacado no respondió a /health en 45s." }
+            Write-Host "✓ /health OK"
+          } finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+      # -------------------------------------------------------------------
+      # Renderer Next.js (export estático)
+      # -------------------------------------------------------------------
+
+      - name: Build UI (Next.js export)
+        working-directory: ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      # -------------------------------------------------------------------
+      # Shell Electron (electron-builder, publish a GitHub Releases draft)
+      # -------------------------------------------------------------------
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & publish instalador Windows
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cuando se adquiera el cert EV, agregar como secrets y se firmará
+          # automáticamente:
+          # WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          # WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: pnpm exec electron-builder --publish always
+
+      - name: Subir artefactos a Actions (backup además del Release)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: todoconta-desktop-windows
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/latest.yml
+          if-no-files-found: warn
+          retention-days: 14
