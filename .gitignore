@@ -61,7 +61,6 @@ ui/.next/
 ui/out/
 ui/next-env.d.ts
 ui/tsconfig.tsbuildinfo
-ui/pnpm-lock.yaml
 
 # PyInstaller (agente Windows empaquetado)
 packaging/dist/
@@ -71,7 +70,6 @@ packaging/__pycache__/
 # electron-builder (instaladores y artefactos de salida)
 desktop/dist/
 desktop/node_modules/
-desktop/pnpm-lock.yaml
 
 # Logs de electron-log / auto-update (cuando se agreguen)
 *.log
