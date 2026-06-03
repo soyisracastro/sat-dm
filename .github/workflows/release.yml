@@ -65,7 +65,11 @@ jobs:
         run: pip install -e ".[server,ciec]" pyinstaller
 
       - name: Build sat-agent.exe con PyInstaller
-        run: pyinstaller packaging/sat-agent.spec --noconfirm --clean
+        # `--distpath` y `--workpath` redirigen los outputs a `packaging/`
+        # (default de PyInstaller es `./dist` y `./build` en CWD). El smoke
+        # de abajo y `desktop/electron-builder.yml` (extraResources) esperan
+        # el binario en `packaging/dist/sat-agent/sat-agent.exe`.
+        run: pyinstaller packaging/sat-agent.spec --noconfirm --clean --distpath packaging/dist --workpath packaging/build
 
       - name: Smoke test del agente empacado
         shell: pwsh
