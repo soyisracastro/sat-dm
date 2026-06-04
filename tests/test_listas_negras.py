@@ -273,6 +273,55 @@ class TestConsultarRfcs:
         headers = mock_post.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer fake-bearer-token"
 
+    @patch("sat_descarga.utils.listas_negras.requests.post")
+    def test_apunta_al_endpoint_desktop(self, mock_post, sesion_activa):
+        """Regresión: debe apuntar a /api/desktop/* (Bearer-friendly), no
+        a /api/sat/* (que solo lee cookies SSR y siempre devuelve 401).
+        Ver todoconta-apps PR #187."""
+        mock_post.return_value = _mock_response(200, {
+            "results": {}, "metadata": _meta_default(),
+        })
+        consultar_rfcs(["XAXX010101000"])
+        url = mock_post.call_args.args[0]
+        assert "/api/desktop/listas-negras/batch" in url
+        assert "/api/sat/" not in url
+
+
+# ---------------------------------------------------------------------------
+# Endpoint de metadata
+# ---------------------------------------------------------------------------
+
+
+class TestConsultarMetadata:
+    def test_sin_sesion_lanza_runtime_error(self):
+        from sat_descarga.utils.listas_negras import consultar_metadata
+        with pytest.raises(RuntimeError, match="(?i)sesi[óo]n"):
+            consultar_metadata()
+
+    @patch("sat_descarga.utils.listas_negras.requests.get")
+    def test_caso_feliz(self, mock_get, sesion_activa):
+        from sat_descarga.utils.listas_negras import consultar_metadata
+        mock_get.return_value = _mock_response(200, _meta_default())
+        meta = consultar_metadata()
+        assert meta.lista_69b_updated_at == "2026-06-05T06:00:00Z"
+        assert meta.record_count_69b == 14000
+
+    @patch("sat_descarga.utils.listas_negras.requests.get")
+    def test_apunta_al_endpoint_metadata(self, mock_get, sesion_activa):
+        from sat_descarga.utils.listas_negras import consultar_metadata
+        mock_get.return_value = _mock_response(200, _meta_default())
+        consultar_metadata()
+        url = mock_get.call_args.args[0]
+        assert url.endswith("/api/desktop/listas-negras/metadata")
+
+    @patch("sat_descarga.utils.listas_negras.requests.get")
+    def test_401_limpia_sesion(self, mock_get, sesion_activa):
+        from sat_descarga.utils.listas_negras import consultar_metadata
+        mock_get.return_value = _mock_response(401, {"error": "expired"})
+        with pytest.raises(RuntimeError, match="(?i)sesi[óo]n"):
+            consultar_metadata()
+        assert license_client.load_session() is None
+
 
 # ---------------------------------------------------------------------------
 # Detección de EDOS

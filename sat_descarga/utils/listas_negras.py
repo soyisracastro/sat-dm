@@ -164,7 +164,7 @@ def consultar_rfcs(
         return [], ListasMetadata(None, None)
 
     headers = _bearer_headers()
-    url = f"{license_client.API_BASE_URL}/api/sat/listas-negras/batch"
+    url = f"{license_client.API_BASE_URL}/api/desktop/listas-negras/batch"
 
     by_rfc: dict[str, MatchListaNegra] = {}
     metadata: Optional[ListasMetadata] = None
@@ -219,14 +219,31 @@ def consultar_rfcs(
 
 
 def consultar_metadata() -> ListasMetadata:
-    """Pide solo la metadata (última actualización del cron) sin consumir cuota.
+    """Pide solo la metadata (última actualización del cron mensual del SAT).
 
-    Internamente hace una consulta con un RFC dummy — el endpoint batch siempre
-    incluye `metadata` en la respuesta. Si todoconta agrega un endpoint
-    `/api/sat/listas-negras/metadata` dedicado en el futuro, cambiar acá.
+    Usa el endpoint dedicado `/api/desktop/listas-negras/metadata`, que no
+    toca las tablas grandes de listas — solo lee `sat_listas_metadata`.
     """
-    _, meta = consultar_rfcs(["XAXX010101000"])  # RFC genérico "público en general"
-    return meta
+    headers = _bearer_headers()
+    url = f"{license_client.API_BASE_URL}/api/desktop/listas-negras/metadata"
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+    except requests.RequestException as e:
+        raise RuntimeError(f"No se pudo contactar listas negras: {e}") from e
+
+    if resp.status_code == 401:
+        license_client.clear_session()
+        raise RuntimeError(
+            "Sesión expirada. Vuelve a iniciar sesión para validar listas negras."
+        )
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("error", resp.text)
+        except ValueError:
+            detail = resp.text
+        raise RuntimeError(f"Listas negras metadata: error {resp.status_code} — {detail}")
+
+    return _parse_metadata(resp.json())
 
 
 # ---------------------------------------------------------------------------
