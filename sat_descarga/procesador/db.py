@@ -593,6 +593,193 @@ class ProcesadorDB:
             return [r[0] for r in self._conn.execute(sql).fetchall()]
 
     # ------------------------------------------------------------------
+    # Listas negras del SAT (Art. 69 y 69-B)
+    # ------------------------------------------------------------------
+
+    def rfcs_sin_validar_listas(
+        self,
+        ttl_days: int = 30,
+        force_refresh: bool = False,
+    ) -> list[str]:
+        """RFCs únicos (emisor + receptor) que necesitan revalidación.
+
+        Las listas del SAT se actualizan mensualmente (cron del día 5); un TTL
+        de 30 días evita pegarle al endpoint sin valor agregado. Si
+        `force_refresh` es True, devuelve todos los RFCs del buffer.
+        """
+        if force_refresh:
+            sql = (
+                "SELECT DISTINCT rfc FROM ("
+                "  SELECT emisor_rfc AS rfc FROM cfdis WHERE emisor_rfc IS NOT NULL AND emisor_rfc != ''"
+                "  UNION"
+                "  SELECT receptor_rfc AS rfc FROM cfdis WHERE receptor_rfc IS NOT NULL AND receptor_rfc != ''"
+                ")"
+            )
+            params: tuple = ()
+        else:
+            # Un RFC necesita revalidación si CUALQUIER CFDI donde aparece
+            # tiene `validado_listas_en` NULL o más viejo que el TTL. Usamos
+            # MIN sobre COALESCE→'' para que NULL gane (cadena vacía < cualquier
+            # ISO timestamp).
+            from datetime import timedelta
+            limite = (datetime.now(timezone.utc) - timedelta(days=ttl_days)).isoformat()
+            sql = """
+                SELECT DISTINCT rfc FROM (
+                  SELECT emisor_rfc AS rfc, validado_listas_en AS validado
+                  FROM cfdis WHERE emisor_rfc IS NOT NULL AND emisor_rfc != ''
+                  UNION ALL
+                  SELECT receptor_rfc AS rfc, validado_listas_en AS validado
+                  FROM cfdis WHERE receptor_rfc IS NOT NULL AND receptor_rfc != ''
+                )
+                GROUP BY rfc
+                HAVING MIN(COALESCE(validado, '')) < ?
+            """
+            params = (limite,)
+        with self._lock:
+            return [r[0] for r in self._conn.execute(sql, params).fetchall()]
+
+    def actualizar_lista_negra_rfc(
+        self,
+        rfc: str,
+        etiqueta: str,
+        match_json: str,
+    ) -> int:
+        """Aplica el resultado de un RFC a todas las filas de `cfdis` donde
+        ese RFC aparezca como emisor y/o receptor. Devuelve filas tocadas
+        (puede ser > total de CFDIs porque un CFDI cuyo emisor y receptor
+        son el mismo RFC se actualiza una vez por lado).
+        """
+        ahora = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn:
+            cur_e = self._conn.execute(
+                """
+                UPDATE cfdis
+                SET emisor_en_lista_negra = ?,
+                    emisor_listas_match = ?,
+                    validado_listas_en = ?
+                WHERE emisor_rfc = ?
+                """,
+                (etiqueta, match_json, ahora, rfc),
+            )
+            cur_r = self._conn.execute(
+                """
+                UPDATE cfdis
+                SET receptor_en_lista_negra = ?,
+                    receptor_listas_match = ?,
+                    validado_listas_en = ?
+                WHERE receptor_rfc = ?
+                """,
+                (etiqueta, match_json, ahora, rfc),
+            )
+            return (cur_e.rowcount or 0) + (cur_r.rowcount or 0)
+
+    def listar_emisores_listas_negras(
+        self,
+        filtros: Optional[CfdiFiltros] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        """Agrega los CFDIs del buffer por `emisor_rfc` con totales y resultado
+        de listas negras. Una fila por RFC, no por CFDI — para la vista de
+        análisis de listas negras donde lo accionable es "este proveedor
+        facturó $X y está en lista 69-B", no cada comprobante individual.
+
+        SQLite "bare columns" trick: en una agregación con MAX(fecha), las
+        columnas no agrupadas (`emisor_nombre`, `emisor_en_lista_negra`,
+        `emisor_listas_match`) toman el valor de la fila más reciente.
+
+        Ordenado por `total_acumulado DESC` (riesgos grandes primero).
+        """
+        where_sql, params = _construir_where(filtros)
+
+        sep = " AND " if where_sql else " WHERE "
+        having_extra = f"{sep}emisor_rfc IS NOT NULL AND emisor_rfc != ''"
+
+        select = """
+            SELECT
+              emisor_rfc,
+              emisor_nombre,
+              emisor_en_lista_negra,
+              emisor_listas_match,
+              MAX(fecha) AS fecha_mas_reciente,
+              MAX(validado_listas_en) AS validado_listas_en,
+              COUNT(*) AS num_cfdis,
+              SUM(total) AS total_acumulado
+            FROM cfdis
+        """
+        count_sql = (
+            "SELECT COUNT(DISTINCT emisor_rfc) FROM cfdis "
+            + where_sql + having_extra
+        )
+        list_sql = (
+            select + where_sql + having_extra
+            + " GROUP BY emisor_rfc"
+            + " ORDER BY total_acumulado DESC, emisor_rfc"
+            + " LIMIT ? OFFSET ?"
+        )
+
+        offset = max(0, (page - 1) * page_size)
+        with self._lock:
+            total = self._conn.execute(count_sql, params).fetchone()[0]
+            cur = self._conn.execute(list_sql, (*params, page_size, offset))
+            items = []
+            for r in cur.fetchall():
+                d = dict(r)
+                # Parsea el JSON del match para que la UI no tenga que hacerlo.
+                match_raw = d.get("emisor_listas_match")
+                if match_raw:
+                    try:
+                        d["emisor_listas_match"] = json.loads(match_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        d["emisor_listas_match"] = None
+                items.append(d)
+
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+    def stats_listas_negras(
+        self,
+        filtros: Optional[CfdiFiltros] = None,
+    ) -> dict:
+        """Conteos para los cards de la página de listas negras.
+
+        - `efos_emisores_unicos`: RFCs únicos en `emisor_en_lista_negra='EFOS'`.
+        - `cfdis_edos`: CFDIs cuyo emisor es EFOS (alta exposición fiscal).
+        - `cfdis_emisor_aclarado`: emisor con antecedente desvirtuado/sentencia.
+        - `cfdis_emisor_69`: emisor en lista 69 (créditos firmes, no localizado, etc.).
+        - `cfdis_limpios`: ambos lados marcados limpios.
+        - `cfdis_sin_validar`: filas con `validado_listas_en IS NULL`.
+        """
+        where_sql, params = _construir_where(filtros)
+        prefix = f"SELECT COUNT(*) FROM cfdis {where_sql}"
+
+        def _count_extra(extra: str, *extra_params) -> int:
+            sep = " AND " if where_sql else " WHERE "
+            sql = f"{prefix}{sep}{extra}"
+            cur = self._conn.execute(sql, (*params, *extra_params))
+            return cur.fetchone()[0]
+
+        with self._lock:
+            sep = " AND " if where_sql else " WHERE "
+            efos_emisores = self._conn.execute(
+                f"SELECT COUNT(DISTINCT emisor_rfc) FROM cfdis {where_sql}"
+                f"{sep}emisor_en_lista_negra = 'EFOS'",
+                params,
+            ).fetchone()[0]
+
+            return {
+                "efos_emisores_unicos": efos_emisores,
+                "cfdis_edos": _count_extra("emisor_en_lista_negra = 'EFOS'"),
+                "cfdis_emisor_aclarado": _count_extra("emisor_en_lista_negra = 'Aclarado'"),
+                "cfdis_emisor_69": _count_extra("emisor_en_lista_negra = '69'"),
+                "cfdis_limpios": _count_extra(
+                    "emisor_en_lista_negra = 'Limpio' "
+                    "AND (receptor_en_lista_negra IS NULL "
+                    "     OR receptor_en_lista_negra = 'Limpio')"
+                ),
+                "cfdis_sin_validar": _count_extra("validado_listas_en IS NULL"),
+            }
+
+    # ------------------------------------------------------------------
     # Filtros persistidos
     # ------------------------------------------------------------------
 
@@ -731,6 +918,15 @@ def _construir_where(filtros: Optional[CfdiFiltros]) -> tuple[str, tuple]:
 
     if filtros.get("solo_con_errores"):
         clauses.append("warnings_json != '[]' AND warnings_json IS NOT NULL")
+
+    # Filtros de listas negras: 'EFOS' | 'Aclarado' | '69' | 'Limpio' | 'SinValidar'
+    emisor_lista = filtros.get("emisor_lista_negra")
+    if emisor_lista:
+        if emisor_lista == "SinValidar":
+            clauses.append("emisor_en_lista_negra IS NULL")
+        else:
+            clauses.append("emisor_en_lista_negra = ?")
+            params.append(emisor_lista)
 
     if not clauses:
         return "", ()

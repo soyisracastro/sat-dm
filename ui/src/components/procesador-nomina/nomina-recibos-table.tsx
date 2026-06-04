@@ -137,7 +137,7 @@ export function NominaRecibosTable({ data, page, pageSize, loading, onPage }: Pr
             <TableHead className="text-right">Percepciones</TableHead>
             <TableHead className="text-right">Deducciones</TableHead>
             <TableHead className="text-right">Neto</TableHead>
-            <TableHead>Estado SAT</TableHead>
+            <TableHead>Estatus</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>

@@ -345,6 +345,12 @@ export interface CfdiFiltros {
   solo_con_errores: boolean;
   monto_min: number | null;
   monto_max: number | null;
+  /**
+   * Filtro por estado del emisor en listas negras:
+   * 'EFOS' | 'Aclarado' | '69' | 'Limpio' | 'SinValidar' | null
+   * Espejo de la columna `cfdis.emisor_en_lista_negra` (migración 006).
+   */
+  emisor_lista_negra?: string | null;
 }
 
 export interface CfdiRecord {
@@ -377,6 +383,17 @@ export interface CfdiRecord {
   direccion: 'E' | 'R' | null;
   estado_sat: 'Vigente' | 'Cancelado' | 'No encontrado' | null;
   validado_en: string | null;
+  /**
+   * Etiqueta del emisor en listas negras del SAT (Art. 69 y 69-B).
+   * 'EFOS' | 'Aclarado' | '69' | 'Limpio' | null (sin validar).
+   * Espejo de la columna `cfdis.emisor_en_lista_negra` (migración 006).
+   */
+  emisor_en_lista_negra: string | null;
+  /** JSON serializado con el detalle del match (situación, supuestos, fecha pub.). */
+  emisor_listas_match: string | null;
+  receptor_en_lista_negra: string | null;
+  receptor_listas_match: string | null;
+  validado_listas_en: string | null;
   warnings: string[];
   cargado_en: string;
 }
@@ -468,6 +485,80 @@ export interface ValidarSatResponse {
   cancelados: number;
   no_encontrados: number;
   errores: number;
+}
+
+// ---------------------------------------------------------------------------
+// Listas negras del SAT (Art. 69 y 69-B)
+// ---------------------------------------------------------------------------
+
+export interface ListaNegraMatch {
+  rfc: string;
+  en_lista_69b: boolean;
+  /** Definitivo | Presunto | Desvirtuado | Sentencia Favorable | null */
+  situacion_69b: string | null;
+  fecha_publicacion_69b: string | null;
+  en_lista_69: boolean;
+  /** firmes | exigibles | no_localizados | sentencias | cancelados | entes_publicos_omisos */
+  supuestos_69: string[];
+  /** alto | medio | limpio */
+  risk_level: string;
+  error: string | null;
+}
+
+export interface ListasNegrasMetadata {
+  lista_69b_updated_at: string | null;
+  lista_69_updated_at: string | null;
+  record_count_69b: number | null;
+  record_count_69: number | null;
+}
+
+export interface ListasNegrasConsultarResponse {
+  matches: ListaNegraMatch[];
+  metadata: ListasNegrasMetadata;
+}
+
+export interface ProcesadorValidarListasNegrasResponse {
+  validados: number;
+  efos: number;
+  aclarados: number;
+  lista_69: number;
+  limpios: number;
+  metadata: ListasNegrasMetadata;
+}
+
+export interface ProcesadorListasNegrasStats {
+  efos_emisores_unicos: number;
+  cfdis_edos: number;
+  cfdis_emisor_aclarado: number;
+  cfdis_emisor_69: number;
+  cfdis_limpios: number;
+  cfdis_sin_validar: number;
+}
+
+/** Una fila agregada por emisor_rfc en la vista de listas negras. */
+export interface EmisorListaNegra {
+  emisor_rfc: string;
+  emisor_nombre: string | null;
+  /** 'EFOS' | 'Aclarado' | '69' | 'Limpio' | null (sin validar) */
+  emisor_en_lista_negra: string | null;
+  /** Detalle parseado del match (situación 69-B, supuestos 69, etc.). */
+  emisor_listas_match: {
+    situacion_69b: string | null;
+    fecha_publicacion_69b: string | null;
+    supuestos_69: string[];
+    risk_level: string;
+  } | null;
+  fecha_mas_reciente: string | null;
+  validado_listas_en: string | null;
+  num_cfdis: number;
+  total_acumulado: number;
+}
+
+export interface EmisoresListasNegrasResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: EmisorListaNegra[];
 }
 
 // ---------------------------------------------------------------------------

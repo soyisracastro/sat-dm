@@ -21,6 +21,7 @@ from .descargar import descargar, retomar
 from .validar import validar
 from .metadata_cmd import metadata
 from .organizar import organizar_group
+from .listas_negras import listas_negras
 
 cli.add_command(empresas)
 cli.add_command(descargar)
@@ -28,3 +29,4 @@ cli.add_command(retomar)
 cli.add_command(validar)
 cli.add_command(metadata)
 cli.add_command(organizar_group)
+cli.add_command(listas_negras)

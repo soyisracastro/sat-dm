@@ -51,6 +51,12 @@ import type {
   ReporteDeducibilidad,
   ReporteImss,
   ReportePeriodoVsPeriodo,
+  ListaNegraMatch,
+  ListasNegrasMetadata,
+  ListasNegrasConsultarResponse,
+  ProcesadorValidarListasNegrasResponse,
+  ProcesadorListasNegrasStats,
+  EmisoresListasNegrasResponse,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -792,6 +798,55 @@ export class SatApiClient {
   /** Cierra sesión local (borra keyring + cache). */
   async authLogout(): Promise<{ ok: boolean }> {
     return this.post<{ ok: boolean }>('/auth/logout', {});
+  }
+
+  // -----------------------------------------------------------------------
+  // Listas negras del SAT (Art. 69 y 69-B)
+  // -----------------------------------------------------------------------
+
+  /** Consulta ad-hoc de RFCs. No persiste en SQLite. */
+  async listasNegrasConsultar(rfcs: string[]): Promise<ListasNegrasConsultarResponse> {
+    return this.post<ListasNegrasConsultarResponse>('/listas-negras/consultar', { rfcs });
+  }
+
+  /** Cuándo se actualizaron las listas en el origen (cron mensual del día 5). */
+  async listasNegrasMetadata(): Promise<ListasNegrasMetadata> {
+    return this.request<ListasNegrasMetadata>('/listas-negras/metadata');
+  }
+
+  /** Valida los RFCs del buffer del procesador y persiste el resultado por fila. */
+  async procesadorValidarListasNegras(
+    opts: { uuids?: string[]; force_refresh?: boolean } = {},
+  ): Promise<ProcesadorValidarListasNegrasResponse> {
+    return this.post<ProcesadorValidarListasNegrasResponse>(
+      '/procesador/cfdi/validar-listas-negras',
+      {
+        uuids: opts.uuids ?? null,
+        force_refresh: opts.force_refresh ?? false,
+      },
+    );
+  }
+
+  /** KPIs (EFOS / EDOS / Aclarado / 69 / Limpios / Sin validar) sobre el buffer filtrado. */
+  async procesadorListasNegrasStats(
+    filtros?: Partial<CfdiFiltros>,
+  ): Promise<ProcesadorListasNegrasStats> {
+    const qs = _filtrosToQuery(filtros ?? {});
+    return this.request<ProcesadorListasNegrasStats>(
+      `/procesador/cfdi/listas-negras/stats?${qs}`,
+    );
+  }
+
+  /** Una fila por emisor_rfc (no por CFDI) con SUM(total) + COUNT, ordenada por total desc. */
+  async procesadorListasNegrasPorEmisor(
+    filtros?: Partial<CfdiFiltros>,
+    page = 1,
+    pageSize = 50,
+  ): Promise<EmisoresListasNegrasResponse> {
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), page, page_size: pageSize });
+    return this.request<EmisoresListasNegrasResponse>(
+      `/procesador/cfdi/listas-negras/por-emisor?${qs}`,
+    );
   }
 }
 

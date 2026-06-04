@@ -30,6 +30,15 @@ from .portal.cfdi import descargar_cfdi_ciec, descargar_cfdi_fiel
 from .portal.constancia import descargar_constancia_ciec, descargar_constancia_fiel
 from .portal.opinion import descargar_opinion_ciec, descargar_opinion_fiel
 
+# Listas negras del SAT (Art. 69 y 69-B). Cliente HTTP hacia todoconta-apps.
+from .utils.listas_negras import (
+    MatchListaNegra,
+    ListasMetadata,
+    consultar_rfcs,
+    consultar_metadata,
+    detectar_edos,
+)
+
 __all__ = [
     "descargar_cfdi",
     "verificar_solicitud_existente",
@@ -45,4 +54,9 @@ __all__ = [
     "descargar_constancia_fiel",
     "descargar_opinion_ciec",
     "descargar_opinion_fiel",
+    "MatchListaNegra",
+    "ListasMetadata",
+    "consultar_rfcs",
+    "consultar_metadata",
+    "detectar_edos",
 ]

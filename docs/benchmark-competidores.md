@@ -224,9 +224,9 @@ SDK comercial SaaS (MPL-2.0). `pip install fiscalapi`. Proxy al SAT, no directo.
 | **CLI** | N/A (GUI) | ✅ | ❌ | ❌ | ❌ |
 | **Server HTTP** | ❌ | ✅ (FastAPI) | ❌ | ❌ | ❌ |
 | **GUI** | ✅ | ✅ (Electron + Next.js) | ❌ | ❌ | ❌ |
-| **Validación CFDI** | ✅ (masiva) | ✅ (masiva, concurrente) | ✅ | ✅ | ❌ |
-| **Listas negras (17)** | ✅ | ❌ | ❌ | ❌ (solo 69B) | ❌ |
-| **Art. 69 y 69-B** | ✅ | ❌ | ❌ | ✅ (69B) | ❌ |
+| **Validación CFDI** | ✅ (masiva) | ✅ (masiva concurrente + listas 69/69-B en un solo botón) | ✅ | ✅ | ❌ |
+| **Listas negras (17)** | ✅ | 🟡 (69 + 69-B unificadas) | ❌ | ❌ (solo 69B) | ❌ |
+| **Art. 69 y 69-B** | ✅ | ✅ (EFOS/EDOS, cron mensual) | ❌ | ✅ (69B) | ❌ |
 | **Validación REPSE** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Validación RFC** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Export Excel** | ✅ | ✅ (CFDI/Pagos/Nómina) | ❌ | ✅ | ❌ |
@@ -280,6 +280,9 @@ SDK comercial SaaS (MPL-2.0). `pip install fiscalapi`. Proxy al SAT, no directo.
 16. **Validación masiva concurrente** — 10 hilos default, configurable; persiste `estado_sat` en el buffer.
 17. **Login portal vía e.firma sin captcha** (`/cfdi/fiel`, `/constancia/fiel`, `/opinion/fiel`) — Flujos 100% desatendidos; XMLSAT requiere CIEC + captcha siempre.
 18. **Historial de descargas por empresa + global** con apertura segura (`/abrir`) restringida a rutas registradas.
+19. **Un solo botón para validar contra el SAT** — "Validar contra SAT" del procesador dispara en paralelo el estatus CFDI (Vigente/Cancelado/No encontrado) **y** el cruce contra listas 69/69-B (EFOS/EDOS). XMLSAT separa ambas validaciones en módulos distintos.
+20. **Vista agregada por proveedor** — La página de Listas Negras muestra una fila por `emisor_rfc` con total acumulado y conteo de CFDIs, ordenada por riesgo monetario. XMLSAT lista los movimientos sin colapsar por contraparte.
+21. **Paleta tonal consistente** entre badges del procesador — Vigente ↔ Limpio (verde), Cancelado ↔ EFOS (rojo), No encontrado ↔ 69/Aclarado (amber). El usuario lee de un vistazo el riesgo combinado.
 
 ## Qué Nos Falta vs XMLSAT Premium
 
@@ -305,7 +308,7 @@ El gap es enorme en la parte de **análisis y reportes**. sat-descarga-masiva ho
 | **Validación de CFDI** (Vigente/Cancelado) | ✅ `/validar` + procesador `validar-sat` | — |
 | **Constancia de situación fiscal** | ✅ CIEC + e.firma | — |
 | **Opinión de cumplimiento** SAT (32-D) | ✅ CIEC + e.firma | — |
-| **Listas negras** Art. 69 y 69-B (17 listados) | ❌ | Alta |
+| **Listas negras** Art. 69 y 69-B | ✅ EFOS/EDOS vía API de todoconta (cron mensual) | — |
 | **Validación REPSE** | ❌ | Media |
 | **Validación de RFC** (estructura + existencia) | ❌ | Baja |
 | **Opinión de cumplimiento IMSS** | ❌ | Media |
@@ -375,7 +378,7 @@ El gap es enorme en la parte de **análisis y reportes**. sat-descarga-masiva ho
 ## Prioridades sugeridas para post-v1.0.0
 
 1. **Fase 4 (Reportes Fiscales IVA/ISR/IEPS)** — la brecha más vendedora; sin esto, somos descarga + organización, no suite fiscal.
-2. **Fase 2 (Listas negras Art. 69/69-B + Validación REPSE)** — relativamente acotado y diferenciador vs todos los Python.
+2. **Validación REPSE** (cierra Fase 2 junto con listas negras ya hechas) — diferenciador vs todos los Python.
 3. **Descarga de retenciones + por RFC** (cierra Fase 1) — bajo esfuerzo, completa el core de WS.
 4. **Lectura de complementos** (Carta Porte sobre todo) — alto valor para transportistas.
 5. **DIOT automática** — feature ancla para personas morales.

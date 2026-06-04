@@ -15,6 +15,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { CfdiListResponse, CfdiRecord } from '@/lib/types';
+import {
+  MatchBadge,
+  TONO_BASE_CLASE,
+  TONO_CLASES,
+  type EtiquetaLista,
+} from '@/components/listas-negras/match-badge';
+import { cn } from '@/lib/utils';
 
 interface Props {
   data: CfdiListResponse | null;
@@ -47,32 +54,43 @@ const TIPO_LABEL: Record<string, string> = {
   T: 'Traslado',
 };
 
+function badgeListaNegra(etiqueta: string | null, rfc: string) {
+  if (!etiqueta) {
+    return (
+      <span className="text-xs text-muted-foreground" title={`${rfc} sin validar contra listas negras`}>
+        —
+      </span>
+    );
+  }
+  // 'EFOS' | 'Aclarado' | '69' | 'Limpio' — MatchBadge ya valida estos valores.
+  return <MatchBadge etiqueta={etiqueta as EtiquetaLista} />;
+}
+
+// Estatus SAT comparte la paleta tonal de listas negras para que Vigente
+// y Limpio sean el mismo verde, Cancelado y EFOS el mismo rojo, etc.
+const ESTILOS_ESTATUS: Record<
+  NonNullable<CfdiRecord['estado_sat']>,
+  { label: string; icon: string; tono: keyof typeof TONO_CLASES }
+> = {
+  Vigente:         { label: 'Vigente',       icon: 'ph:check-circle-light', tono: 'verde' },
+  Cancelado:       { label: 'Cancelado',     icon: 'ph:x-circle-light',     tono: 'rojo' },
+  'No encontrado': { label: 'No encontrado', icon: 'ph:warning-light',      tono: 'amber' },
+};
+
 function badgeEstado(estado: CfdiRecord['estado_sat']) {
   if (!estado) {
     return (
-      <Badge variant="secondary" className="text-[10px]">
+      <span className={cn(TONO_BASE_CLASE, TONO_CLASES.neutro)}>
         Sin validar
-      </Badge>
+      </span>
     );
   }
-  if (estado === 'Vigente') {
-    return (
-      <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-[10px]">
-        <Icon icon="ph:check-circle-light" className="size-3" /> Vigente
-      </Badge>
-    );
-  }
-  if (estado === 'Cancelado') {
-    return (
-      <Badge variant="destructive" className="text-[10px]">
-        <Icon icon="ph:x-circle-light" className="size-3" /> Cancelado
-      </Badge>
-    );
-  }
+  const e = ESTILOS_ESTATUS[estado];
   return (
-    <Badge variant="secondary" className="bg-amber-100 text-amber-700 text-[10px]">
-      <Icon icon="ph:warning-light" className="size-3" /> No encontrado
-    </Badge>
+    <span className={cn(TONO_BASE_CLASE, TONO_CLASES[e.tono])}>
+      <Icon icon={e.icon} className="size-3 shrink-0" />
+      {e.label}
+    </span>
   );
 }
 
@@ -117,7 +135,8 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
             <TableHead>Emisor</TableHead>
             <TableHead>Receptor</TableHead>
             <TableHead className="text-right">Total</TableHead>
-            <TableHead>Estado SAT</TableHead>
+            <TableHead>Estatus</TableHead>
+            <TableHead>Listas 69/69-B</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
@@ -161,6 +180,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
                     )}
                   </TableCell>
                   <TableCell>{badgeEstado(c.estado_sat)}</TableCell>
+                  <TableCell>{badgeListaNegra(c.emisor_en_lista_negra, c.emisor_rfc)}</TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
@@ -177,7 +197,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
                 </TableRow>
                 {abierto && (
                   <TableRow>
-                    <TableCell colSpan={7} className="bg-muted/30">
+                    <TableCell colSpan={8} className="bg-muted/30">
                       <div className="grid grid-cols-2 gap-4 p-2 text-xs sm:grid-cols-4">
                         <div>
                           <div className="text-muted-foreground">UUID</div>
