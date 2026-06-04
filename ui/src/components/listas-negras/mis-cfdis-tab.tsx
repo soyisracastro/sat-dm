@@ -44,7 +44,7 @@ export function MisCfdisTab() {
   const [stats, setStats] = useState<ProcesadorListasNegrasStats | null>(null);
   const [metadata, setMetadata] = useState<ListasNegrasMetadata | null>(null);
   const [listado, setListado] = useState<EmisoresListasNegrasResponse | null>(null);
-  const [filtro, setFiltro] = useState<FiltroEmisor>('EFOS');
+  const [filtro, setFiltro] = useState<FiltroEmisor>('todos');
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,9 +110,7 @@ export function MisCfdisTab() {
             <div>
               <CardTitle className="text-base">Cruce con mis CFDIs</CardTitle>
               <CardDescription>
-                Detecta <strong>EDOS</strong>: CFDIs cuyo emisor está en lista 69-B con
-                situación Definitivo o Presunto (EFOS). Requiere que tengas comprobantes
-                cargados en{' '}
+                Requiere que tengas comprobantes cargados en{' '}
                 <Link href="/comprobantes/cfdi" className="font-medium underline underline-offset-2">
                   Comprobantes
                 </Link>
@@ -174,11 +172,11 @@ export function MisCfdisTab() {
             <div>
               <CardTitle className="text-base">CFDIs por estado del emisor</CardTitle>
               <CardDescription>
-                Filtra la lista por etiqueta del emisor. Por default muestra solo EFOS.
+                Filtra la lista por etiqueta del emisor.
               </CardDescription>
             </div>
             <Select value={filtro} onValueChange={(v) => setFiltro(v as FiltroEmisor)}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-45">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

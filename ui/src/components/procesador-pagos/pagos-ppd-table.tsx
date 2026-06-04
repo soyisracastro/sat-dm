@@ -140,7 +140,7 @@ export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) 
             <TableHead className="text-right">Saldo</TableHead>
             <TableHead className="w-20 text-center">Pagos</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Estado SAT</TableHead>
+            <TableHead>Estatus</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
