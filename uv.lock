@@ -1849,7 +1849,7 @@ wheels = [
 
 [[package]]
 name = "sat-descarga-masiva"
-version = "1.0.1"
+version = "1.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

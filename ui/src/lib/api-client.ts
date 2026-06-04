@@ -800,6 +800,23 @@ export class SatApiClient {
     return this.post<{ ok: boolean }>('/auth/logout', {});
   }
 
+  /**
+   * Carga la FIEL de la empresa activa en sesión del agente.
+   *
+   * Antes lo hacía el lifespan del agente al arranque, pero en Windows con
+   * binario sin firma el `keyring.get_password()` quedaba bloqueado y el
+   * agente nunca aceptaba conexiones. Ahora el renderer lo invoca post-login.
+   * Es idempotente y nunca falla (los errores devuelven `ok=false`).
+   */
+  async autocargarFiel(): Promise<{
+    ok: boolean;
+    cargada: boolean;
+    rfc: string | null;
+    error?: string;
+  }> {
+    return this.post('/auth/autocargar-fiel', {});
+  }
+
   // -----------------------------------------------------------------------
   // Listas negras del SAT (Art. 69 y 69-B)
   // -----------------------------------------------------------------------

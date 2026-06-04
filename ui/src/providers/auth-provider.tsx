@@ -51,6 +51,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const data = await apiClient.authLicense(force);
         setLicense(data);
+        // Disparar autocarga de FIEL en background si el usuario está
+        // autenticado. Antes lo hacía el lifespan del agente, pero bloqueaba
+        // el startup en Windows (keyring sin prompt UI). Ahora es lazy y no
+        // bloquea — si falla, la app sigue funcional y el usuario carga la
+        // FIEL a mano desde Empresas.
+        if (data.authenticated) {
+          apiClient.autocargarFiel().catch((e) => {
+            console.warn('[auth] autocargarFiel falló (no bloqueante):', e);
+          });
+        }
       } catch (e) {
         console.warn('[auth] authLicense falló:', e);
         // Mantenemos el estado previo si lo había; si no, marcamos no-auth.

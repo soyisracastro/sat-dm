@@ -129,23 +129,43 @@ def _configurar_logging() -> Path:
 
 
 def main() -> None:
+    # CONFIGURAR LOGGING ANTES DE TODO. Con `console=False` en PyInstaller,
+    # stdout/stderr van a /dev/null; cualquier crash previo a este punto se
+    # pierde sin traza. El log file en %LOCALAPPDATA%\TodoConta\logs\agent.log
+    # (Windows) es nuestra única vía de diagnóstico cuando un usuario reporta
+    # "no arranca".
     log_path = _configurar_logging()
     log = logging.getLogger("sat-agent")
+
+    # Bootstrap line: si ESTO se ve en el log, el binario arrancó y los
+    # imports básicos funcionaron. Si NO se ve, es VC++ Redistributable
+    # faltante, antivirus matando el proceso, o un crash de PyInstaller
+    # antes del primer bytecode user-level.
+    log.info(
+        "[bootstrap] pid=%d argv=%s cwd=%s exe=%s platform=%s",
+        os.getpid(),
+        sys.argv,
+        os.getcwd(),
+        sys.executable,
+        sys.platform,
+    )
 
     try:
         port = _parse_port()
         host = "127.0.0.1"
 
-        log.info("escuchando en http://%s:%s (logs en %s)", host, port, log_path)
+        log.info("[bootstrap] log_path=%s host=%s port=%s", log_path, host, port)
 
         # Importar uvicorn y el app SOLO al ejecutar (no al importar el módulo).
         # PyInstaller agradece esto: el __main__ no arrastra el grafo hasta que
         # main() se invoca. Import absoluto porque PyInstaller corre __main__ sin
         # parent package context.
+        log.info("[bootstrap] importando uvicorn + sat_descarga.api.server …")
         import uvicorn
 
         from sat_descarga.api.server import app
 
+        log.info("[bootstrap] imports listos — arrancando uvicorn")
         # log_config=None: no sobreescribir la config que armamos arriba.
         uvicorn.run(app, host=host, port=port, log_level="info", log_config=None)
     except Exception:

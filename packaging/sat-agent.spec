@@ -84,12 +84,21 @@ hiddenimports: list[str] = [
     # lxml (Windows pierde imports dinámicos de xpath)
     "lxml._elementpath",
     "lxml.etree",
+    "lxml.html",
     # email (FastAPI multipart upload)
     "email.mime.multipart",
     "email.mime.text",
     "email.mime.base",
+    "email.mime.application",
     # python-multipart (uploads)
     "multipart",
+    # keyring backends — SIN ESTOS el `keyring` cae a un backend null que
+    # silenciosamente retorna None. En Windows era además una de las fuentes
+    # del hang del lifespan. Forzar los nativos para que estén en el bundle.
+    "keyring.backends.Windows",
+    "keyring.backends.macOS",
+    "keyring.backends.SecretService",
+    "keyring.backends.fail",
     # playwright (driver runtime)
     "playwright.sync_api",
     "playwright._impl._driver",
