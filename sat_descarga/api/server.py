@@ -61,10 +61,19 @@ from ..core.config import TIPO_CFDI, TIPO_METADATA, TIPO_EMITIDO, TIPO_RECIBIDO
 
 @asynccontextmanager
 async def lifespan(app: "FastAPI"):
-    # Al arrancar el agente, carga la e.firma de la empresa activa para que
-    # "empresa activa" y "e.firma en sesión" estén sincronizadas desde el inicio
-    # (si no, la cabecera/Dashboard muestran "Sin e-firma" hasta cargarla a mano).
-    _autocargar_empresa_default()
+    # IMPORTANTE: NO autocargar la e.firma aquí. Antes hacíamos
+    # `_autocargar_empresa_default()` en el lifespan para sincronizar "empresa
+    # activa" con "e.firma en sesión", pero esa función llama a
+    # `keyring.get_password()` y en Windows con el binario PyInstaller sin
+    # firma, el Credential Manager bloquea esperando un prompt UI que nunca
+    # llega (proceso non-interactive). Resultado: el lifespan jamás
+    # completaba, uvicorn nunca aceptaba conexiones y `/health` no respondía
+    # → el shell Electron quedaba en "Cargando…" infinito.
+    #
+    # Solución: carga lazy. El renderer invoca POST /auth/autocargar
+    # explícitamente después del login (no bloquea startup), o cada endpoint
+    # que necesite FIEL la carga on-demand. Ver memoria
+    # `feedback-keyring-macos-unsigned-hang`.
     yield
 
 
@@ -335,6 +344,34 @@ def descargar_fiel():
     """Descarga la e-firma de memoria y elimina los temporales."""
     _limpiar_session()
     return {"ok": True, "mensaje": "E-firma descargada de memoria."}
+
+
+@app.post("/auth/autocargar-fiel")
+def autocargar_fiel_default():
+    """
+    Carga la FIEL de la empresa activa (si existe) en sesión.
+
+    Reemplazo del autoload que antes corría en el lifespan del agente — ahora
+    se invoca explícitamente desde el renderer (post-login) para no bloquear
+    el arranque del agente con un `keyring.get_password()` que en Windows
+    sin firma puede colgarse esperando un prompt UI.
+
+    Idempotente: si ya hay FIEL en sesión, no hace nada. Si la empresa no
+    tiene FIEL o falla la carga, devuelve `ok=false` con detalle — el caller
+    NO debe tratar esto como fatal (la app sigue funcional, el usuario solo
+    tendrá que cargar la FIEL a mano desde Empresas).
+    """
+    try:
+        _autocargar_empresa_default()
+        rfc = _session.get("rfc")
+        return {
+            "ok": True,
+            "cargada": rfc is not None,
+            "rfc": rfc,
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.warning("autocargar-fiel falló: %s", e)
+        return {"ok": False, "cargada": False, "rfc": None, "error": str(e)}
 
 
 def _limpiar_session():

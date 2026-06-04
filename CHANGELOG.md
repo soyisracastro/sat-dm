@@ -8,7 +8,23 @@ _Cambios mergeados a `main` pero todavía no etiquetados en un release publicado
 
 ---
 
-## [1.0.1] - próximo release
+## [1.0.2] - próximo release
+
+Fix raíz del bug *"Cargando…" infinito* reportado por dos testers en Windows tras v1.0.1.
+
+### Bug fix
+
+- **Lifespan no-bloqueante**: el agente ya no carga la FIEL al arranque dentro del `lifespan` de FastAPI. La llamada a `keyring.get_password()` que hacía el autoload colgaba indefinidamente en Windows con binario sin firma (Credential Manager espera un prompt UI que nunca llega en proceso non-interactive), impidiendo que uvicorn aceptara conexiones → `/health` jamás respondía → renderer atrapado en "Cargando…". Ahora `lifespan` completa de inmediato, uvicorn arranca, `/health` responde en <100ms.
+
+- **Endpoint `/auth/autocargar-fiel`**: nuevo endpoint POST que reemplaza al autoload del lifespan. El renderer lo invoca en background después del login exitoso. Si falla (FIEL faltante, keyring inaccesible), la app sigue funcional — el usuario carga la FIEL a mano desde Empresas como ya hacía hoy.
+
+- **Bootstrap log temprano**: `__main__.py` ahora loguea PID, argv, cwd y `sys.executable` como **primera línea** del agente. Si un usuario reporta que la app no arranca, podemos pedirle `%LOCALAPPDATA%\TodoConta\logs\agent.log` y saber EXACTAMENTE en qué etapa murió.
+
+- **Hiddenimports defensivos en PyInstaller**: agregados `keyring.backends.{Windows,macOS,SecretService,fail}`, `lxml.html`, `email.mime.application`. Sin los keyring backends, `keyring` caía a un backend null que silenciosamente retornaba None — fuente potencial de bugs en distintos perfiles de Windows.
+
+---
+
+## [1.0.1] - 2026-06-04
 
 Bug fixes detectados en QA del primer release público.
 
