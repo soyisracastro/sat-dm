@@ -8,7 +8,20 @@ _Cambios mergeados a `main` pero todavía no etiquetados en un release publicado
 
 ---
 
-## [1.0.0] - próximo release
+## [1.0.1] - próximo release
+
+Bug fixes detectados en QA del primer release público.
+
+### Cambios
+
+- **UI**: el título de la ventana y el titlebar ahora dicen *"TodoConta"* (antes mostraba *"SAT Descarga Masiva"*, sobra de antes del rebrand).
+- **Agente**: el `.exe` ya no abre una ventana de consola DOS negra paralela al iniciar (`console=False` en el spec de PyInstaller). Los logs se persisten a `%LOCALAPPDATA%\TodoConta\logs\agent.log` para diagnóstico.
+- **Startup más tolerante**: el shell Electron ahora espera hasta 60s a que el agente responda `/health` (antes 30s), por si Windows Defender está escaneando los DLLs del PyInstaller en el primer arranque.
+- **Splash informativo**: la pantalla "Cargando…" muestra ahora un mensaje útil después de 15s indicando que el primer arranque puede tardar mientras AV escanea los archivos, y a los 60s ofrece un botón "Reintentar" en lugar de quedarse en blanco para siempre.
+
+---
+
+## [1.0.0] - 2026-06-03
 
 Primer release público del producto **TodoConta Desktop** — instalador Windows distribuible, login obligatorio integrado con `todoconta-apps`, ventana de **Fundadores** (licencia de por vida) para los primeros usuarios.
 

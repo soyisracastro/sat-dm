@@ -176,7 +176,11 @@ exe = EXE(  # noqa: F821
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,         # UPX a veces dispara antivirus; desactivado.
-    console=True,      # El agente loguea a stderr; consola visible solo en dev.
+    # console=False: en Windows producción ya no se abre una ventana negra DOS
+    # paralela al .exe (confunde a usuarios finales — "¿es virus?"). Los logs
+    # se persisten a %LOCALAPPDATA%\TodoConta\logs\agent.log desde __main__.py.
+    # En dev (`uv run uvicorn ...`) este flag no aplica.
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

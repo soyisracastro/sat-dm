@@ -8,8 +8,8 @@ import { AppShell } from '@/components/layout/app-shell';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 export const metadata: Metadata = {
-  title: 'SAT Descarga Masiva',
-  description: 'Descarga masiva de CFDIs del SAT',
+  title: 'TodoConta',
+  description: 'TodoConta — descarga masiva de CFDIs y trámites del SAT',
 };
 
 export default function RootLayout({

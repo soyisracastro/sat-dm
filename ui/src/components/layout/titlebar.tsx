@@ -41,7 +41,7 @@ export function Titlebar() {
       style={style}
     >
       <span className="text-xs font-semibold tracking-tight text-foreground">
-        SAT Descarga Masiva
+        TodoConta
       </span>
       <div
         className="ml-auto flex items-center gap-2"
