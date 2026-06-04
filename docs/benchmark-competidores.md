@@ -224,7 +224,7 @@ SDK comercial SaaS (MPL-2.0). `pip install fiscalapi`. Proxy al SAT, no directo.
 | **CLI** | N/A (GUI) | ✅ | ❌ | ❌ | ❌ |
 | **Server HTTP** | ❌ | ✅ (FastAPI) | ❌ | ❌ | ❌ |
 | **GUI** | ✅ | ✅ (Electron + Next.js) | ❌ | ❌ | ❌ |
-| **Validación CFDI** | ✅ (masiva) | ✅ (masiva, concurrente) | ✅ | ✅ | ❌ |
+| **Validación CFDI** | ✅ (masiva) | ✅ (masiva concurrente + listas 69/69-B en un solo botón) | ✅ | ✅ | ❌ |
 | **Listas negras (17)** | ✅ | 🟡 (69 + 69-B unificadas) | ❌ | ❌ (solo 69B) | ❌ |
 | **Art. 69 y 69-B** | ✅ | ✅ (EFOS/EDOS, cron mensual) | ❌ | ✅ (69B) | ❌ |
 | **Validación REPSE** | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -280,6 +280,9 @@ SDK comercial SaaS (MPL-2.0). `pip install fiscalapi`. Proxy al SAT, no directo.
 16. **Validación masiva concurrente** — 10 hilos default, configurable; persiste `estado_sat` en el buffer.
 17. **Login portal vía e.firma sin captcha** (`/cfdi/fiel`, `/constancia/fiel`, `/opinion/fiel`) — Flujos 100% desatendidos; XMLSAT requiere CIEC + captcha siempre.
 18. **Historial de descargas por empresa + global** con apertura segura (`/abrir`) restringida a rutas registradas.
+19. **Un solo botón para validar contra el SAT** — "Validar contra SAT" del procesador dispara en paralelo el estatus CFDI (Vigente/Cancelado/No encontrado) **y** el cruce contra listas 69/69-B (EFOS/EDOS). XMLSAT separa ambas validaciones en módulos distintos.
+20. **Vista agregada por proveedor** — La página de Listas Negras muestra una fila por `emisor_rfc` con total acumulado y conteo de CFDIs, ordenada por riesgo monetario. XMLSAT lista los movimientos sin colapsar por contraparte.
+21. **Paleta tonal consistente** entre badges del procesador — Vigente ↔ Limpio (verde), Cancelado ↔ EFOS (rojo), No encontrado ↔ 69/Aclarado (amber). El usuario lee de un vistazo el riesgo combinado.
 
 ## Qué Nos Falta vs XMLSAT Premium
 

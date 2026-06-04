@@ -80,6 +80,7 @@ sat-dm retomar <RequestID> --rfc XAXX010101000
 ```bash
 sat-dm empresas list | default | remove   # gestionar empresas
 sat-dm validar ./xmls/                     # validar estatus ante el SAT
+sat-dm listas-negras --desde-procesador    # validar RFCs vs Art. 69 / 69-B (EFOS/EDOS)
 sat-dm metadata --desde 2025-01-01 --hasta 2025-01-31   # metadata (resumen rápido)
 sat-dm organizar carpetas | renombrar | deduplicar      # organizar XMLs
 ```
@@ -195,8 +196,12 @@ sat-dm listas-negras --archivo proveedores.txt -o reporte.csv
 
 # Cruce automático con los CFDIs cargados en el procesador
 sat-dm listas-negras --desde-procesador
-sat-dm listas-negras --desde-procesador --force-refresh   # ignora TTL 30d
+sat-dm listas-negras --desde-procesador --force-refresh   # vuelve a consultar todos los RFCs
 ```
+
+Los resultados de un RFC se consideran válidos por 30 días (el SAT actualiza
+las listas una vez al mes, día 5). Pasado ese plazo, la próxima validación
+vuelve a consultar el endpoint automáticamente.
 
 Desde Python:
 
@@ -223,10 +228,13 @@ Endpoints HTTP en el agente local:
 - `POST /procesador/cfdi/validar-listas-negras` — valida los RFCs del buffer
   y persiste en `cfdis.{emisor,receptor}_en_lista_negra`.
 - `GET /procesador/cfdi/listas-negras/stats` — conteos EFOS / EDOS / Aclarado / 69 / Limpio.
+- `GET /procesador/cfdi/listas-negras/por-emisor` — vista agregada por
+  `emisor_rfc` con `SUM(total)` y `COUNT(uuid)`, ordenada por total descendente.
 
 UI: página `/listas-negras` con dos tabs — "Mis CFDIs" (cruce automático con
-los XMLs del procesador, stats cards, tabla filtrada por etiqueta) y "Validar
-RFCs" (textarea ad-hoc + export CSV).
+los XMLs del procesador, stats cards, tabla agregada por proveedor) y
+"Validar RFCs" (textarea ad-hoc + export CSV). El botón **"Validar contra SAT"**
+del procesador dispara estatus CFDI **y** listas 69/69-B en un solo click.
 
 ## Descarga de metadata (sin descargar XMLs)
 
@@ -462,8 +470,9 @@ iniciada (Bearer en keyring). Respuestas `401` cuando no hay sesión o expiró.
 |---|---|---|
 | `POST` | `/listas-negras/consultar` | Validación ad-hoc (`{rfcs: [...]}`). No toca SQLite |
 | `GET` | `/listas-negras/metadata` | Fecha del último cron mensual del SAT |
-| `POST` | `/procesador/cfdi/validar-listas-negras` | Valida los RFCs del buffer y persiste por fila (TTL 30 días, `force_refresh=true` lo ignora) |
+| `POST` | `/procesador/cfdi/validar-listas-negras` | Valida los RFCs del buffer y persiste por fila (resultado válido 30 días; `force_refresh=true` re-consulta todo) |
 | `GET` | `/procesador/cfdi/listas-negras/stats` | KPIs EFOS / EDOS / Aclarado / 69 / Limpio sobre el buffer filtrado |
+| `GET` | `/procesador/cfdi/listas-negras/por-emisor` | Lista agregada por `emisor_rfc` con `SUM(total)` y `COUNT(uuid)`, ordenada por total descendente |
 
 ### Procesador de comprobantes — Pagos (complemento 2.0)
 
