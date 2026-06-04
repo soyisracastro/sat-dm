@@ -535,6 +535,32 @@ export interface ProcesadorListasNegrasStats {
   cfdis_sin_validar: number;
 }
 
+/** Una fila agregada por emisor_rfc en la vista de listas negras. */
+export interface EmisorListaNegra {
+  emisor_rfc: string;
+  emisor_nombre: string | null;
+  /** 'EFOS' | 'Aclarado' | '69' | 'Limpio' | null (sin validar) */
+  emisor_en_lista_negra: string | null;
+  /** Detalle parseado del match (situación 69-B, supuestos 69, etc.). */
+  emisor_listas_match: {
+    situacion_69b: string | null;
+    fecha_publicacion_69b: string | null;
+    supuestos_69: string[];
+    risk_level: string;
+  } | null;
+  fecha_mas_reciente: string | null;
+  validado_listas_en: string | null;
+  num_cfdis: number;
+  total_acumulado: number;
+}
+
+export interface EmisoresListasNegrasResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: EmisorListaNegra[];
+}
+
 // ---------------------------------------------------------------------------
 // Procesador de comprobantes — Pagos
 // ---------------------------------------------------------------------------

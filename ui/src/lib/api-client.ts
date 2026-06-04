@@ -56,6 +56,7 @@ import type {
   ListasNegrasConsultarResponse,
   ProcesadorValidarListasNegrasResponse,
   ProcesadorListasNegrasStats,
+  EmisoresListasNegrasResponse,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -833,6 +834,18 @@ export class SatApiClient {
     const qs = _filtrosToQuery(filtros ?? {});
     return this.request<ProcesadorListasNegrasStats>(
       `/procesador/cfdi/listas-negras/stats?${qs}`,
+    );
+  }
+
+  /** Una fila por emisor_rfc (no por CFDI) con SUM(total) + COUNT, ordenada por total desc. */
+  async procesadorListasNegrasPorEmisor(
+    filtros?: Partial<CfdiFiltros>,
+    page = 1,
+    pageSize = 50,
+  ): Promise<EmisoresListasNegrasResponse> {
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), page, page_size: pageSize });
+    return this.request<EmisoresListasNegrasResponse>(
+      `/procesador/cfdi/listas-negras/por-emisor?${qs}`,
     );
   }
 }

@@ -2059,6 +2059,32 @@ def procesador_listas_negras_stats(
     return abrir_db().stats_listas_negras(filtros)
 
 
+@app.get("/procesador/cfdi/listas-negras/por-emisor")
+def procesador_listas_negras_por_emisor(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    tipo: Optional[str] = None,
+    direccion: Optional[str] = None,
+    busqueda: Optional[str] = None,
+    solo_con_errores: bool = False,
+    monto_min: Optional[float] = None,
+    monto_max: Optional[float] = None,
+    emisor_lista_negra: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """Lista paginada agregada por `emisor_rfc` con total acumulado y conteo
+    de CFDIs. Para la vista de listas negras donde lo accionable es por
+    proveedor, no por comprobante individual."""
+    from ..procesador import abrir_db
+
+    filtros = _filtros_de_query(
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
+        direccion, emisor_lista_negra,
+    )
+    return abrir_db().listar_emisores_listas_negras(filtros, page=page, page_size=page_size)
+
+
 # ---------------------------------------------------------------------------
 # Procesador de comprobantes — Pagos
 # ---------------------------------------------------------------------------

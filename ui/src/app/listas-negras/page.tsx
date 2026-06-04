@@ -39,7 +39,7 @@ export default function ListasNegrasPage() {
     <div className="space-y-6">
       <PageHeading
         title="Listas negras del SAT"
-        description="Validación contra Art. 69 (incumplidos) y Art. 69-B (EFOS) del CFF. Los datos se actualizan mensualmente desde el SAT y Datos Abiertos."
+        description="Validación contra Art. 69 (incumplidos) y Art. 69-B (EFOS) del CFF. Los datos se actualizan mensualmente."
         action={<MetadataChip metadata={metadata} />}
       />
 

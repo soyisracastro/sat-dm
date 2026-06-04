@@ -24,7 +24,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type {
-  CfdiListResponse,
+  EmisoresListasNegrasResponse,
   ListasNegrasMetadata,
   ProcesadorListasNegrasStats,
 } from '@/lib/types';
@@ -43,7 +43,7 @@ export function MisCfdisTab() {
   const { apiClient } = useServer();
   const [stats, setStats] = useState<ProcesadorListasNegrasStats | null>(null);
   const [metadata, setMetadata] = useState<ListasNegrasMetadata | null>(null);
-  const [listado, setListado] = useState<CfdiListResponse | null>(null);
+  const [listado, setListado] = useState<EmisoresListasNegrasResponse | null>(null);
   const [filtro, setFiltro] = useState<FiltroEmisor>('EFOS');
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -56,7 +56,7 @@ export function MisCfdisTab() {
     try {
       const [s, l] = await Promise.all([
         apiClient.procesadorListasNegrasStats({}),
-        apiClient.procesadorListar(
+        apiClient.procesadorListasNegrasPorEmisor(
           etiquetaFiltro === 'todos'
             ? {}
             : { emisor_lista_negra: etiquetaFiltro },
@@ -120,7 +120,6 @@ export function MisCfdisTab() {
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <MetadataChip metadata={metadata} />
               <Button
                 variant="outline"
                 size="sm"
@@ -204,42 +203,40 @@ export function MisCfdisTab() {
             </div>
           ) : listado && listado.items.length === 0 ? (
             <div className="p-10 text-center text-sm text-muted-foreground">
-              No hay CFDIs con el filtro seleccionado.
+              No hay emisores con el filtro seleccionado.
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Fecha</TableHead>
                   <TableHead>Emisor</TableHead>
-                  <TableHead>RFC emisor</TableHead>
+                  <TableHead>RFC</TableHead>
                   <TableHead>Resultado</TableHead>
+                  <TableHead className="text-right">CFDIs</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {listado?.items.map((cfdi) => {
-                  const etiqueta = (cfdi.emisor_en_lista_negra ?? 'Limpio') as EtiquetaLista;
+                {listado?.items.map((emisor) => {
+                  const etiqueta = (emisor.emisor_en_lista_negra ?? 'Limpio') as EtiquetaLista;
                   return (
-                    <TableRow key={cfdi.uuid}>
-                      <TableCell className="text-sm tabular-nums">
-                        {cfdi.fecha?.slice(0, 10) ?? '—'}
-                      </TableCell>
-                      <TableCell className="text-sm">{cfdi.emisor_nombre || '—'}</TableCell>
-                      <TableCell className="font-mono text-xs">{cfdi.emisor_rfc}</TableCell>
+                    <TableRow key={emisor.emisor_rfc}>
+                      <TableCell className="text-sm">{emisor.emisor_nombre || '—'}</TableCell>
+                      <TableCell className="font-mono text-xs">{emisor.emisor_rfc}</TableCell>
                       <TableCell>
-                        {cfdi.emisor_en_lista_negra ? (
+                        {emisor.emisor_en_lista_negra ? (
                           <MatchBadge etiqueta={etiqueta} />
                         ) : (
                           <span className="text-xs text-muted-foreground">Sin validar</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right text-sm tabular-nums">
-                        {typeof cfdi.total === 'number'
-                          ? cfdi.total.toLocaleString('es-MX', {
-                              style: 'currency', currency: 'MXN',
-                            })
-                          : '—'}
+                        {emisor.num_cfdis.toLocaleString('es-MX')}
+                      </TableCell>
+                      <TableCell className="text-right text-sm font-medium tabular-nums">
+                        {emisor.total_acumulado.toLocaleString('es-MX', {
+                          style: 'currency', currency: 'MXN',
+                        })}
                       </TableCell>
                     </TableRow>
                   );
@@ -250,8 +247,8 @@ export function MisCfdisTab() {
         </CardContent>
         {listado && listado.items.length > 0 && (
           <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-            {listado.total} {listado.total === 1 ? 'CFDI' : 'CFDIs'} (mostrando primeros{' '}
-            {Math.min(listado.items.length, listado.page_size)})
+            {listado.total} {listado.total === 1 ? 'emisor' : 'emisores'} (mostrando primeros{' '}
+            {Math.min(listado.items.length, listado.page_size)}, ordenado por total descendente)
           </div>
         )}
       </Card>

@@ -66,7 +66,7 @@ export function MetadataChip({ metadata, className }: Props) {
         icon={stale ? 'ph:warning-light' : 'ph:database-light'}
         className="size-3"
       />
-      Listas al {fecha}
+      Última actualización {fecha}
     </span>
   );
 }

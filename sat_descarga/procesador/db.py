@@ -673,6 +673,69 @@ class ProcesadorDB:
             )
             return (cur_e.rowcount or 0) + (cur_r.rowcount or 0)
 
+    def listar_emisores_listas_negras(
+        self,
+        filtros: Optional[CfdiFiltros] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        """Agrega los CFDIs del buffer por `emisor_rfc` con totales y resultado
+        de listas negras. Una fila por RFC, no por CFDI — para la vista de
+        análisis de listas negras donde lo accionable es "este proveedor
+        facturó $X y está en lista 69-B", no cada comprobante individual.
+
+        SQLite "bare columns" trick: en una agregación con MAX(fecha), las
+        columnas no agrupadas (`emisor_nombre`, `emisor_en_lista_negra`,
+        `emisor_listas_match`) toman el valor de la fila más reciente.
+
+        Ordenado por `total_acumulado DESC` (riesgos grandes primero).
+        """
+        where_sql, params = _construir_where(filtros)
+
+        sep = " AND " if where_sql else " WHERE "
+        having_extra = f"{sep}emisor_rfc IS NOT NULL AND emisor_rfc != ''"
+
+        select = """
+            SELECT
+              emisor_rfc,
+              emisor_nombre,
+              emisor_en_lista_negra,
+              emisor_listas_match,
+              MAX(fecha) AS fecha_mas_reciente,
+              MAX(validado_listas_en) AS validado_listas_en,
+              COUNT(*) AS num_cfdis,
+              SUM(total) AS total_acumulado
+            FROM cfdis
+        """
+        count_sql = (
+            "SELECT COUNT(DISTINCT emisor_rfc) FROM cfdis "
+            + where_sql + having_extra
+        )
+        list_sql = (
+            select + where_sql + having_extra
+            + " GROUP BY emisor_rfc"
+            + " ORDER BY total_acumulado DESC, emisor_rfc"
+            + " LIMIT ? OFFSET ?"
+        )
+
+        offset = max(0, (page - 1) * page_size)
+        with self._lock:
+            total = self._conn.execute(count_sql, params).fetchone()[0]
+            cur = self._conn.execute(list_sql, (*params, page_size, offset))
+            items = []
+            for r in cur.fetchall():
+                d = dict(r)
+                # Parsea el JSON del match para que la UI no tenga que hacerlo.
+                match_raw = d.get("emisor_listas_match")
+                if match_raw:
+                    try:
+                        d["emisor_listas_match"] = json.loads(match_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        d["emisor_listas_match"] = None
+                items.append(d)
+
+        return {"total": total, "page": page, "page_size": page_size, "items": items}
+
     def stats_listas_negras(
         self,
         filtros: Optional[CfdiFiltros] = None,
