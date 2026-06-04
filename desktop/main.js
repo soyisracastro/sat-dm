@@ -249,7 +249,14 @@ function getFreePort() {
   });
 }
 
-function waitForHealth(baseUrl, timeoutMs = 30000) {
+function waitForHealth(baseUrl, timeoutMs = 60000) {
+  // 60s en lugar de 30s: en equipos con Windows Defender activo + sin firma EV,
+  // el primer arranque del PyInstaller (~50 archivos) puede tardar minutos
+  // mientras AV los escanea uno por uno. Un timeout chico hacía que main.js
+  // continuara sin agente vivo y el renderer se quedaba en "Cargando…" para
+  // siempre (sin pista para el user). Si tampoco responde en 60s, el renderer
+  // sigue mostrando un mensaje útil (ver app-shell.tsx) en lugar de un blank
+  // eterno.
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     const attempt = () => {
@@ -343,14 +350,24 @@ async function startAgent() {
 
   const { cmd, cwd } = resolverComandoAgente(port);
 
-  console.log('[agente] iniciando:', cmd.join(' '), '(cwd:', cwd + ')');
+  log.info('[agente] iniciando:', cmd.join(' '), 'cwd:', cwd);
+  // stdio piped (no inherit): así capturamos stdout/stderr del agente al
+  // archivo de electron-log. Si el agente revienta antes de poder configurar
+  // su propio logger (`%LOCALAPPDATA%\TodoConta\logs\agent.log`), por lo
+  // menos queda traza en `main.log` del shell.
   agentProc = spawn(cmd[0], cmd.slice(1), {
     cwd,
     env: { ...process.env, SAT_AGENT_PORT: String(port) },
-    stdio: 'inherit',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  agentProc.on('error', (e) => console.error('[agente] no se pudo lanzar:', e.message));
-  agentProc.on('exit', (code) => console.log('[agente] terminó (código', code + ')'));
+  if (agentProc.stdout) {
+    agentProc.stdout.on('data', (d) => log.info('[agent stdout]', d.toString().trimEnd()));
+  }
+  if (agentProc.stderr) {
+    agentProc.stderr.on('data', (d) => log.info('[agent stderr]', d.toString().trimEnd()));
+  }
+  agentProc.on('error', (e) => log.error('[agente] no se pudo lanzar:', e.message));
+  agentProc.on('exit', (code) => log.info('[agente] terminó (código', code + ')'));
 
   await waitForHealth(agentUrl);
 }
@@ -473,8 +490,9 @@ app.whenReady().then(async () => {
   try {
     await startAgent();
   } catch (e) {
-    console.error('No se pudo iniciar el agente Python:', e.message);
-    // Abrimos la ventana de todos modos; el renderer mostrará "sin conexión".
+    log.error('No se pudo iniciar el agente Python:', e && e.message);
+    // Abrimos la ventana de todos modos; el renderer mostrará el splash con
+    // mensaje útil y botón "Reintentar".
   }
   createWindow();
 

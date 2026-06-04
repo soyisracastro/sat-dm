@@ -4,8 +4,8 @@ import type { ReactNode } from 'react';
 
 import { FounderBanner } from '@/components/auth/founder-banner';
 import { Sidebar } from '@/components/layout/sidebar';
+import { StartupSplash } from '@/components/layout/startup-splash';
 import { Titlebar } from '@/components/layout/titlebar';
-import { Icon } from '@/components/ui/icon';
 import { useEfirmaReminder } from '@/hooks/use-efirma-reminder';
 import { useAuth } from '@/providers/auth-provider';
 import LoginPage from '@/app/login/page';
@@ -25,10 +25,7 @@ export function AppShell({ children }: AppShellProps) {
     return (
       <div className="flex h-screen flex-col overflow-hidden">
         <Titlebar />
-        <div className="flex-1 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
-          Cargando…
-        </div>
+        <StartupSplash />
       </div>
     );
   }
