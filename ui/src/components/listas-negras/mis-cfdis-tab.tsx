@@ -84,7 +84,7 @@ export function MisCfdisTab() {
       const r = await apiClient.procesadorValidarListasNegras({ force_refresh: forceRefresh });
       setMetadata(r.metadata);
       if (r.validados === 0) {
-        setInfo('Todos los RFCs ya están validados (TTL 30 días). Usa "Forzar revalidación" si necesitas refrescar.');
+        setInfo('Todos los RFCs ya están verificados (válidos por 30 días). Usa "Forzar revalidación" si necesitas volver a consultar.');
       } else {
         setInfo(
           `Validados ${r.validados} RFCs · EFOS ${r.efos} · Aclarados ${r.aclarados} · ` +
@@ -125,7 +125,7 @@ export function MisCfdisTab() {
                 size="sm"
                 onClick={() => validar(true)}
                 disabled={validating || loading}
-                title="Ignora el TTL de 30 días y revalida todos los RFCs"
+                title="Volver a consultar a todos los RFCs"
               >
                 <Icon icon="ph:arrows-clockwise-light" className="size-4" />
                 Forzar revalidación

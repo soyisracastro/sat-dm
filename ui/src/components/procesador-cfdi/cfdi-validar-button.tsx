@@ -60,7 +60,7 @@ export function CfdiValidarButton({ onValidado }: Props) {
           `Listas 69/69-B: ${r.validados} RFCs — EFOS ${r.efos}, aclarados ${r.aclarados}, en 69 ${r.lista_69}, limpios ${r.limpios}`,
         );
       } else {
-        partes.push('Listas 69/69-B: RFCs ya validados (TTL 30d).');
+        partes.push('Listas 69/69-B: RFCs verificados (válidos por 30 días).');
       }
     } else {
       const msg = listasRes.reason instanceof Error ? listasRes.reason.message : String(listasRes.reason);
