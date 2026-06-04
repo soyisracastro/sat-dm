@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { CfdiListResponse, CfdiRecord } from '@/lib/types';
+import { MatchBadge, type EtiquetaLista } from '@/components/listas-negras/match-badge';
 
 interface Props {
   data: CfdiListResponse | null;
@@ -46,6 +47,18 @@ const TIPO_LABEL: Record<string, string> = {
   N: 'Nómina',
   T: 'Traslado',
 };
+
+function badgeListaNegra(etiqueta: string | null, rfc: string) {
+  if (!etiqueta) {
+    return (
+      <span className="text-[10px] text-muted-foreground" title={`${rfc} sin validar contra listas negras`}>
+        —
+      </span>
+    );
+  }
+  // 'EFOS' | 'Aclarado' | '69' | 'Limpio' — MatchBadge ya valida estos valores.
+  return <MatchBadge etiqueta={etiqueta as EtiquetaLista} className="text-[10px]" />;
+}
 
 function badgeEstado(estado: CfdiRecord['estado_sat']) {
   if (!estado) {
@@ -118,6 +131,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
             <TableHead>Receptor</TableHead>
             <TableHead className="text-right">Total</TableHead>
             <TableHead>Estado SAT</TableHead>
+            <TableHead>Listas 69/69-B</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
@@ -161,6 +175,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
                     )}
                   </TableCell>
                   <TableCell>{badgeEstado(c.estado_sat)}</TableCell>
+                  <TableCell>{badgeListaNegra(c.emisor_en_lista_negra, c.emisor_rfc)}</TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
@@ -177,7 +192,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
                 </TableRow>
                 {abierto && (
                   <TableRow>
-                    <TableCell colSpan={7} className="bg-muted/30">
+                    <TableCell colSpan={8} className="bg-muted/30">
                       <div className="grid grid-cols-2 gap-4 p-2 text-xs sm:grid-cols-4">
                         <div>
                           <div className="text-muted-foreground">UUID</div>

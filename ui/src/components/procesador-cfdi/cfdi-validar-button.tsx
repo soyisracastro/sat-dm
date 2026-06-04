@@ -12,30 +12,75 @@ interface Props {
   onValidado: () => void;
 }
 
+/**
+ * Dispara las dos validaciones que el agente hace contra el SAT:
+ *  - Estatus del CFDI (Vigente / Cancelado / No encontrado) — endpoint público.
+ *  - Listas negras del Art. 69 / 69-B del CFF (EFOS/EDOS) — API de todoconta.
+ *
+ * Ambas en paralelo para que el usuario las dispare con un solo click. Si una
+ * falla, la otra sigue (típicamente listas negras puede fallar con 401 si la
+ * sesión expiró; el estatus CFDI siempre funciona porque no requiere auth).
+ */
 export function CfdiValidarButton({ onValidado }: Props) {
   const { apiClient } = useServer();
   const [busy, setBusy] = useState(false);
 
   async function validar() {
     setBusy(true);
-    try {
-      const r = await apiClient.procesadorValidarSat();
-      if (r.validados === 0) {
-        toast.info('No hay CFDIs pendientes de validar contra el SAT.');
+
+    const [estatusRes, listasRes] = await Promise.allSettled([
+      apiClient.procesadorValidarSat(),
+      apiClient.procesadorValidarListasNegras(),
+    ]);
+
+    const partes: string[] = [];
+    let huboCambios = false;
+
+    if (estatusRes.status === 'fulfilled') {
+      const r = estatusRes.value;
+      if (r.validados > 0) {
+        huboCambios = true;
+        let resumen = `Estatus SAT: ${r.validados} validados — ${r.vigentes} vigentes, ${r.cancelados} cancelados`;
+        if (r.no_encontrados > 0) resumen += `, ${r.no_encontrados} no encontrados`;
+        if (r.errores > 0) resumen += `, ${r.errores} con error`;
+        partes.push(resumen);
       } else {
-        toast.success(
-          `${r.validados} validados — ${r.vigentes} vigentes, ${r.cancelados} cancelados` +
-            (r.no_encontrados > 0 ? `, ${r.no_encontrados} no encontrados` : '') +
-            (r.errores > 0 ? `, ${r.errores} con error` : ''),
-        );
-        onValidado();
+        partes.push('Estatus SAT: sin CFDIs pendientes.');
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.error(`Error validando: ${msg}`);
-    } finally {
-      setBusy(false);
+    } else {
+      const msg = estatusRes.reason instanceof Error ? estatusRes.reason.message : String(estatusRes.reason);
+      toast.error(`Estatus SAT falló: ${msg}`);
     }
+
+    if (listasRes.status === 'fulfilled') {
+      const r = listasRes.value;
+      if (r.validados > 0) {
+        huboCambios = true;
+        partes.push(
+          `Listas 69/69-B: ${r.validados} RFCs — EFOS ${r.efos}, aclarados ${r.aclarados}, en 69 ${r.lista_69}, limpios ${r.limpios}`,
+        );
+      } else {
+        partes.push('Listas 69/69-B: RFCs ya validados (TTL 30d).');
+      }
+    } else {
+      const msg = listasRes.reason instanceof Error ? listasRes.reason.message : String(listasRes.reason);
+      // 401 = sesión no iniciada. Mensaje amable y no rojo, porque el flujo de
+      // estatus SAT igual pudo haber funcionado.
+      if (/401|sesi[óo]n/i.test(msg)) {
+        toast.warning('Listas 69/69-B requieren iniciar sesión en la app.');
+      } else {
+        toast.error(`Listas 69/69-B fallaron: ${msg}`);
+      }
+    }
+
+    if (partes.length > 0) {
+      toast.success(partes.join(' · '));
+    }
+    if (huboCambios) {
+      onValidado();
+    }
+
+    setBusy(false);
   }
 
   return (
