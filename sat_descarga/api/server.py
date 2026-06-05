@@ -87,16 +87,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Orígenes permitidos: la app web en producción y en desarrollo local
+# CORS: el agente bindea a 127.0.0.1 y NUNCA expone puerto a la red externa,
+# así que aceptar cualquier origin es seguro (no hay superficie de ataque
+# cross-site real). En Electron empacado el renderer corre desde
+# `file://...resources/ui/index.html` y el browser envía `Origin: null` o
+# `file://`, NO incluidos en la antigua allow-list — eso bloqueaba todas las
+# requests del renderer en producción y dejaba la app stuck en "Cargando…"
+# (el agente recibía y respondía 200, pero el browser tiraba el response
+# por CORS antes de entregárselo al JS).
+#
+# `allow_credentials=False` + `allow_origins=["*"]` es la combinación válida
+# por especificación CORS — no se pueden combinar `*` con `True`. Es OK
+# para nosotros: el renderer NO manda cookies ni credenciales (el Bearer
+# token de Supabase vive solo en el agente Python, nunca llega al renderer).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://app.todoconta.com",
-        "https://todoconta.com",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

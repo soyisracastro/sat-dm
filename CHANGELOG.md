@@ -8,7 +8,27 @@ _Cambios mergeados a `main` pero todavía no etiquetados en un release publicado
 
 ---
 
-## [1.0.2] - próximo release
+## [1.0.3] - próximo release
+
+Fix RAÍZ del bug *"Cargando…" infinito en Windows*. Diagnóstico confirmado por logs reales del agente en producción (v1.0.2 instalada).
+
+### Bug fix
+
+- **CORS bloqueaba al renderer en producción**: la `allow_origins` del agente FastAPI incluía `localhost:3000/3001` (dev) y `app.todoconta.com` (cloud) pero **NO** `null`/`file://`, que es el origin que envía el navegador cuando Electron sirve el bundle empacado desde `file://...resources/ui/index.html`. Resultado:
+  - El renderer hacía `GET /health` → llegaba al agente → uvicorn respondía 200.
+  - **El navegador descartaba el response por CORS** antes de entregarlo al JS.
+  - `useServerHealth` se quedaba con `isConnected=false`.
+  - `AuthProvider` jamás invocaba `/auth/license` (espera `isConnected===true`).
+  - `loading` quedaba `true` → splash infinito.
+  - Logs del agente confirman: una sola línea `GET /health 200` por arranque, cero llamadas a `/auth/license`.
+
+  Fix: `allow_origins=["*"]` + `allow_credentials=False`. Es seguro porque el agente bindea SOLO a `127.0.0.1` (sin exposición a red externa) y el renderer no envía cookies ni credenciales (el Bearer token de Supabase vive solo en el agente Python).
+
+  El bug no salió en dev porque el renderer se sirve desde `http://localhost:3001` (en la allow-list); solo aparecía en el bundle empacado.
+
+---
+
+## [1.0.2] - 2026-06-05
 
 Fix raíz del bug *"Cargando…" infinito* reportado por dos testers en Windows tras v1.0.1.
 
