@@ -8,7 +8,27 @@ _Cambios mergeados a `main` pero todavía no etiquetados en un release publicado
 
 ---
 
-## [1.0.3] - próximo release
+## [1.0.4] - próximo release
+
+**ROOT CAUSE REAL** del *"Cargando…" infinito en Windows*. Diagnóstico definitivo desde DevTools del renderer empacado.
+
+### Bug fix
+
+- **`assetPrefix: './'` en `next.config.ts`** para builds de producción. Por default, Next.js emite paths absolutos (`/_next/static/chunks/abc.js`) que el browser, al servirse desde `file://...resources/ui/index.html`, resuelve como `file:///C:/_next/...` — raíz del disco. **Ningún chunk de JS/CSS cargaba** (17 × `ERR_FILE_NOT_FOUND`). React jamás arrancaba; lo que el usuario veía como *"TodoConta / Cargando…"* era el HTML pre-renderizado del SSG inicial, sin hidratación nunca.
+
+  Cómo nos despistó: el `/health 200` que vimos en logs del agente venía del `waitForHealth()` del proceso main de Electron (Node, no browser), no del renderer. Por eso parecía que el renderer estaba conectado cuando en realidad ni siquiera había ejecutado un solo byte de JavaScript.
+
+  Fix: `assetPrefix: process.env.NODE_ENV === 'production' ? './' : undefined` — paths relativos en `pnpm build`, sin afectar `pnpm dev` (donde el HMR de Next requiere paths absolutos).
+
+  Validado: tras el build, `out/index.html` ahora referencia `./_next/static/chunks/...` (paths relativos).
+
+### Nota sobre v1.0.3 (CORS)
+
+El fix de CORS sigue vigente y es necesario — cuando v1.0.4 finalmente arranque React en el bundle empacado, los `fetch()` desde `file://` enviarán `Origin: null` y necesitan estar permitidos. No remover.
+
+---
+
+## [1.0.3] - 2026-06-05
 
 Fix RAÍZ del bug *"Cargando…" infinito en Windows*. Diagnóstico confirmado por logs reales del agente en producción (v1.0.2 instalada).
 
