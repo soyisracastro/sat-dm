@@ -8,6 +8,26 @@ _Cambios mergeados a `main` pero todavía no etiquetados en un release publicado
 
 ---
 
+## [1.0.5] - próximo release
+
+Fix de **navegación entre secciones (white-screen), imágenes e íconos** en el bundle empacado. Continúa el diagnóstico de v1.0.4: el `assetPrefix: './'` arreglaba los chunks `_next/` del index, pero `file://` no puede servir paths absolutos ni navegación SPA.
+
+### Bug fix
+
+- **Protocolo propio `app://` en lugar de `file://`** (`desktop/main.js`). El renderer empacado ahora se sirve por un esquema privilegiado (`standard` + `secure`) con un **origen real**, registrado vía `protocol.handle`. El handler mapea el pathname al archivo dentro de `<resources>/ui` con fallback SPA a `index.html` (cubre reload de rutas dinámicas como `/empresas/<RFC>/`) y guarda anti path-traversal.
+  - **Causa del white-screen**: `next/link` emite `href` absolutos (`/empresas`, `/comprobantes`, …). Sobre `file://`, el prefetch y la navegación resolvían a `file:///C:/empresas` → `ERR_FILE_NOT_FOUND` → pantalla blanca. Con origen `app://` resuelven contra la raíz del bundle.
+  - **Causa de imágenes rotas**: `next/image src="/icon.png"` (login) → `file:///C:/icon.png`. Igual: con `app://` resuelve correctamente.
+
+- **`next.config.ts`**: se **elimina** `assetPrefix: './'` (era frágil: `./_next` se rompía al navegar a subrutas como `/comprobantes/cfdi/`; con `app://` los paths absolutos ya son correctos en toda ruta) y se añade **`trailingSlash: true`** (cada ruta exporta como `<ruta>/index.html`, uniforme y fácil de mapear por el handler).
+
+- **Íconos 100% offline** (`ui/src/lib/icons.ts`): se registran los 39 íconos Phosphor que faltaban en el registro `addIcon`. Sin esto, Iconify caía a su API remota (`api.iconify.design/ph.json`), que falla en el bundle empacado, y los íconos (`star-fill`, `bell-light`, `files-light`, `rocket-light`, …) no aparecían.
+
+### Nota sobre CORS (v1.0.3)
+
+Sigue vigente: con `allow_origins=["*"]` el cambio de origen `file://` → `app://` no afecta el acceso del renderer al agente local.
+
+---
+
 ## [1.0.4] - próximo release
 
 **ROOT CAUSE REAL** del *"Cargando…" infinito en Windows*. Diagnóstico definitivo desde DevTools del renderer empacado.

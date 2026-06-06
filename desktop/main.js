@@ -20,16 +20,32 @@
  *   SAT_RENDERER_URL   URL del renderer (default http://localhost:3001).
  */
 
-const { app, BrowserWindow, Notification, nativeImage, shell, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Notification, nativeImage, shell, dialog, ipcMain, protocol, net: electronNet } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const net = require('net');
 const http = require('http');
+const fs = require('fs');
+const { pathToFileURL } = require('url');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
+
+// Esquema propio para servir el renderer empacado (ui/out) con un ORIGEN real
+// (app://-/...) en lugar de file://. Necesario porque sobre file:// los paths
+// absolutos que emite Next (`/_next/...`, `/icon.png`) y la navegación del
+// router (`/empresas`, ...) resuelven contra la raíz del disco (`file:///C:/...`)
+// y fallan con ERR_FILE_NOT_FOUND. Con un origen `app://` resuelven contra la
+// raíz del bundle. DEBE registrarse antes de `app.whenReady()`.
+const APP_SCHEME = 'app';
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
+]);
 
 // Nombre visible en el menú de la app de macOS (About / Hide / Quit) y en
 // `app.getName()`. El tooltip del dock y el source de las notificaciones
@@ -316,12 +332,80 @@ function resolverComandoAgente(port) {
   };
 }
 
+/** Directorio raíz del bundle estático del renderer (ui/out → <resources>/ui). */
+function rendererBundleDir() {
+  return path.join(process.resourcesPath, 'ui');
+}
+
+/**
+ * Registra el handler del protocolo `app://`. Sirve archivos del bundle del
+ * renderer (`<resources>/ui`) resolviendo paths absolutos contra esa raíz.
+ *
+ * Resolución de rutas (el UI usa `trailingSlash: true`, así que cada ruta es
+ * una carpeta con `index.html`):
+ *   - `/`                 → `index.html`
+ *   - `/empresas/`        → `empresas/index.html`
+ *   - `/empresas`         → `empresas/index.html` (sin extensión → prueba dir)
+ *   - `/_next/x.js`       → `_next/x.js` (tiene extensión → directo)
+ *   - ruta inexistente    → fallback a `index.html` (SPA: cubre reload de rutas
+ *                           dinámicas como `/empresas/<RFC>/`, que el router de
+ *                           Next hidrata client-side vía useParams)
+ *
+ * Seguridad: la ruta final se normaliza y se verifica que quede DENTRO de
+ * `rendererBundleDir()` (anti path-traversal); si se sale, 403.
+ */
+function registerAppProtocol() {
+  const baseDir = rendererBundleDir();
+
+  protocol.handle(APP_SCHEME, async (request) => {
+    let pathname;
+    try {
+      pathname = decodeURIComponent(new URL(request.url).pathname);
+    } catch {
+      pathname = '/';
+    }
+
+    // Candidatos de archivo a servir, en orden de preferencia.
+    const rel = pathname.replace(/^\/+/, '');
+    const candidates = [];
+    if (rel === '' || pathname.endsWith('/')) {
+      candidates.push(path.join(rel, 'index.html'));
+    } else if (path.extname(rel)) {
+      candidates.push(rel); // asset con extensión (.js, .css, .png, ...)
+    } else {
+      candidates.push(path.join(rel, 'index.html')); // ruta sin slash → dir
+      candidates.push(`${rel}.html`);
+    }
+    // Fallback SPA: si nada matchea, entregamos el index para que el router
+    // client-side de Next resuelva la ruta (incl. rutas dinámicas).
+    candidates.push('index.html');
+
+    for (const cand of candidates) {
+      const resolved = path.resolve(baseDir, cand);
+      // Anti path-traversal: el archivo debe vivir bajo baseDir.
+      if (resolved !== baseDir && !resolved.startsWith(baseDir + path.sep)) {
+        continue;
+      }
+      try {
+        if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+          return electronNet.fetch(pathToFileURL(resolved).toString());
+        }
+      } catch (_) {
+        /* probar siguiente candidato */
+      }
+    }
+
+    return new Response('Not found', { status: 404 });
+  });
+}
+
 /**
  * Resuelve la URL del renderer (la app Next.js) según el entorno.
  *
  * - Override por env: SAT_RENDERER_URL siempre gana (debug, builds custom).
  * - Producción: bundle estático exportado a ui/out/ → empaquetado como
- *   extraResource en `<resources>/ui/index.html` → file:// URL.
+ *   extraResource en `<resources>/ui` → servido por el protocolo `app://`
+ *   (origen real; ver registerAppProtocol).
  * - Dev (no empaquetado): http://localhost:3001 donde corre `pnpm dev` del UI.
  */
 function resolverRendererUrl() {
@@ -329,10 +413,9 @@ function resolverRendererUrl() {
     return process.env.SAT_RENDERER_URL;
   }
   if (app.isPackaged) {
-    const indexHtml = path.join(process.resourcesPath, 'ui', 'index.html');
-    // Electron acepta file:// — pathToFileURL produce el formato correcto
-    // (incluyendo escape de espacios en Windows, p. ej. "C:\Program Files").
-    return require('url').pathToFileURL(indexHtml).toString();
+    // Host `-` arbitrario pero estable: el handler ignora el host y resuelve
+    // por pathname. `app://-/` → index.html del bundle.
+    return `${APP_SCHEME}://-/`;
   }
   return 'http://localhost:3001';
 }
@@ -485,6 +568,16 @@ app.whenReady().then(async () => {
     } catch (e) {
       console.warn('[icon] no se pudo setear el dock icon:', e.message);
     }
+  }
+
+  // Registrar el protocolo `app://` ANTES de abrir la ventana. Solo se usa en
+  // prod (en dev el renderer se carga de localhost:3001), pero registrarlo
+  // siempre es inofensivo y evita condiciones de carrera si SAT_RENDERER_URL
+  // apunta a `app://` para QA.
+  try {
+    registerAppProtocol();
+  } catch (e) {
+    log.error('[protocol] no se pudo registrar app://:', e && e.message);
   }
 
   try {
