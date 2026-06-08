@@ -1,11 +1,14 @@
 'use client';
 
-// Componente cliente del detalle de empresa. La declaración de la ruta como
-// estática (generateStaticParams + dynamicParams) vive en el page.tsx hermano
-// (server component) — Next no permite ambas en el mismo archivo.
+// Componente cliente del detalle de empresa. La ruta es ESTÁTICA
+// (`/empresas/detalle`) y el RFC viaja como query param (`?rfc=...`), leído con
+// `useSearchParams`. Se evita un segmento dinámico `[rfc]` porque bajo
+// `output: 'export'` cualquier valor no pre-generado es 404 (ver ui/CLAUDE.md).
+// Debe renderizarse dentro de un <Suspense> (lo hace el page.tsx hermano), que
+// es requisito de `useSearchParams` en export estático.
 
 import { useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 import { useEmpresas } from '@/hooks/use-empresas';
@@ -23,8 +26,8 @@ import { semaforoVencimiento } from '@/lib/vencimiento';
 import type { Empresa } from '@/lib/types';
 
 export function EmpresaDetalle() {
-  const params = useParams<{ rfc: string }>();
-  const rfc = decodeURIComponent(params.rfc);
+  const searchParams = useSearchParams();
+  const rfc = searchParams.get('rfc') ?? '';
   const { empresas, loading, addCiec, addFiel, activarSesion, update } = useEmpresas();
   const empresa = empresas.find((e) => e.rfc === rfc);
 

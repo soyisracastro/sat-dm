@@ -1,12 +1,13 @@
 {
   "name": "todoconta-desktop",
   "productName": "TodoConta",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "description": "TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python).",
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
+    "debug:packaged": "pnpm --dir ../ui build && env -u ELECTRON_RUN_AS_NODE SAT_RENDERER_URL=app://-/ SAT_RENDERER_BUNDLE_DIR=\"$PWD/../ui/out\" SAT_DEBUG_RENDERER=1 electron .",
     "build:agent": "cd .. && pyinstaller packaging/sat-agent.spec --noconfirm --clean --distpath packaging/dist --workpath packaging/build",
     "build:ui": "cd ../ui && pnpm install --frozen-lockfile && pnpm build",
     "build:installer": "electron-builder",

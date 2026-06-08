@@ -108,7 +108,7 @@ export default function InicioPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Icon icon="ph:key-light" className="size-4" />
-              e-firma (FIEL)
+              e.firma (FIEL)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -128,7 +128,7 @@ export default function InicioPage() {
                   <>
                     <Icon icon="ph:x-circle-light" className="size-5 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
-                      Sin e-firma cargada
+                      Sin e.firma cargada
                     </span>
                   </>
                 )}
@@ -157,7 +157,7 @@ export default function InicioPage() {
               <CardContent>
                 {disabled ? (
                   <Button variant="outline" size="sm" disabled>
-                    Requiere e-firma
+                    Requiere e.firma
                   </Button>
                 ) : (
                   <Button variant="outline" size="sm" asChild>

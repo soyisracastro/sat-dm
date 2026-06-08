@@ -72,7 +72,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
       }, 1500);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Error al cargar la e-firma';
+        err instanceof Error ? err.message : 'Error al cargar la e.firma';
       setError(message);
     } finally {
       setLoading(false);
@@ -86,7 +86,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
       resetForm();
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Error al descargar la e-firma';
+        err instanceof Error ? err.message : 'Error al descargar la e.firma';
       setError(message);
     } finally {
       setUnloading(false);
@@ -97,9 +97,9 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Cargar e-firma</DialogTitle>
+          <DialogTitle>Cargar e.firma</DialogTitle>
           <DialogDescription>
-            Selecciona los archivos de tu e-firma (FIEL) para autenticarte con
+            Selecciona los archivos de tu e.firma (FIEL) para autenticarte con
             el SAT.
           </DialogDescription>
         </DialogHeader>
@@ -108,7 +108,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
         {fielStatus.loaded && !successRfc && (
           <Alert>
             <Icon icon="ph:check-circle-light" className="size-4 text-green-600" />
-            <AlertTitle>e-firma cargada</AlertTitle>
+            <AlertTitle>e.firma cargada</AlertTitle>
             <AlertDescription className="flex items-center justify-between">
               <span>RFC: {fielStatus.rfc}</span>
               <Button
@@ -123,7 +123,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
                     Descargando...
                   </>
                 ) : (
-                  'Descargar e-firma'
+                  'Descargar e.firma'
                 )}
               </Button>
             </AlertDescription>
@@ -174,7 +174,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
           {successRfc && (
             <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
               <Icon icon="ph:check-circle-light" className="size-4 text-green-600" />
-              <AlertTitle>e-firma cargada exitosamente</AlertTitle>
+              <AlertTitle>e.firma cargada exitosamente</AlertTitle>
               <AlertDescription>RFC: {successRfc}</AlertDescription>
             </Alert>
           )}
@@ -188,7 +188,7 @@ export function FielUploadDialog({ open, onOpenChange }: FielUploadDialogProps) 
             ) : (
               <>
                 <Icon icon="ph:upload-simple-light" className="size-4" />
-                Cargar e-firma
+                Cargar e.firma
               </>
             )}
           </Button>
