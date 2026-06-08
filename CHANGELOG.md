@@ -8,6 +8,17 @@ _Cambios mergeados a `main` pero todavía no etiquetados en un release publicado
 
 ---
 
+## [1.0.7] - próximo release
+
+Pulido de **copy de cara al usuario** (primera tanda; seguirán más en esta versión).
+
+### Copy
+
+- **Descripción de la app unificada en todas las distribuciones.** El tooltip del acceso directo en Windows mostraba un texto interno/técnico (`TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python)`). Ahora dice **«TodoConta Desktop — Administración de CFDIs y herramientas fiscales»** (`description` en `desktop/package.json`, mapeado al `FileDescription` del `.exe`). El `Comment` del desktop entry de Linux (`electron-builder.yml`) se alinea con el mismo copy (sin el prefijo del nombre, que el campo `Name` ya provee). Toma efecto en el próximo build del instalador.
+- Bump 1.0.6 → 1.0.7 (ui + desktop).
+
+---
+
 ## [1.0.6] - próximo release
 
 Cierra los **huecos de navegación en subrutas (2 segmentos)** que quedaron tras el protocolo `app://` de v1.0.5, y agrega un flujo para **depurar el bundle empacado en Mac sin instalador**.
