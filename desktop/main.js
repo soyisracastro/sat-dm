@@ -40,6 +40,12 @@ const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
 // y fallan con ERR_FILE_NOT_FOUND. Con un origen `app://` resuelven contra la
 // raíz del bundle. DEBE registrarse antes de `app.whenReady()`.
 const APP_SCHEME = 'app';
+
+// Modo debug del renderer: abre DevTools y loguea cada request del handler
+// `app://` (qué archivo sirve / cuándo cae al fallback SPA). Se activa con
+// `SAT_DEBUG_RENDERER=1` — pensado para reproducir el bundle empacado en Mac
+// vía `pnpm debug:packaged` (ver desktop/CLAUDE.md). Inofensivo en prod.
+const DEBUG_RENDERER = process.env.SAT_DEBUG_RENDERER === '1';
 protocol.registerSchemesAsPrivileged([
   {
     scheme: APP_SCHEME,
@@ -332,8 +338,18 @@ function resolverComandoAgente(port) {
   };
 }
 
-/** Directorio raíz del bundle estático del renderer (ui/out → <resources>/ui). */
+/**
+ * Directorio raíz del bundle estático del renderer.
+ *
+ * - Empacado: `<resources>/ui` (extraResource → ui/out copiado ahí).
+ * - Debug en Mac/dev: `SAT_RENDERER_BUNDLE_DIR` (absoluto) apunta al `ui/out`
+ *   del repo para reproducir el entorno empacado (protocolo `app://` +
+ *   trailingSlash) SIN construir un instalador. Ver `pnpm debug:packaged`.
+ */
 function rendererBundleDir() {
+  if (process.env.SAT_RENDERER_BUNDLE_DIR) {
+    return path.resolve(process.env.SAT_RENDERER_BUNDLE_DIR);
+  }
   return path.join(process.resourcesPath, 'ui');
 }
 
@@ -388,6 +404,14 @@ function registerAppProtocol() {
       }
       try {
         if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+          // En debug, avisamos cuando una ruta cayó al fallback SPA (index.html
+          // raíz): es la señal de "esta subruta no tiene archivo prerenderizado
+          // → se va a ver como el dashboard". Ver docs/debug en desktop/CLAUDE.md.
+          if (DEBUG_RENDERER && cand === 'index.html' && pathname !== '/' && !pathname.endsWith('/index.html')) {
+            log.warn(`[protocol] ${pathname} → FALLBACK index.html (sin archivo prerenderizado; se verá como dashboard)`);
+          } else if (DEBUG_RENDERER) {
+            log.info(`[protocol] ${pathname} → ${cand}`);
+          }
           return electronNet.fetch(pathToFileURL(resolved).toString());
         }
       } catch (_) {
@@ -395,6 +419,7 @@ function registerAppProtocol() {
       }
     }
 
+    if (DEBUG_RENDERER) log.warn(`[protocol] ${pathname} → 404 (ningún candidato existe)`);
     return new Response('Not found', { status: 404 });
   });
 }
@@ -494,6 +519,10 @@ function createWindow() {
   });
 
   const rendererUrl = resolverRendererUrl();
+  if (DEBUG_RENDERER) {
+    log.info('[debug] renderer URL:', rendererUrl, '| bundle:', rendererBundleDir());
+    win.webContents.openDevTools({ mode: 'right' });
+  }
   win.loadURL(rendererUrl);
 }
 

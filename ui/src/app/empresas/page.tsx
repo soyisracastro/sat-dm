@@ -254,7 +254,7 @@ function EmpresaRowActions({
             size="icon"
             title="Configurar empresa"
           >
-            <Link href={`/empresas/${encodeURIComponent(empresa.rfc)}`}>
+            <Link href={`/empresas/detalle?rfc=${encodeURIComponent(empresa.rfc)}`}>
               <Icon icon="ph:gear-light" className="size-4" />
             </Link>
           </Button>

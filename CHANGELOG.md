@@ -8,6 +8,24 @@ _Cambios mergeados a `main` pero todavía no etiquetados en un release publicado
 
 ---
 
+## [1.0.6] - próximo release
+
+Cierra los **huecos de navegación en subrutas (2 segmentos)** que quedaron tras el protocolo `app://` de v1.0.5, y agrega un flujo para **depurar el bundle empacado en Mac sin instalador**.
+
+### Bug fix
+
+- **Detalle de empresa (engrane) ya no manda al dashboard.** `/empresas/[rfc]` era una ruta dinámica con `dynamicParams: false` y un único placeholder `_`. Bajo `output: 'export'`, cualquier RFC real es **404** → el handler `app://` caía al `index.html` raíz → se veía el inicio. Se reemplazó por una **ruta estática `/empresas/detalle?rfc=…`** que lee el RFC con `useSearchParams()` dentro de `<Suspense>`. Funciona igual en navegación SPA y en reload; se elimina el hack del placeholder y la limitación de 404 en reload.
+- **Subrutas estáticas en blanco** (`/comprobantes/cfdi`, `/comprobantes/{nomina,pagos}`, `/descarga/rapida`): artefacto de un build sin `trailingSlash` (se exportaban como `cfdi.html`, no `cfdi/index.html`), así que el handler `app://` no las encontraba y caía al index. Con el build de v1.0.5 (`trailingSlash: true`) cada subruta exporta su `index.html`; se verificó que el handler las resuelve sin fallback.
+- **Error boundaries** (`app/error.tsx` + `app/global-error.tsx`): un error de runtime ya no deja pantalla en blanco (que se confundía con "página perdida"); muestra mensaje + reintentar conservando el shell.
+- **Copy**: `e-firma` → `e.firma` en la UI (consistencia con el resto del producto; el guion permitía un quiebre de línea "e-/firma").
+
+### Tooling
+
+- **`pnpm debug:packaged`** (en `desktop/`): hace `next build` del UI y levanta Electron sirviendo `ui/out` por `app://` con DevTools y logging del handler (vía `SAT_RENDERER_BUNDLE_DIR` + `SAT_DEBUG_RENDERER`). Reproduce el entorno empacado en Mac **sin** construir un instalador, para validar el routing de subrutas antes del build.
+- Bump 1.0.5 → 1.0.6 (ui + desktop).
+
+---
+
 ## [1.0.5] - próximo release
 
 Fix de **navegación entre secciones (white-screen), imágenes e íconos** en el bundle empacado. Continúa el diagnóstico de v1.0.4: el `assetPrefix: './'` arreglaba los chunks `_next/` del index, pero `file://` no puede servir paths absolutos ni navegación SPA.

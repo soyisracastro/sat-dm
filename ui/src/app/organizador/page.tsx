@@ -29,7 +29,7 @@ export default function OrganizadorPage() {
 
       <Alert>
         <AlertDescription>
-          No requiere e-firma. Las rutas son relativas al servidor Python.
+          No requiere e.firma. Las rutas son relativas al servidor Python.
         </AlertDescription>
       </Alert>
 

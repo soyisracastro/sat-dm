@@ -52,7 +52,7 @@ export function FielStatus() {
             className="w-full cursor-pointer justify-start gap-2 px-3 py-1.5"
           >
             <Icon icon="ph:key-light" className="size-3.5" />
-            <span>Sin e-firma</span>
+            <span>Sin e.firma</span>
           </Badge>
         )}
         {sem && (
