@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useServer } from '@/providers/server-provider';
 import { VERIFICAR_POLL_INTERVAL_MS } from '@/lib/constants';
 import type { SolicitudRequest } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 // ---------------------------------------------------------------------------
 // State machine
@@ -128,7 +129,7 @@ export function useDescarga(
         // cod_estado 1 or 2: keep polling
       } catch (err) {
         if (!mountedRef.current) return;
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = mensajeDeError(err);
         setError(`Error al verificar solicitud: ${msg}`);
         setState('error');
         stopPolling();
@@ -182,7 +183,7 @@ export function useDescarga(
         startPolling(res.id_solicitud);
       } catch (err) {
         if (!mountedRef.current) return;
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = mensajeDeError(err);
         setError(`Error al solicitar descarga: ${msg}`);
         setState('error');
       }
@@ -209,7 +210,7 @@ export function useDescarga(
       setState('done');
     } catch (err) {
       if (!mountedRef.current) return;
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = mensajeDeError(err);
       setError(`Error al descargar: ${msg}`);
       setState('error');
     }

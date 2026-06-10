@@ -20,6 +20,7 @@ import { useDescarga } from '@/hooks/use-descarga';
 import { useSolicitudes } from '@/hooks/use-solicitudes';
 import { useEmpresas } from '@/hooks/use-empresas';
 import { useHistorial } from '@/hooks/use-historial';
+import { mensajeDeError } from '@/lib/errores';
 
 /**
  * Convierte errores técnicos de requests al SAT (timeouts, conexión rota,
@@ -165,7 +166,7 @@ export default function DescargaPage() {
               });
               return null;
             } catch (e) {
-              const msg = e instanceof Error ? e.message : String(e);
+              const msg = mensajeDeError(e);
               console.warn('[descarga/previa]', t, e);
               return { tipo: t, msg };
             }
@@ -187,7 +188,7 @@ export default function DescargaPage() {
           );
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = mensajeDeError(e);
         console.error('[descarga/submit]', e);
         setSubmitError(traducirError(msg));
       } finally {

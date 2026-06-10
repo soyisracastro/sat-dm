@@ -12,6 +12,7 @@ import { MisCfdisTab } from '@/components/listas-negras/mis-cfdis-tab';
 import { ValidarRfcsTab } from '@/components/listas-negras/validar-rfcs-tab';
 import { MetadataChip } from '@/components/listas-negras/metadata-chip';
 import type { ListasNegrasMetadata } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 export default function ListasNegrasPage() {
   const { apiClient } = useServer();
@@ -27,7 +28,7 @@ export default function ListasNegrasPage() {
       .then((m) => { if (!cancelado) setMetadata(m); })
       .catch((e) => {
         if (cancelado) return;
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = mensajeDeError(e);
         if (/401/.test(msg) || /sesi[óo]n/i.test(msg)) {
           setAuthError(msg);
         }

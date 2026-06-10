@@ -19,6 +19,7 @@ import type { ListaNegraMatch, ListasNegrasMetadata } from '@/lib/types';
 
 import { MatchBadge, etiquetaDeMatch, type EtiquetaLista } from './match-badge';
 import { MetadataChip } from './metadata-chip';
+import { mensajeDeError } from '@/lib/errores';
 
 /** Trim + upper + dedupe; descarta tokens vacíos. */
 function parsearRfcs(texto: string): string[] {
@@ -87,7 +88,7 @@ export function ValidarRfcsTab() {
       setMatches(res.matches);
       setMetadata(res.metadata);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(mensajeDeError(e));
     } finally {
       setBusy(false);
     }

@@ -7,6 +7,7 @@ import { useServer } from '@/providers/server-provider';
 import { useAuth } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { mensajeDeError } from '@/lib/errores';
 
 /**
  * Banner persistente con CTA a hacerse Fundador.
@@ -48,7 +49,7 @@ export function FounderBanner() {
         'Te abrimos el navegador para pagar. Vuelve aquí cuando termines — esta ventana se actualizará sola.',
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(mensajeDeError(e));
     } finally {
       setBusy(false);
     }

@@ -23,6 +23,7 @@ import type {
   EmpresaUpdatePatch,
   RegimenFiscalConfig,
 } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   empresa: Empresa;
@@ -122,7 +123,7 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
       });
       setOk(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(mensajeDeError(e));
     } finally {
       setSaving(false);
     }

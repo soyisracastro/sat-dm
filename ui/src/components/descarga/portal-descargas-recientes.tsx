@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import { etiquetaMetodo, type MetodoPortal } from '@/lib/empresa-metodo';
 import type { HistorialItem } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   /** RFC de la empresa cuyo historial portal queremos mostrar. */
@@ -73,7 +74,7 @@ export function PortalDescargasRecientes({ rfc, descargas, max = 5 }: Props) {
       try {
         await apiClient.abrir(ruta, 'carpeta');
       } catch (e) {
-        setAccionError(e instanceof Error ? e.message : String(e));
+        setAccionError(mensajeDeError(e));
       } finally {
         setAccionBusy(null);
       }

@@ -32,6 +32,7 @@ import type {
 import { MatchBadge, type EtiquetaLista } from './match-badge';
 import { MetadataChip } from './metadata-chip';
 import { StatsCards } from './stats-cards';
+import { mensajeDeError } from '@/lib/errores';
 
 type FiltroEmisor = 'EFOS' | 'Aclarado' | '69' | 'Limpio' | 'SinValidar' | 'todos';
 
@@ -66,7 +67,7 @@ export function MisCfdisTab() {
       setStats(s);
       setListado(l);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(mensajeDeError(e));
     } finally {
       setLoading(false);
     }
@@ -93,7 +94,7 @@ export function MisCfdisTab() {
       }
       await refrescar(filtro);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(mensajeDeError(e));
     } finally {
       setValidating(false);
     }

@@ -23,6 +23,7 @@ import type {
   ReporteTotalesMes,
   TopContraparte,
 } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   filtros: Partial<CfdiFiltros>;
@@ -95,7 +96,7 @@ function useReporte<T>(nombre: 'totales-mes' | 'top-contrapartes' | 'integridad'
     (apiClient.procesadorReporte as any)(nombre, filtros)
       .then((r: T) => mounted && setData(r))
       .catch((e: unknown) => {
-        if (mounted) setError(e instanceof Error ? e.message : String(e));
+        if (mounted) setError(mensajeDeError(e));
       })
       .finally(() => {
         if (mounted) setLoading(false);

@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   /**
@@ -45,7 +46,7 @@ export function CfdiClearButton({ total = 0, descripcion, onBorrado }: Props) {
       setOpen(false);
       onBorrado();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(mensajeDeError(e));
     } finally {
       setBusy(false);
     }

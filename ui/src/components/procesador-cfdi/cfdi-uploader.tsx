@@ -20,6 +20,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ProcesadorCargarResponse } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   /**
@@ -85,7 +86,7 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
       }
       setResumen(acum);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(mensajeDeError(e));
     } finally {
       setBusy(false);
       setProgreso(null);
@@ -110,7 +111,7 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
       setResumen(r);
       onCargado();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(mensajeDeError(e));
     } finally {
       setBusy(false);
     }
