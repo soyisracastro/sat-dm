@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+import packageJson from './package.json';
+
 const nextConfig: NextConfig = {
   // En producción la app se distribuye como bundle estático servido por Electron.
   // `output: 'export'` produce `ui/out/` con HTML/CSS/JS planos.
@@ -35,6 +37,9 @@ const nextConfig: NextConfig = {
   // esta env var. Aquí queda como fallback para dev fuera de Electron.
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8787',
+    // Versión visible en la UI (Ayuda, Ajustes → Acerca de). Se hornea en build
+    // desde package.json — única fuente de verdad del renderer.
+    NEXT_PUBLIC_APP_VERSION: packageJson.version,
   },
 };
 
