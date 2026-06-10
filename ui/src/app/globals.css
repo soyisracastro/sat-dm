@@ -64,6 +64,9 @@
 
 :root {
   --radius: 0.5rem;
+  /* Hover del botón cerrar en el titlebar custom de Windows: rojo del chrome
+   * nativo del SO (no es un token del design system — excepción documentada). */
+  --win-close: #e81123;
   /* TodoConta — Light (superficie web "cool gray"), sincronizado con todoconta-apps */
   --background: #F7F9FC;
   --foreground: #0A1628;
