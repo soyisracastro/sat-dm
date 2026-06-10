@@ -20,6 +20,7 @@ from lxml import etree
 from ..core.config import ENDPOINTS, SOAP_ACTIONS
 from ..core.fiel import FIEL
 from ..core.http_client import make_request
+from ..core.xml_seguro import parser_seguro
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ def _c14n_inclusive(elem) -> bytes:
 
 def _extraer_zip_del_response(resp_xml: bytes, package_id: str) -> bytes:
     """El SAT devuelve el ZIP en Base64 dentro del XML SOAP."""
-    parser = etree.XMLParser(huge_tree=True)
+    parser = parser_seguro(huge_tree=True)
     try:
         root = etree.fromstring(resp_xml, parser=parser)
     except etree.XMLSyntaxError as e:
@@ -219,10 +220,22 @@ def _extraer_zip(zip_bytes: bytes, out_dir: Path, package_id: str) -> int:
     """Extrae los XMLs del ZIP en `out_dir/package_id/`."""
     extract_dir = out_dir / package_id
     extract_dir.mkdir(parents=True, exist_ok=True)
+    base = extract_dir.resolve()
 
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             members = zf.namelist()
+            # Anti zip-slip: ningún miembro puede resolver fuera de extract_dir
+            # (rutas "../x" o absolutas en un ZIP manipulado).
+            for member in members:
+                destino = (extract_dir / member).resolve()
+                try:
+                    destino.relative_to(base)
+                except ValueError:
+                    raise RuntimeError(
+                        f"El ZIP del paquete {package_id} contiene una ruta "
+                        f"insegura: {member!r}"
+                    )
             zf.extractall(extract_dir)
             logger.info(
                 "[Descarga] Extraídos %d archivos en %s", len(members), extract_dir

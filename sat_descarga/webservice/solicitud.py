@@ -23,6 +23,7 @@ from lxml import etree
 from ..core.config import ENDPOINTS, SOAP_ACTIONS, TIPO_CFDI, TIPO_EMITIDO
 from ..core.fiel import FIEL
 from ..core.http_client import make_request
+from ..core.xml_seguro import fromstring_seguro
 
 logger = logging.getLogger(__name__)
 
@@ -391,7 +392,7 @@ def _c14n_inclusive(elem) -> bytes:
 
 def _parse_request_id(resp_xml: bytes, result_tag: str) -> str:
     """Extrae el IdSolicitud de la respuesta SOAP."""
-    root = etree.fromstring(resp_xml)
+    root = fromstring_seguro(resp_xml)
 
     result = root.find(f".//{{{_DES_NS}}}{result_tag}")
     if result is None:

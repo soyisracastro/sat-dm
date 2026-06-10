@@ -113,6 +113,9 @@ function parseProtocolUrl(url) {
     const u = new URL(url);
     const action = u.host || u.pathname.replace(/^\/+/, '');  // "activated"
     const code = u.searchParams.get('code');
+    // Defensa en profundidad: el code del device-flow es corto y alfanumérico;
+    // nada con otra pinta cruza al renderer.
+    if (code && !/^[A-Za-z0-9_-]{1,256}$/.test(code)) return null;
     return { action, code };
   } catch {
     return null;
@@ -398,8 +401,10 @@ function registerAppProtocol() {
 
     for (const cand of candidates) {
       const resolved = path.resolve(baseDir, cand);
-      // Anti path-traversal: el archivo debe vivir bajo baseDir.
-      if (resolved !== baseDir && !resolved.startsWith(baseDir + path.sep)) {
+      // Anti path-traversal: el archivo debe vivir bajo baseDir. path.relative
+      // no depende de separadores finales ni de mayúsculas/minúsculas raras.
+      const relResolved = path.relative(baseDir, resolved);
+      if (relResolved.startsWith('..') || path.isAbsolute(relResolved)) {
         continue;
       }
       try {
@@ -502,8 +507,18 @@ function createWindow() {
   });
 
   // Links externos → navegador del SO (p. ej. el billing de la web).
+  // Solo protocolos web seguros: nada de file://, javascript:, esquemas custom.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    try {
+      const protocolo = new URL(url).protocol;
+      if (['http:', 'https:', 'mailto:'].includes(protocolo)) {
+        shell.openExternal(url);
+      } else {
+        log.warn('[window-open] protocolo bloqueado:', url);
+      }
+    } catch (_) {
+      /* URL inválida → no abrir nada */
+    }
     return { action: 'deny' };
   });
 

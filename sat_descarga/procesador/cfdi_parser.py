@@ -21,6 +21,8 @@ from typing import Optional, Union
 
 from lxml import etree
 
+from ..core.xml_seguro import fromstring_seguro
+
 logger = logging.getLogger(__name__)
 
 
@@ -543,7 +545,7 @@ def parse_cfdi(xml_content: Union[str, bytes], file_name: str = "") -> CfdiData:
         xml_content = xml_content.encode("utf-8")
 
     try:
-        root = etree.fromstring(xml_content)
+        root = fromstring_seguro(xml_content)
     except etree.XMLSyntaxError as e:
         raise CfdiParseError(f"XML inválido: {e}") from e
 

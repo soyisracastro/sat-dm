@@ -190,3 +190,36 @@ class TestSolicitudes:
         pendientes = config_store.get_solicitudes_pendientes(test_rfc)
         assert len(pendientes) == 1
         assert pendientes[0]["id_solicitud"] == "s2"
+
+
+# ---------------------------------------------------------------------------
+# Concurrencia y escritura atómica del catálogo
+# ---------------------------------------------------------------------------
+
+class TestCatalogoConcurrente:
+
+    def test_escrituras_concurrentes_no_pierden_empresas(self):
+        """Sin el lock del catálogo, N hilos haciendo read-modify-write sobre
+        empresas.json se pisaban entre sí (TOCTOU) y se perdían altas."""
+        import threading
+
+        rfcs = [f"AAA{i:03d}0101AB{i % 10}" for i in range(12)]
+        hilos = [
+            threading.Thread(
+                target=config_store.add_empresa_ciec,
+                args=(rfc, f"Empresa {rfc}", "ciec123"),
+            )
+            for rfc in rfcs
+        ]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join()
+
+        registradas = {e["rfc"] for e in config_store.list_empresas()}
+        assert registradas == set(rfcs)
+
+    def test_save_empresas_no_deja_tmp(self, tmp_path):
+        config_store.add_empresa_ciec("CAUI890921DAA", "Test", "ciec")
+        residuos = list((tmp_path / ".sat-descarga").glob("*.tmp"))
+        assert residuos == []

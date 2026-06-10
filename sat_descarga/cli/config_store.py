@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 # corrompen el JSON.
 _solicitudes_lock = threading.RLock()
 
+# Mismo problema para empresas.json, historial/{RFC}.json y settings.json: el
+# agente atiende requests concurrentes y los mutadores hacen read-modify-write.
+_catalogo_lock = threading.RLock()
+
 CONFIG_DIR = Path.home() / ".sat-descarga"
 EFIRMA_DIR = Path("efirma")
 
@@ -35,6 +39,14 @@ EFIRMA_DIR = Path("efirma")
 def get_config_dir() -> Path:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     return CONFIG_DIR
+
+
+def _write_json_atomico(path: Path, data: dict):
+    """Escritura atómica: a `.tmp` y luego `os.replace` (rename atómico en POSIX),
+    así un lector concurrente nunca ve un archivo a medias."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    os.replace(tmp, path)
 
 
 # ---------------------------------------------------------------------------
@@ -46,14 +58,16 @@ def _empresas_path() -> Path:
 
 
 def load_empresas() -> dict:
-    path = _empresas_path()
-    if not path.exists():
-        return {"empresas": {}, "default_rfc": None}
-    return json.loads(path.read_text())
+    with _catalogo_lock:
+        path = _empresas_path()
+        if not path.exists():
+            return {"empresas": {}, "default_rfc": None}
+        return json.loads(path.read_text())
 
 
 def save_empresas(data: dict):
-    _empresas_path().write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    with _catalogo_lock:
+        _write_json_atomico(_empresas_path(), data)
 
 
 def _efirma_dir(rfc: str) -> Path:
@@ -107,21 +121,22 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
         shutil.copy2(key_src, key_dest)
     secretos.guardar(rfc, secretos.FIEL, password)
 
-    data = load_empresas()
-    existente = data["empresas"].get(rfc, {})
-    entry = {
-        **existente,
-        "nombre": existente.get("nombre") or nombre,
-        "metodos": sorted(set(_metodos(existente)) | {"fiel"}),
-        "cer_path": str(cer_dest),
-        "key_path": str(key_dest),
-        "vencimiento": fiel.not_valid_after.strftime("%Y-%m-%d"),
-    }
-    entry.pop("metodo", None)  # quitar campo legacy
-    data["empresas"][rfc] = entry
-    if data["default_rfc"] is None:
-        data["default_rfc"] = rfc
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        existente = data["empresas"].get(rfc, {})
+        entry = {
+            **existente,
+            "nombre": existente.get("nombre") or nombre,
+            "metodos": sorted(set(_metodos(existente)) | {"fiel"}),
+            "cer_path": str(cer_dest),
+            "key_path": str(key_dest),
+            "vencimiento": fiel.not_valid_after.strftime("%Y-%m-%d"),
+        }
+        entry.pop("metodo", None)  # quitar campo legacy
+        data["empresas"][rfc] = entry
+        if data["default_rfc"] is None:
+            data["default_rfc"] = rfc
+        save_empresas(data)
     return rfc
 
 
@@ -133,28 +148,30 @@ def add_empresa_ciec(rfc: str, nombre: str, ciec: str) -> str:
     rfc = rfc.strip().upper()
     secretos.guardar(rfc, secretos.CIEC, ciec)
 
-    data = load_empresas()
-    existente = data["empresas"].get(rfc, {})
-    entry = {
-        **existente,
-        "nombre": existente.get("nombre") or nombre,
-        "metodos": sorted(set(_metodos(existente)) | {"ciec"}),
-    }
-    entry.pop("metodo", None)
-    data["empresas"][rfc] = entry
-    if data["default_rfc"] is None:
-        data["default_rfc"] = rfc
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        existente = data["empresas"].get(rfc, {})
+        entry = {
+            **existente,
+            "nombre": existente.get("nombre") or nombre,
+            "metodos": sorted(set(_metodos(existente)) | {"ciec"}),
+        }
+        entry.pop("metodo", None)
+        data["empresas"][rfc] = entry
+        if data["default_rfc"] is None:
+            data["default_rfc"] = rfc
+        save_empresas(data)
     return rfc
 
 
 def remove_empresa(rfc: str):
-    data = load_empresas()
-    data["empresas"].pop(rfc, None)
-    if data["default_rfc"] == rfc:
-        rfcs = list(data["empresas"].keys())
-        data["default_rfc"] = rfcs[0] if rfcs else None
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        data["empresas"].pop(rfc, None)
+        if data["default_rfc"] == rfc:
+            rfcs = list(data["empresas"].keys())
+            data["default_rfc"] = rfcs[0] if rfcs else None
+        save_empresas(data)
     # Borrar credenciales del keychain (ambos métodos; no falla si no existen).
     secretos.borrar(rfc, secretos.FIEL)
     secretos.borrar(rfc, secretos.CIEC)
@@ -196,36 +213,37 @@ def update_empresa(rfc: str, patch: dict):
       - actividades_economicas: list[{descripcion: str, principal?: bool}]
     Lanza ValueError si el shape es inválido y KeyError si el RFC no existe.
     """
-    data = load_empresas()
-    if rfc not in data["empresas"]:
-        raise KeyError(f"No se encontró empresa con RFC {rfc}")
+    with _catalogo_lock:
+        data = load_empresas()
+        if rfc not in data["empresas"]:
+            raise KeyError(f"No se encontró empresa con RFC {rfc}")
 
-    for key, value in patch.items():
-        if key not in _EDITABLE_FIELDS:
-            continue
-        if not isinstance(value, list):
-            raise ValueError(f"{key} debe ser una lista")
-        if key == "regimenes_fiscales":
-            for item in value:
-                if not isinstance(item, dict) \
-                        or not isinstance(item.get("clave"), str) \
-                        or not isinstance(item.get("descripcion"), str):
-                    raise ValueError("régimen inválido: requiere clave y descripcion (str)")
-            data["empresas"][rfc][key] = [
-                {"clave": i["clave"], "descripcion": i["descripcion"]} for i in value
-            ]
-        elif key == "actividades_economicas":
-            for item in value:
-                if not isinstance(item, dict) \
-                        or not isinstance(item.get("descripcion"), str):
-                    raise ValueError("actividad inválida: requiere descripcion (str)")
-                if "principal" in item and not isinstance(item["principal"], bool):
-                    raise ValueError("actividad.principal debe ser bool")
-            data["empresas"][rfc][key] = [
-                {k: v for k, v in i.items() if k in ("descripcion", "principal")}
-                for i in value
-            ]
-    save_empresas(data)
+        for key, value in patch.items():
+            if key not in _EDITABLE_FIELDS:
+                continue
+            if not isinstance(value, list):
+                raise ValueError(f"{key} debe ser una lista")
+            if key == "regimenes_fiscales":
+                for item in value:
+                    if not isinstance(item, dict) \
+                            or not isinstance(item.get("clave"), str) \
+                            or not isinstance(item.get("descripcion"), str):
+                        raise ValueError("régimen inválido: requiere clave y descripcion (str)")
+                data["empresas"][rfc][key] = [
+                    {"clave": i["clave"], "descripcion": i["descripcion"]} for i in value
+                ]
+            elif key == "actividades_economicas":
+                for item in value:
+                    if not isinstance(item, dict) \
+                            or not isinstance(item.get("descripcion"), str):
+                        raise ValueError("actividad inválida: requiere descripcion (str)")
+                    if "principal" in item and not isinstance(item["principal"], bool):
+                        raise ValueError("actividad.principal debe ser bool")
+                data["empresas"][rfc][key] = [
+                    {k: v for k, v in i.items() if k in ("descripcion", "principal")}
+                    for i in value
+                ]
+        save_empresas(data)
 
 
 def archive_empresa(rfc: str):
@@ -233,46 +251,50 @@ def archive_empresa(rfc: str):
     Soft-delete: marca la empresa como archivada (no la borra). Si era la default,
     promueve la primera empresa activa restante (o None si no quedan activas).
     """
-    data = load_empresas()
-    if rfc not in data["empresas"]:
-        raise KeyError(f"No se encontró empresa con RFC {rfc}")
-    data["empresas"][rfc]["archived_at"] = datetime.now().isoformat(timespec="seconds")
-    if data.get("default_rfc") == rfc:
-        candidatos = [
-            r for r, info in data["empresas"].items()
-            if r != rfc and not info.get("archived_at")
-        ]
-        data["default_rfc"] = candidatos[0] if candidatos else None
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        if rfc not in data["empresas"]:
+            raise KeyError(f"No se encontró empresa con RFC {rfc}")
+        data["empresas"][rfc]["archived_at"] = datetime.now().isoformat(timespec="seconds")
+        if data.get("default_rfc") == rfc:
+            candidatos = [
+                r for r, info in data["empresas"].items()
+                if r != rfc and not info.get("archived_at")
+            ]
+            data["default_rfc"] = candidatos[0] if candidatos else None
+        save_empresas(data)
 
 
 def unarchive_empresa(rfc: str):
     """Reactiva una empresa archivada."""
-    data = load_empresas()
-    if rfc not in data["empresas"]:
-        raise KeyError(f"No se encontró empresa con RFC {rfc}")
-    data["empresas"][rfc]["archived_at"] = None
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        if rfc not in data["empresas"]:
+            raise KeyError(f"No se encontró empresa con RFC {rfc}")
+        data["empresas"][rfc]["archived_at"] = None
+        save_empresas(data)
 
 
 def set_csf_descargada(rfc: str, path: str):
     """Best-effort: persiste path + timestamp de la última CSF descargada."""
-    data = load_empresas()
-    if rfc not in data["empresas"]:
-        return
-    data["empresas"][rfc]["csf_path"] = path
-    data["empresas"][rfc]["csf_descargada_en"] = datetime.now().isoformat(timespec="seconds")
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        if rfc not in data["empresas"]:
+            return
+        data["empresas"][rfc]["csf_path"] = path
+        data["empresas"][rfc]["csf_descargada_en"] = datetime.now().isoformat(timespec="seconds")
+        save_empresas(data)
 
 
 def set_opinion_descargada(rfc: str, path: str):
     """Best-effort: persiste path + timestamp de la última opinión 32-D descargada."""
-    data = load_empresas()
-    if rfc not in data["empresas"]:
-        return
-    data["empresas"][rfc]["opinion_path"] = path
-    data["empresas"][rfc]["opinion_descargada_en"] = datetime.now().isoformat(timespec="seconds")
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        if rfc not in data["empresas"]:
+            return
+        data["empresas"][rfc]["opinion_path"] = path
+        data["empresas"][rfc]["opinion_descargada_en"] = datetime.now().isoformat(timespec="seconds")
+        save_empresas(data)
 
 
 def get_empresa(rfc: str) -> dict:
@@ -303,11 +325,12 @@ def get_default() -> Optional[str]:
 
 
 def set_default(rfc: str):
-    data = load_empresas()
-    if rfc not in data["empresas"]:
-        raise KeyError(f"No se encontró empresa con RFC {rfc}")
-    data["default_rfc"] = rfc
-    save_empresas(data)
+    with _catalogo_lock:
+        data = load_empresas()
+        if rfc not in data["empresas"]:
+            raise KeyError(f"No se encontró empresa con RFC {rfc}")
+        data["default_rfc"] = rfc
+        save_empresas(data)
 
 
 # ---------------------------------------------------------------------------
@@ -353,12 +376,7 @@ def _load_solicitudes(rfc: str) -> dict:
 
 
 def _save_solicitudes(rfc: str, data: dict):
-    """Escritura atómica: a `.tmp` y luego `os.replace` (rename atómico en POSIX),
-    así un lector concurrente nunca ve un archivo a medias."""
-    path = _solicitudes_path(rfc)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    os.replace(tmp, path)
+    _write_json_atomico(_solicitudes_path(rfc), data)
 
 
 def save_solicitud(
@@ -481,7 +499,6 @@ def registrar_descarga(
     """Registra una descarga completada en el historial de la empresa. Devuelve el registro."""
     rfc = rfc.strip().upper()
     path = _historial_path(rfc)
-    data = json.loads(path.read_text()) if path.exists() else {"descargas": []}
     registro = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "canal": canal,
@@ -491,8 +508,10 @@ def registrar_descarga(
         "total": total,
         "estado": estado,
     }
-    data["descargas"].append(registro)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    with _catalogo_lock:
+        data = json.loads(path.read_text()) if path.exists() else {"descargas": []}
+        data["descargas"].append(registro)
+        _write_json_atomico(path, data)
     return registro
 
 
@@ -537,7 +556,8 @@ def _load_settings() -> dict:
 
 
 def _save_settings(data: dict):
-    _settings_path().write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    with _catalogo_lock:
+        _write_json_atomico(_settings_path(), data)
 
 
 def descargas_dir_default() -> str:
@@ -561,7 +581,8 @@ def set_descargas_dir(path: str) -> str:
     """Fija la carpeta base de descargas (y la crea). Retorna la ruta absoluta."""
     p = str(Path(path).expanduser())
     Path(p).mkdir(parents=True, exist_ok=True)
-    data = _load_settings()
-    data["descargas_dir"] = p
-    _save_settings(data)
+    with _catalogo_lock:
+        data = _load_settings()
+        data["descargas_dir"] = p
+        _save_settings(data)
     return p
