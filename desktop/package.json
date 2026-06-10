@@ -3,7 +3,7 @@
   "productName": "TodoConta",
   "version": "1.0.6",
   "private": true,
-  "description": "TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python).",
+  "description": "TodoConta Desktop — Administración de CFDIs y herramientas fiscales",
   "main": "main.js",
   "scripts": {
     "dev": "electron .",

@@ -128,7 +128,10 @@ linux:
   category: Office
   desktop:
     Name: TodoConta
-    Comment: Descarga masiva de CFDIs del SAT y procesamiento fiscal local
+    # Copy unificado con el `description` de package.json (tooltip del .exe en
+    # Windows). Sin el prefijo "TodoConta Desktop —" porque el campo `Name` de
+    # arriba ya muestra el nombre en el lanzador de Linux.
+    Comment: Administración de CFDIs y herramientas fiscales
     Categories: Office;Finance
 
 appImage:
