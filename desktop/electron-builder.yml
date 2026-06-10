@@ -119,7 +119,8 @@ nsis:
   # license: build/license.txt    # Si se agrega EULA, descomentar.
 
 # -----------------------------------------------------------------------------
-# macOS — config lista pero CI no buildea (target dmg cuando se distribuya)
+# macOS — DMG por arquitectura (release.yml: job release-macos con matriz,
+# porque PyInstaller no cross-compila el agente)
 # -----------------------------------------------------------------------------
 
 mac:
@@ -128,7 +129,27 @@ mac:
       arch: [x64, arm64]
   icon: icon.png       # En macOS basta .png o .icns
   category: public.app-category.business
-  # Notarización requiere Apple Developer Program ($99/año) — post v1.0.
+  # Firma + notarización (Apple Developer Program, cert "Developer ID
+  # Application"). Sin identidad de firma en el runner, electron-builder
+  # construye el DMG SIN firmar (warning, no error) — útil para QA con
+  # clic-derecho → Abrir. Al agregar los secrets (ver release.yml y
+  # docs/firma-codigo.md) se firma y notariza solo.
+  #
+  # hardenedRuntime es requisito de notarización; los entitlements cubren
+  # Electron (JIT) y el agente PyInstaller (dylibs propios).
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Al activar la firma, descomentar para notarizar con notarytool (lee
+  # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID del env):
+  # notarize: true
+  # ⚠️ Validar en el PRIMER build firmado: que electron-builder firme también
+  # los binarios del agente en Contents/Resources/agent/ (PyInstaller onedir).
+  # Si la notarización rechaza binarios sin firma ahí, agregar:
+  #   binaries:
+  #     - "Contents/Resources/agent/sat-agent"
+  # o un hook afterSign con `codesign --force --options runtime` recursivo.
 
 dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}
