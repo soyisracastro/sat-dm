@@ -40,9 +40,7 @@ export function Titlebar() {
       className="flex h-9 shrink-0 select-none items-center gap-2 border-b bg-card"
       style={style}
     >
-      <span className="text-xs font-semibold tracking-tight text-foreground">
-        TodoConta
-      </span>
+      {/* La marca vive en el sidebar; la franja queda como zona de drag. */}
       <div
         className="ml-auto flex items-center gap-2"
         style={desktop ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string } : undefined}

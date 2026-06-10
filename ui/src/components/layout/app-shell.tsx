@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { FounderBanner } from '@/components/auth/founder-banner';
 import { Sidebar } from '@/components/layout/sidebar';
 import { StartupSplash } from '@/components/layout/startup-splash';
+import { StatusBar } from '@/components/layout/status-bar';
 import { Titlebar } from '@/components/layout/titlebar';
 import { useEfirmaReminder } from '@/hooks/use-efirma-reminder';
 import { useAuth } from '@/providers/auth-provider';
@@ -51,6 +52,7 @@ export function AppShell({ children }: AppShellProps) {
         <Sidebar />
         <main className="flex-1 overflow-y-auto p-6 md:p-8">{children}</main>
       </div>
+      <StatusBar />
     </div>
   );
 }

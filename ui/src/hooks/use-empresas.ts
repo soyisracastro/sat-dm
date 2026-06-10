@@ -6,6 +6,15 @@ import { useServer } from '@/providers/server-provider';
 import type { Empresa, EmpresaUpdatePatch, MetodoEmpresa } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
+// Evento global de sincronización: cada instancia de `useEmpresas()` tiene su
+// propio estado, pero el catálogo es uno (sidebar + páginas). Cualquier mutación
+// dispara este evento y TODAS las instancias montadas refetchean.
+const EVENTO_REFRESH = 'empresas:refresh';
+
+function notificarEmpresasCambiaron() {
+  window.dispatchEvent(new Event(EVENTO_REFRESH));
+}
+
 interface UseEmpresasState {
   empresas: Empresa[];
   loading: boolean;
@@ -44,7 +53,15 @@ export function useEmpresas(): UseEmpresasState {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  // `refresh` notifica globalmente; el listener de abajo bumpea el tick local
+  // (de esta y de cualquier otra instancia montada).
+  const refresh = useCallback(() => notificarEmpresasCambiaron(), []);
+
+  useEffect(() => {
+    const onRefresh = () => setTick((t) => t + 1);
+    window.addEventListener(EVENTO_REFRESH, onRefresh);
+    return () => window.removeEventListener(EVENTO_REFRESH, onRefresh);
+  }, []);
 
   useEffect(() => {
     let mounted = true;

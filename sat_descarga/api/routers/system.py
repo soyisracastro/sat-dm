@@ -196,7 +196,14 @@ def auth_license(refresh: bool = False):
     """
     from .. import license_client as lc
 
-    return lc.get_license_status(force_refresh=refresh)
+    status = lc.get_license_status(force_refresh=refresh)
+    # El payload remoto/cacheado puede no traer email; la sesión local sí lo
+    # tiene (el renderer lo muestra en el menú de cuenta del sidebar).
+    if status.get("authenticated") and not status.get("email"):
+        session = lc.load_session()
+        if session and session.email:
+            status["email"] = session.email
+    return status
 
 
 @router.post("/auth/upgrade")

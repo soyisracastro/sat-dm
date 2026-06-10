@@ -3,26 +3,46 @@
 import { useAuth } from '@/providers/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 /**
- * Badge pequeño "🌟 Fundador" que se renderea junto al avatar/email del
- * usuario en el header. Solo visible si `is_founder=true`.
+ * Badge "Fundador" del titlebar. Solo visible si `is_founder=true`. Al pasar
+ * el cursor muestra una tarjeta de agradecimiento (los Fundadores son un grupo
+ * cerrado de 30 personas — el tooltip refuerza la exclusividad).
  */
 export function FounderBadge() {
   const { license } = useAuth();
   if (!license?.is_founder) return null;
   return (
-    <Badge
-      variant="secondary"
-      className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 gap-1"
-      title={
-        license.founder_acquired_at
-          ? `Fundador desde ${new Date(license.founder_acquired_at).toLocaleDateString('es-MX')}`
-          : 'Contador Fundador de TodoConta'
-      }
-    >
-      <Icon icon="ph:star-fill" className="size-3" />
-      Fundador
-    </Badge>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="secondary"
+          className="gap-1 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+          tabIndex={0}
+        >
+          <Icon icon="ph:crown-simple-fill" className="size-3 text-amber-600 dark:text-amber-400" />
+          Fundador
+        </Badge>
+      </TooltipTrigger>
+      {/* Momento celebratorio → tarjeta navy (bg-foreground del primitive). */}
+      <TooltipContent side="bottom" align="end" className="w-67 rounded-xl p-3.5 text-left">
+        <span className="flex items-center gap-1.5 text-[13.5px] font-extrabold tracking-tight">
+          <Icon icon="ph:crown-simple-fill" className="size-3.5 text-amber-400" />
+          Miembro Fundador
+        </span>
+        <span className="mt-1.5 block text-xs leading-relaxed text-background/80">
+          Eres parte importante de este proyecto. Gracias por confiar y
+          construir esto con nosotros desde el inicio.
+        </span>
+        <span className="mt-2 block border-t border-background/20 pt-1.5 text-[11px] font-semibold text-background/70">
+          Uno de los primeros 30 · acceso de por vida
+        </span>
+      </TooltipContent>
+    </Tooltip>
   );
 }

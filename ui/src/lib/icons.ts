@@ -105,6 +105,19 @@ import usersThree from '@iconify-icons/ph/users-three-light';
 import wallet from '@iconify-icons/ph/wallet-light';
 import warningOctagon from '@iconify-icons/ph/warning-octagon-light';
 
+// Rediseño v2: shell (sidebar colapsable, cuenta, Ayuda, status bar).
+import bookOpen from '@iconify-icons/ph/book-open-light';
+import chatCircle from '@iconify-icons/ph/chat-circle-light';
+import clock from '@iconify-icons/ph/clock-light';
+import creditCard from '@iconify-icons/ph/credit-card-light';
+import crownSimple from '@iconify-icons/ph/crown-simple-light';
+import crownSimpleFill from '@iconify-icons/ph/crown-simple-fill';
+import envelopeSimple from '@iconify-icons/ph/envelope-simple-light';
+import play from '@iconify-icons/ph/play-light';
+import sidebarSimple from '@iconify-icons/ph/sidebar-simple-light';
+import signOut from '@iconify-icons/ph/sign-out-light';
+import user from '@iconify-icons/ph/user-light';
+
 addIcon('ph:arrow-counter-clockwise-light', arrowCounterClockwise);
 addIcon('ph:arrow-down-light', arrowDown);
 addIcon('ph:arrow-left-light', arrowLeft);
@@ -196,3 +209,16 @@ addIcon('ph:upload-light', upload);
 addIcon('ph:users-three-light', usersThree);
 addIcon('ph:wallet-light', wallet);
 addIcon('ph:warning-octagon-light', warningOctagon);
+
+// Rediseño v2 (ver bloque de imports arriba).
+addIcon('ph:book-open-light', bookOpen);
+addIcon('ph:chat-circle-light', chatCircle);
+addIcon('ph:clock-light', clock);
+addIcon('ph:credit-card-light', creditCard);
+addIcon('ph:crown-simple-light', crownSimple);
+addIcon('ph:crown-simple-fill', crownSimpleFill);
+addIcon('ph:envelope-simple-light', envelopeSimple);
+addIcon('ph:play-light', play);
+addIcon('ph:sidebar-simple-light', sidebarSimple);
+addIcon('ph:sign-out-light', signOut);
+addIcon('ph:user-light', user);
