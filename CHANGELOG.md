@@ -4,18 +4,11 @@
 
 ## [Unreleased]
 
-_Cambios mergeados a `main` pero todavía no etiquetados en un release publicado._
-
----
-
-## [1.0.7] - próximo release
-
-Pulido de **copy de cara al usuario** (primera tanda; seguirán más en esta versión).
+_Cambios mergeados a `main` aún no etiquetados. El release de la semana los promueve a su `## [X.Y.Z]` y sincroniza la versión en `pyproject.toml`, `ui/package.json` y `desktop/package.json` (ver [docs/versionado.md](docs/versionado.md))._
 
 ### Copy
 
 - **Descripción de la app unificada en todas las distribuciones.** El tooltip del acceso directo en Windows mostraba un texto interno/técnico (`TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python)`). Ahora dice **«TodoConta Desktop — Administración de CFDIs y herramientas fiscales»** (`description` en `desktop/package.json`, mapeado al `FileDescription` del `.exe`). El `Comment` del desktop entry de Linux (`electron-builder.yml`) se alinea con el mismo copy (sin el prefijo del nombre, que el campo `Name` ya provee). Toma efecto en el próximo build del instalador.
-- Bump 1.0.6 → 1.0.7 (ui + desktop).
 
 ---
 
