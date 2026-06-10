@@ -13,10 +13,18 @@
 # Secrets requeridos:
 #   - GITHUB_TOKEN — provisto automáticamente por Actions (write a Releases).
 #
-# Secrets opcionales (futuros, cuando se compre el cert EV):
-#   - WIN_CSC_LINK         — PFX en base64 (.pfx → `base64 < cert.pfx`).
-#   - WIN_CSC_KEY_PASSWORD — password del .pfx.
-#   electron-builder los toma automáticamente si están presentes.
+# Secrets opcionales — firma de código (ver docs/firma-codigo.md):
+#   Los steps de firma se saltan solos si faltan; al agregarlos se activan.
+#   - AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET — service
+#     principal con rol "Trusted Signing Certificate Profile Signer".
+#   - AZURE_SIGNING_ENDPOINT — p. ej. https://eus.codesigning.azure.net
+#   - AZURE_SIGNING_ACCOUNT / AZURE_CERT_PROFILE — recurso y perfil.
+#   Al activar la firma: descomentar `azureSignOptions` y poner
+#   `forceCodeSigning: true` en desktop/electron-builder.yml.
+#
+#   NOTA: la vieja vía WIN_CSC_LINK (PFX en base64) NO funciona con certs
+#   OV/EV modernos — desde 2023 la llave vive en token físico o HSM, no en
+#   un .pfx exportable. Detalle y alternativa EV en docs/firma-codigo.md.
 #
 # Tiempo aproximado: 8-12 min.
 
@@ -35,6 +43,12 @@ jobs:
   release-windows:
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      # Firma de código (Azure Trusted Signing). Vacíos hasta tener la cuenta;
+      # los steps de firma/verificación se saltan solos mientras tanto.
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
     steps:
       - name: Checkout
@@ -70,6 +84,26 @@ jobs:
         # de abajo y `desktop/electron-builder.yml` (extraResources) esperan
         # el binario en `packaging/dist/sat-agent/sat-agent.exe`.
         run: pyinstaller packaging/sat-agent.spec --noconfirm --clean --distpath packaging/dist --workpath packaging/build
+
+      - name: Firmar sat-agent.exe (Azure Trusted Signing)
+        # Firmar el AGENTE (no solo el instalador) es la mayor ganancia de
+        # arranque pendiente: el binario PyInstaller sin firma dispara el
+        # escaneo profundo de Defender en el primer arranque (30-60s en HDD).
+        # Se salta si los secrets de Azure no existen todavía.
+        if: env.AZURE_TENANT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
+          files-folder: packaging/dist/sat-agent
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Smoke test del agente empacado
         shell: pwsh
@@ -120,11 +154,29 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Cuando se adquiera el cert EV, agregar como secrets y se firmará
-          # automáticamente:
-          # WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          # WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # La firma del instalador la hace electron-builder vía
+          # `win.azureSignOptions` (desktop/electron-builder.yml) cuando los
+          # secrets de Azure existen — ver docs/firma-codigo.md.
         run: pnpm exec electron-builder --publish always
+
+      - name: Verificar firmas (agente + instalador)
+        # Solo cuando la firma está activa. Falla el release si algún binario
+        # quedó sin firma válida — evita publicar un .exe a medias.
+        if: env.AZURE_TENANT_ID != ''
+        shell: pwsh
+        run: |
+          $objetivos = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'packaging\dist\sat-agent\sat-agent.exe')
+          )
+          $instalador = Get-ChildItem desktop/dist/*.exe | Select-Object -First 1
+          if ($instalador) { $objetivos += $instalador.FullName }
+          foreach ($exe in $objetivos) {
+            $sig = Get-AuthenticodeSignature $exe
+            if ($sig.Status -ne 'Valid') {
+              throw "Firma inválida en ${exe}: $($sig.Status)"
+            }
+            Write-Host "✓ Firma válida: $exe ($($sig.SignerCertificate.Subject))"
+          }
 
       - name: Subir artefactos a Actions (backup además del Release)
         uses: actions/upload-artifact@v4

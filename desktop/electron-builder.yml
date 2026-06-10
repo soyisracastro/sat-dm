@@ -77,9 +77,26 @@ win:
   icon: icon.ico
   # Nombre que aparece en la pestaña "Publisher" del .exe y SmartScreen.
   publisherName: TodoConta
-  # Sin firma todavía (cert EV pendiente — ver plan). Cuando se adquiera,
-  # electron-builder leerá WIN_CSC_LINK y WIN_CSC_KEY_PASSWORD del entorno
-  # automáticamente.
+  # ---------------------------------------------------------------------
+  # Firma de código — pendiente de adquirir el certificado.
+  # Ver docs/firma-codigo.md (decisión Azure Trusted Signing vs EV+nube).
+  # ⚠️ La vía WIN_CSC_LINK (PFX) NO aplica a certs OV/EV modernos (2023+:
+  # la llave vive en token/HSM, no en un .pfx exportable).
+  #
+  # Al tener la cuenta de Azure Trusted Signing: agregar los secrets al
+  # repo (ver release.yml), descomentar este bloque y descomentar
+  # `forceCodeSigning` abajo. El CI firma también sat-agent.exe en un
+  # step propio ANTES de empacar (release.yml).
+  #
+  # azureSignOptions:
+  #   publisherName: TodoConta
+  #   endpoint: https://eus.codesigning.azure.net
+  #   certificateProfileName: <AZURE_CERT_PROFILE>
+  #   codeSigningAccountName: <AZURE_SIGNING_ACCOUNT>
+
+# Cuando la firma esté activa: el build de release DEBE fallar si no puede
+# firmar (evita publicar un instalador sin firma por un secret mal puesto).
+# forceCodeSigning: true
 
 nsis:
   # Wizard tradicional (Siguiente → Siguiente → Instalar), NO oneClick.

@@ -36,6 +36,10 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 
 - **Captcha expirado ya no deja el modal abierto**: al agotarse los 5 minutos, el modal se cierra de inmediato y se muestra "El captcha expiró… Inicia la descarga de nuevo" en lugar de un modal congelado esperando un input que ya no sirve.
 
+### Infra
+
+- **Pipeline de firma de código Windows listo** (certificado pendiente): `release.yml` trae los steps de firma de `sat-agent.exe` (Azure Trusted Signing) y verificación post-build, ambos auto-saltables hasta que existan los secrets; `electron-builder.yml` documenta el bloque `azureSignOptions` + `forceCodeSigning`. ⚠️ Documentado en [docs/firma-codigo.md](docs/firma-codigo.md): la vía `WIN_CSC_LINK` (PFX) ya no aplica a certs OV/EV modernos — decidir entre Azure Trusted Signing (~$10/mes) y EV+firma en nube del CA antes de comprar. Firmar el agente, además de SmartScreen, reduce el escaneo de Defender que causa los 30-60 s del primer arranque.
+
 ### Seguridad
 
 - **Token efímero entre Electron y el agente local.** El shell genera un token aleatorio por arranque y se lo pasa al agente (env `SAT_AGENT_TOKEN`) y al renderer (preload → `window.satAgent.token`); un middleware del agente rechaza con 401 cualquier request sin él (header `X-Agent-Token`, o `?token=` en SSE porque `EventSource` no acepta headers). Cierra el hueco de que cualquier otro proceso local del usuario usara el agente — que mantiene la FIEL cargada en sesión. Sin la env (CLI o `uvicorn` manual en dev) no se exige nada.
