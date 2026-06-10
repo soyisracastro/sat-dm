@@ -37,6 +37,33 @@ v MAJOR . MINOR . PATCH
 
 Luego: `git tag vX.Y.Z && git push origin vX.Y.Z`. El workflow `release.yml` (cuando esté implementado) construye el instalador y lo sube como **draft release**. El humano publica manualmente.
 
+## Cadencia: release semanal
+
+Releaseamos **una vez por semana** (típicamente el **viernes**). Durante la semana se mergean
+branches pequeños; el bump de versión NO va en esos branches, sino en un branch de release que
+los consolida.
+
+**Durante la semana** (branches de feature/fix):
+
+- **NO** tocar `pyproject.toml`, `ui/package.json` ni `desktop/package.json`.
+- **NO** crear una sección con número de versión en el `CHANGELOG.md`.
+- Las notas del cambio van bajo `## [Unreleased]` del `CHANGELOG.md`.
+- Un cambio chico (p. ej. un copy) **no amerita** una versión propia.
+
+**El viernes** (branch `release/vX.Y.Z`):
+
+1. Decidir el bump con la tabla de arriba a partir del **agregado** de la semana (si hay al
+   menos una feature → MINOR; si solo fixes/copy → PATCH; si algo rompe datos/`appId` → MAJOR).
+2. **Sincronizar los 3 archivos** de versión al mismo `X.Y.Z`.
+3. En `CHANGELOG.md`: renombrar `## [Unreleased]` → `## [X.Y.Z] - <fecha>` y dejar un
+   `## [Unreleased]` nuevo y vacío arriba.
+4. PR → merge a `main`.
+5. Etiquetar: `git tag vX.Y.Z && git push origin vX.Y.Z` (dispara el build/draft release).
+
+> **Deuda actual:** `pyproject.toml` quedó en `1.0.4` mientras `ui`/`desktop` van en `1.0.6`
+> (los releases v1.0.5/v1.0.6 no lo re-sincronizaron). El próximo release debe poner los **3**
+> en el mismo número.
+
 ## Histórico
 
 - Las versiones internas previas (v0.1.0–v1.2.0) corresponden al paquete pip-installable de Python y a metadatos de subproyectos desincronizados.
