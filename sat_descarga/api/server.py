@@ -18,6 +18,7 @@ Uso:
         start()
 """
 
+import hmac
 import logging
 import os
 import subprocess
@@ -36,9 +37,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 try:
-    from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+    from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
     from pydantic import BaseModel
 except ImportError:
     raise ImportError(
@@ -107,6 +108,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Autenticación con el shell (token efímero)
+# ---------------------------------------------------------------------------
+# Electron genera un token aleatorio por arranque y se lo pasa al agente vía
+# env SAT_AGENT_TOKEN; cualquier request sin ese token se rechaza con 401.
+# Cierra el hueco de que OTRO proceso local del usuario le pegue al agente
+# (que mantiene la FIEL cargada en sesión). Sin la env (CLI o `uvicorn`
+# manual en dev) no se exige nada.
+_AGENT_TOKEN = os.environ.get("SAT_AGENT_TOKEN", "")
+
+
+@app.middleware("http")
+async def _verificar_token_del_shell(request: Request, call_next):
+    # El preflight CORS (OPTIONS) no puede traer headers custom — se deja pasar;
+    # no ejecuta ningún endpoint.
+    if _AGENT_TOKEN and request.method != "OPTIONS":
+        recibido = (
+            request.headers.get("x-agent-token")
+            or request.query_params.get("token")  # EventSource no acepta headers
+            or ""
+        )
+        if not hmac.compare_digest(recibido, _AGENT_TOKEN):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Token del agente inválido o ausente."},
+            )
+    return await call_next(request)
 
 # ---------------------------------------------------------------------------
 # Estado de sesión (en memoria — un usuario a la vez en el agente local)

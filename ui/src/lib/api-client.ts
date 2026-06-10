@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './constants';
+import { API_BASE_URL, getAgentToken } from './constants';
 import type {
   HealthResponse,
   CargarFielResponse,
@@ -88,6 +88,12 @@ export class SatApiClient {
   // Internal helpers
   // -----------------------------------------------------------------------
 
+  /** Header de autenticación con el agente (token efímero inyectado por Electron). */
+  private tokenHeaders(): Record<string, string> {
+    const token = getAgentToken();
+    return token ? { 'X-Agent-Token': token } : {};
+  }
+
   private async request<T>(
     path: string,
     options: RequestInit = {},
@@ -97,6 +103,7 @@ export class SatApiClient {
     const res = await fetch(url, {
       ...options,
       headers: {
+        ...this.tokenHeaders(),
         ...(options.headers ?? {}),
       },
     });
@@ -144,6 +151,17 @@ export class SatApiClient {
   /** URL absoluta para un path del agente (p. ej. para EventSource). */
   url(path: string): string {
     return `${this.baseUrl}${path}`;
+  }
+
+  /**
+   * Como `url()`, pero con el token como query param. Solo para EventSource,
+   * que no acepta headers; el resto de requests manda el header.
+   */
+  private urlConToken(path: string): string {
+    const token = getAgentToken();
+    if (!token) return this.url(path);
+    const sep = path.includes('?') ? '&' : '?';
+    return `${this.baseUrl}${path}${sep}token=${encodeURIComponent(token)}`;
   }
 
   // -----------------------------------------------------------------------
@@ -318,7 +336,7 @@ export class SatApiClient {
     onEvent: (ev: JobEvent) => void,
     onError?: (e: Event) => void,
   ): EventSource {
-    const es = new EventSource(this.url(`/events/${jobId}`));
+    const es = new EventSource(this.urlConToken(`/events/${jobId}`));
     es.onmessage = (e) => {
       try {
         onEvent(JSON.parse(e.data) as JobEvent);
@@ -567,7 +585,7 @@ export class SatApiClient {
     filtros?: Partial<CfdiFiltros>,
   ): Promise<Blob> {
     const qs = _filtrosToQuery({ ...(filtros ?? {}), formato });
-    const r = await fetch(this.url(`/procesador/cfdi/exportar?${qs}`));
+    const r = await fetch(this.url(`/procesador/cfdi/exportar?${qs}`), { headers: this.tokenHeaders() });
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Error al exportar: ${r.status} ${text}`);
@@ -665,7 +683,7 @@ export class SatApiClient {
       hasta: filtros?.hasta,
       busqueda: filtros?.busqueda,
     });
-    const r = await fetch(this.url(`/procesador/pagos/exportar?${qs}`));
+    const r = await fetch(this.url(`/procesador/pagos/exportar?${qs}`), { headers: this.tokenHeaders() });
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Error al exportar: ${r.status} ${text}`);
@@ -760,7 +778,7 @@ export class SatApiClient {
   /** Descarga XLSX multi-sheet del procesador de Nómina (con disclaimer fiscal). */
   async procesadorNominaExportar(filtros?: Partial<NominaFiltros>): Promise<Blob> {
     const qs = _filtrosToQuery(this._filtrosNominaParams(filtros));
-    const r = await fetch(this.url(`/procesador/nomina/exportar?${qs}`));
+    const r = await fetch(this.url(`/procesador/nomina/exportar?${qs}`), { headers: this.tokenHeaders() });
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Error al exportar: ${r.status} ${text}`);

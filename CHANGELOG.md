@@ -12,6 +12,7 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 
 ### Seguridad
 
+- **Token efímero entre Electron y el agente local.** El shell genera un token aleatorio por arranque y se lo pasa al agente (env `SAT_AGENT_TOKEN`) y al renderer (preload → `window.satAgent.token`); un middleware del agente rechaza con 401 cualquier request sin él (header `X-Agent-Token`, o `?token=` en SSE porque `EventSource` no acepta headers). Cierra el hueco de que cualquier otro proceso local del usuario usara el agente — que mantiene la FIEL cargada en sesión. Sin la env (CLI o `uvicorn` manual en dev) no se exige nada.
 - **Anti zip-slip en la descarga WS**: los miembros del ZIP que regresa el SAT se validan antes de extraer; una ruta `../` o absoluta rechaza el paquete completo (`webservice/descarga.py`).
 - **Parser lxml endurecido** para todo XML de origen externo (respuestas SOAP del SAT, CFDIs del usuario): sin resolución de entidades, sin DTD y sin red (anti-XXE). Helper central `core/xml_seguro.py` aplicado en `webservice/`, `utils/xml_reader.py` y el parser del procesador.
 - **Catálogo a prueba de concurrencia**: `empresas.json`, `historial/*.json` y `settings.json` ahora se escriben de forma atómica (`.tmp` + `os.replace`) y los read-modify-write van serializados con lock — mismo patrón que ya tenían las solicitudes. Evita altas perdidas y JSON corrupto con requests concurrentes.

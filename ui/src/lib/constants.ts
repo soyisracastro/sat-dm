@@ -21,6 +21,19 @@ export function getAgentBaseUrl(): string {
   return API_BASE_URL;
 }
 
+/**
+ * Token efímero de autenticación con el agente. Dentro de Electron lo inyecta
+ * el preload (`window.satAgent.token`); fuera (dev en navegador con agente
+ * levantado a mano) no hay token y el agente no lo exige.
+ */
+export function getAgentToken(): string | null {
+  if (typeof window !== 'undefined') {
+    const injected = (window as unknown as { satAgent?: { token?: string } }).satAgent?.token;
+    if (injected) return injected;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // CodEstado labels (VerificaSolicitud response states)
 // ---------------------------------------------------------------------------
