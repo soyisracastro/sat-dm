@@ -586,7 +586,17 @@ function createWindow() {
     // En Windows/Linux esto pinta el ícono del taskbar/ventana; en macOS
     // el dock se setea aparte vía app.dock.setIcon (más abajo).
     icon: APP_ICON,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // macOS: barra translúcida con traffic lights nativos. Windows: 'hidden'
+    // quita la barra nativa pero CONSERVA frame/resize/Aero Snap; la UI dibuja
+    // sus propios min/max/cerrar (window-controls.tsx) vía IPC. NO usar
+    // titleBarOverlay (dibujaría controles nativos encima de los nuestros).
+    // Linux se queda con la barra del sistema.
+    titleBarStyle:
+      process.platform === 'darwin'
+        ? 'hiddenInset'
+        : process.platform === 'win32'
+          ? 'hidden'
+          : 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -627,6 +637,11 @@ function createWindow() {
     }
   });
 
+  // El renderer dibuja el botón maximizar/restaurar según este estado
+  // (window-controls.tsx escucha 'window-maximized-changed').
+  win.on('maximize', () => win.webContents.send('window-maximized-changed', true));
+  win.on('unmaximize', () => win.webContents.send('window-maximized-changed', false));
+
   const rendererUrl = resolverRendererUrl();
   if (DEBUG_RENDERER) {
     log.info('[debug] renderer URL:', rendererUrl, '| bundle:', rendererBundleDir());
@@ -655,6 +670,31 @@ ipcMain.handle('focus-window', () => {
     try { win.flashFrame(true); setTimeout(() => win.flashFrame(false), 600); } catch (_) { /* noop */ }
   }
   return true;
+});
+
+// Controles de ventana custom (Windows: titleBarStyle 'hidden' → la UI dibuja
+// min/max/cerrar). Cada handler opera sobre la ventana del renderer que invoca.
+ipcMain.handle('window-minimize', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win) win.minimize();
+});
+
+ipcMain.handle('window-maximize-toggle', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return false;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+  return win.isMaximized();
+});
+
+ipcMain.handle('window-close', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win) win.close();
+});
+
+ipcMain.handle('window-is-maximized', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  return win ? win.isMaximized() : false;
 });
 
 // Selector de carpeta nativo (lo usa Ajustes para elegir dónde guardar descargas).

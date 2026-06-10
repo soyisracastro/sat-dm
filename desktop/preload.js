@@ -30,6 +30,30 @@ contextBridge.exposeInMainWorld('satAgent', {
 });
 
 contextBridge.exposeInMainWorld('satDesktop', {
+  /**
+   * Plataforma del SO ('darwin' | 'win32' | 'linux'). El renderer la usa para
+   * decidir el chrome del titlebar (traffic lights de macOS vs controles
+   * custom de Windows) sin adivinar por user-agent.
+   */
+  platform: process.platform,
+  /**
+   * Controles de ventana custom (Windows corre con titleBarStyle 'hidden';
+   * la UI dibuja min/max/cerrar y los conecta aquí). En macOS no se usan
+   * (traffic lights nativos).
+   */
+  windowControls: {
+    minimize: () => ipcRenderer.invoke('window-minimize'),
+    /** Maximiza o restaura; devuelve el estado resultante (true = maximizada). */
+    toggleMaximize: () => ipcRenderer.invoke('window-maximize-toggle'),
+    close: () => ipcRenderer.invoke('window-close'),
+    isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+    /** Suscribe a cambios de maximizado; devuelve dispose() para limpiar. */
+    onMaximizedChanged: (cb) => {
+      const handler = (_event, maximized) => cb(maximized);
+      ipcRenderer.on('window-maximized-changed', handler);
+      return () => ipcRenderer.removeListener('window-maximized-changed', handler);
+    },
+  },
   /** Abre el selector de carpeta nativo del SO; devuelve la ruta o null. */
   elegirCarpeta: () => ipcRenderer.invoke('elegir-carpeta'),
   /**
