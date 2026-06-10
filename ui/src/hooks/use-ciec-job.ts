@@ -32,6 +32,11 @@ export interface JobMeta {
   rfc?: string;
 }
 
+// Tope FIFO del log: un job largo puede emitir miles de eventos; sin límite,
+// cada evento re-renderiza una lista cada vez más grande y la memoria crece
+// durante toda la descarga.
+const MAX_LOG_ENTRIES = 500;
+
 interface UseCiecJob {
   estado: JobUiEstado;
   log: LogEntry[];
@@ -67,7 +72,9 @@ export function useCiecJob(): UseCiecJob {
   const metaRef = useRef<JobMeta>({});
 
   const addLog = useCallback((msg: string, level: LogEntry['level'] = 'info') => {
-    setLog((l) => [...l, { t: new Date().toLocaleTimeString('es-MX'), msg, level }]);
+    setLog((l) =>
+      [...l, { t: new Date().toLocaleTimeString('es-MX'), msg, level }].slice(-MAX_LOG_ENTRIES),
+    );
   }, []);
 
   const cerrarStream = useCallback(() => {
