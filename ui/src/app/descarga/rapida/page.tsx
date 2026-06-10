@@ -76,12 +76,15 @@ export default function DescargaRapidaPage() {
               : 'Sin empresa activa'}
           </AlertTitle>
           <AlertDescription>
-            Agrega tu <strong>e.firma</strong> (recomendado — descarga sin captcha) o tu{' '}
-            <strong>CIEC</strong> (descarga directa con captcha) en{' '}
-            <Link href="/empresas" className="font-medium underline underline-offset-2">
-              Empresas
-            </Link>
-            .
+            {/* Un solo <p>: AlertDescription es grid y apilaría texto y Link. */}
+            <p>
+              Agrega tu <strong>e.firma</strong> (recomendado — descarga sin captcha) o tu{' '}
+              <strong>CIEC</strong> (descarga directa con captcha) en{' '}
+              <Link href="/empresas" className="font-medium underline underline-offset-2">
+                Empresas
+              </Link>
+              .
+            </p>
           </AlertDescription>
         </Alert>
       )}

@@ -113,11 +113,14 @@ export default function HistorialPage() {
         <Alert>
           <Icon icon="ph:info-light" className="size-4" />
           <AlertDescription>
-            No hay empresa activa. Actívala desde{' '}
-            <Link href="/empresas" className="font-medium underline underline-offset-2">
-              Empresas
-            </Link>
-            .
+            {/* Un solo <p>: AlertDescription es grid y apilaría texto y Link. */}
+            <p>
+              No hay empresa activa. Actívala desde{' '}
+              <Link href="/empresas" className="font-medium underline underline-offset-2">
+                Empresas
+              </Link>
+              .
+            </p>
           </AlertDescription>
         </Alert>
       ) : filtradas.length === 0 ? (

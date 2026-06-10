@@ -45,7 +45,7 @@ export function PortalDescargaForm({ empresa, onJobDone }: PortalDescargaFormPro
   const job = useCiecJob();
 
   const hoy = useMemo(() => new Date(), []);
-  const [tipo, setTipo] = useState<TipoComprobante>('RE');
+  const [tipo, setTipo] = useState<TipoComprobante>('E');
   const [desde, setDesde] = useState(ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 1)));
   const [hasta, setHasta] = useState(ymd(new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0)));
 
@@ -94,8 +94,8 @@ export function PortalDescargaForm({ empresa, onJobDone }: PortalDescargaFormPro
             Iniciar descarga
           </CardTitle>
           <CardDescription>
-            Define el rango y los comprobantes. La descarga corre contra el portal del SAT con
-            las credenciales de la empresa activa.
+            Elige el periodo y de qué facturas. La descarga corre contra el portal
+            del SAT con los accesos de la empresa activa.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -124,10 +124,10 @@ export function PortalDescargaForm({ empresa, onJobDone }: PortalDescargaFormPro
               </div>
             </div>
 
-            {/* Comprobantes */}
+            {/* Facturas */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Comprobantes</Label>
+                <Label>Facturas</Label>
                 <Select
                   value={tipo}
                   onValueChange={(v) => setTipo(v as TipoComprobante)}
@@ -137,9 +137,9 @@ export function PortalDescargaForm({ empresa, onJobDone }: PortalDescargaFormPro
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="E">Emitidos</SelectItem>
-                    <SelectItem value="R">Recibidos</SelectItem>
-                    <SelectItem value="RE">Ambos</SelectItem>
+                    <SelectItem value="E">Emitidas</SelectItem>
+                    <SelectItem value="R">Recibidas</SelectItem>
+                    <SelectItem value="RE">Ambas</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

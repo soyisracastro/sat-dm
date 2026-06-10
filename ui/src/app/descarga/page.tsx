@@ -260,13 +260,16 @@ export default function DescargaPage() {
             {empresaActiva ? 'Esta empresa no tiene método de autenticación' : 'Sin empresa activa'}
           </AlertTitle>
           <AlertDescription>
-            Agrega tu <strong>e.firma</strong> (recomendado — desbloquea descarga masiva por Web
-            Service y elimina el captcha) o tu <strong>CIEC</strong> (descarga directa con captcha)
-            en{' '}
-            <Link href="/empresas" className="font-medium underline underline-offset-2">
-              Empresas
-            </Link>
-            .
+            {/* Un solo <p>: AlertDescription es grid y apilaría texto y Link. */}
+            <p>
+              Agrega tu <strong>e.firma</strong> (recomendado — desbloquea descarga masiva por Web
+              Service y elimina el captcha) o tu <strong>CIEC</strong> (descarga directa con captcha)
+              en{' '}
+              <Link href="/empresas" className="font-medium underline underline-offset-2">
+                Empresas
+              </Link>
+              .
+            </p>
           </AlertDescription>
         </Alert>
       )}
@@ -280,11 +283,13 @@ export default function DescargaPage() {
             <Icon icon="ph:info-light" className="size-4" />
             <AlertTitle>Con e.firma desbloqueas más opciones</AlertTitle>
             <AlertDescription>
-              Agrega la e.firma de esta empresa en{' '}
-              <Link href="/empresas" className="font-medium underline underline-offset-2">
-                Empresas
-              </Link>{' '}
-              para acceder a descarga masiva por Web Service y para descargar el portal sin captcha.
+              <p>
+                Agrega la e.firma de esta empresa en{' '}
+                <Link href="/empresas" className="font-medium underline underline-offset-2">
+                  Empresas
+                </Link>{' '}
+                para acceder a descarga masiva por Web Service y para descargar el portal sin captcha.
+              </p>
             </AlertDescription>
           </Alert>
 
@@ -305,12 +310,14 @@ export default function DescargaPage() {
               <Icon icon="ph:warning-circle-light" className="size-4" />
               <AlertTitle>e-Firma no cargada</AlertTitle>
               <AlertDescription>
-                La empresa activa tiene e.firma registrada, pero no se cargó en sesión.
-                Vuelve a activarla desde{' '}
-                <Link href="/empresas" className="font-medium underline underline-offset-2">
-                  Empresas
-                </Link>
-                .
+                <p>
+                  La empresa activa tiene e.firma registrada, pero no se cargó en sesión.
+                  Vuelve a activarla desde{' '}
+                  <Link href="/empresas" className="font-medium underline underline-offset-2">
+                    Empresas
+                  </Link>
+                  .
+                </p>
               </AlertDescription>
             </Alert>
           )}
