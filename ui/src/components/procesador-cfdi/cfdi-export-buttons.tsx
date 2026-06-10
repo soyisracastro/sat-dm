@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Icon } from '@/components/ui/icon';
 import type { CfdiFiltros } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   filtros: Partial<CfdiFiltros>;
@@ -42,7 +43,7 @@ export function CfdiExportButtons({ filtros }: Props) {
       const fecha = new Date().toISOString().slice(0, 10);
       descargarBlob(blob, `cfdis_${fecha}.${formato}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(mensajeDeError(e));
     } finally {
       setBusy(null);
     }

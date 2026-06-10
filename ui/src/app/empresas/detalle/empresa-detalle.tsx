@@ -24,6 +24,7 @@ import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
 import { ConfiguracionFiscalCard } from '@/components/empresas/configuracion-fiscal-card';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import type { Empresa } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 export function EmpresaDetalle() {
   const searchParams = useSearchParams();
@@ -137,7 +138,7 @@ function CiecSection({
       // Si ya tenía CIEC, colapsa el form de vuelta al resumen.
       if (tiene) setMostrarForm(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(mensajeDeError(err));
     } finally {
       setSaving(false);
     }
@@ -243,7 +244,7 @@ function FielSection({
       setOk(true);
       if (tiene) setMostrarForm(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(mensajeDeError(err));
     } finally {
       setSaving(false);
     }

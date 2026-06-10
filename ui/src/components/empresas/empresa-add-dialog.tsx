@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { mensajeDeError } from '@/lib/errores';
 
 interface EmpresaAddDialogProps {
   open: boolean;
@@ -73,7 +74,7 @@ export function EmpresaAddDialog({
       await fn();
       handleOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(mensajeDeError(err));
     } finally {
       setLoading(false);
     }

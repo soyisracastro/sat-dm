@@ -21,6 +21,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { CanalDescarga, HistorialItem, TipoDescarga } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 const TIPO_META: Record<TipoDescarga, { label: string; icon: string }> = {
   cfdi: { label: 'CFDIs', icon: 'ph:download-simple-light' },
@@ -63,7 +64,7 @@ export default function HistorialPage() {
       try {
         await apiClient.abrir(ruta, modo);
       } catch (e) {
-        setAccionError(e instanceof Error ? e.message : String(e));
+        setAccionError(mensajeDeError(e));
       }
     },
     [apiClient],

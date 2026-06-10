@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
 import type { Empresa, EmpresaUpdatePatch, MetodoEmpresa } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface UseEmpresasState {
   empresas: Empresa[];
@@ -57,7 +58,7 @@ export function useEmpresas(): UseEmpresasState {
         }
       })
       .catch((e: unknown) => {
-        if (mounted) setError(e instanceof Error ? e.message : String(e));
+        if (mounted) setError(mensajeDeError(e));
       })
       .finally(() => {
         if (mounted) setLoading(false);

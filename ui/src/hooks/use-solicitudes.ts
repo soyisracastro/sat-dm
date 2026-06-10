@@ -6,6 +6,7 @@ import { useServer } from '@/providers/server-provider';
 import { notifyDescargaCompleta, notifyDescargaError } from '@/lib/notify';
 import type { Solicitud } from '@/lib/types';
 import type { SatApiClient } from '@/lib/api-client';
+import { mensajeDeError } from '@/lib/errores';
 
 // Estados que NO han terminado: las solicitudes con estos estados deben re-pollearse.
 // "3"/"4"/"5"/"descargada" son terminales (lista/error/rechazada/descargada).
@@ -80,7 +81,7 @@ export function useSolicitudes(rfc: string | null): UseSolicitudesState {
         }
       })
       .catch((e: unknown) => {
-        if (mounted) setError(e instanceof Error ? e.message : String(e));
+        if (mounted) setError(mensajeDeError(e));
       })
       .finally(() => {
         if (mounted) setLoading(false);

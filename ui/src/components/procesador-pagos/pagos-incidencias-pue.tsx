@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { PagosFiltros, ReporteIncidenciasPue } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   filtros: Partial<PagosFiltros>;
@@ -48,7 +49,7 @@ export function PagosIncidenciasPue({ filtros }: Props) {
         if (mounted) setData(r);
       })
       .catch((e) => {
-        if (mounted) setError(e instanceof Error ? e.message : String(e));
+        if (mounted) setError(mensajeDeError(e));
       });
     return () => {
       mounted = false;

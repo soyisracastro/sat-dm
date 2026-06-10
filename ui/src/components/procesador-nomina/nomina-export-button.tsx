@@ -7,6 +7,7 @@ import { useServer } from '@/providers/server-provider';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import type { NominaFiltros } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   filtros: Partial<NominaFiltros>;
@@ -34,7 +35,7 @@ export function NominaExportButton({ filtros }: Props) {
       const fecha = new Date().toISOString().slice(0, 10);
       descargarBlob(blob, `nomina_${fecha}.xlsx`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(mensajeDeError(e));
     } finally {
       setBusy(false);
     }

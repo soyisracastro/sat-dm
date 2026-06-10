@@ -9,6 +9,7 @@ import { ResourceActions, type ResourceAction } from '@/components/shared/resour
 import { StatusBadge, type StatusTone } from '@/components/shared/status-badge';
 import { SolicitudRowExpanded } from '@/components/descarga/solicitud-row-expanded';
 import type { Solicitud } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 // Mapeo del estado SAT (o "solicitada"/"descargada") → tono + ícono del badge.
 // Códigos SAT: 1=En cola · 2=Procesando · 3=Lista · 4=Error · 5=Rechazada.
@@ -179,7 +180,7 @@ function RowActions({
     try {
       await fn();
     } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
+      onError(mensajeDeError(e));
     } finally {
       setBusy(null);
     }

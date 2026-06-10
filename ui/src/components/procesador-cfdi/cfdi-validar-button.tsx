@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useServer } from '@/providers/server-provider';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   /** Llamado tras una validación exitosa para refrescar el listado. */
@@ -48,7 +49,7 @@ export function CfdiValidarButton({ onValidado }: Props) {
         partes.push('Estatus SAT: sin CFDIs pendientes.');
       }
     } else {
-      const msg = estatusRes.reason instanceof Error ? estatusRes.reason.message : String(estatusRes.reason);
+      const msg = mensajeDeError(estatusRes.reason);
       toast.error(`Estatus SAT falló: ${msg}`);
     }
 
@@ -63,7 +64,7 @@ export function CfdiValidarButton({ onValidado }: Props) {
         partes.push('Listas 69/69-B: RFCs verificados (válidos por 30 días).');
       }
     } else {
-      const msg = listasRes.reason instanceof Error ? listasRes.reason.message : String(listasRes.reason);
+      const msg = mensajeDeError(listasRes.reason);
       // 401 = sesión no iniciada. Mensaje amable y no rojo, porque el flujo de
       // estatus SAT igual pudo haber funcionado.
       if (/401|sesi[óo]n/i.test(msg)) {

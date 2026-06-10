@@ -7,6 +7,7 @@ import { useServer } from '@/providers/server-provider';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import type { PagosFiltros } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   filtros: Partial<PagosFiltros>;
@@ -34,7 +35,7 @@ export function PagosExportButton({ filtros }: Props) {
       const fecha = new Date().toISOString().slice(0, 10);
       descargarBlob(blob, `pagos_${fecha}.xlsx`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(mensajeDeError(e));
     } finally {
       setBusy(false);
     }

@@ -27,6 +27,15 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 
 - **`api/server.py` partido en routers por dominio** (`api/routers/{webservice,portal,empresas,procesador,utilidades,system}.py` + `api/state.py` para la sesión FIEL y helpers compartidos). El monolito de 2,579 líneas quedó en 177; las rutas HTTP no cambiaron ni un carácter (verificado contra snapshot pre-refactor). Sin impacto para UI/CLI.
 
+### Interno (UI)
+
+- **Hook genérico `useProcesadorGenerico`**: los 3 hooks de procesador (CFDI/pagos/nómina, ~135 líneas c/u con el mismo patrón de filtros + persistencia debounced + refetch) quedaron como wrappers de ~45 líneas sobre un genérico tipado. Un bug del patrón ahora se corrige en un solo lugar.
+- **`lib/errores.ts` con `mensajeDeError()`**: 42 call sites dejaron de repetir `e instanceof Error ? e.message : String(e)`.
+
+### UX
+
+- **Captcha expirado ya no deja el modal abierto**: al agotarse los 5 minutos, el modal se cierra de inmediato y se muestra "El captcha expiró… Inicia la descarga de nuevo" en lugar de un modal congelado esperando un input que ya no sirve.
+
 ### Seguridad
 
 - **Token efímero entre Electron y el agente local.** El shell genera un token aleatorio por arranque y se lo pasa al agente (env `SAT_AGENT_TOKEN`) y al renderer (preload → `window.satAgent.token`); un middleware del agente rechaza con 401 cualquier request sin él (header `X-Agent-Token`, o `?token=` en SSE porque `EventSource` no acepta headers). Cierra el hueco de que cualquier otro proceso local del usuario usara el agente — que mantiene la FIEL cargada en sesión. Sin la env (CLI o `uvicorn` manual en dev) no se exige nada.

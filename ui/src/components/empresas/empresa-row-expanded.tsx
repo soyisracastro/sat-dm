@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CaptchaModal } from '@/components/descarga/captcha-modal';
 import { JobProgress } from '@/components/descarga/job-progress';
+import { mensajeDeError } from '@/lib/errores';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
 import type { Empresa } from '@/lib/types';
@@ -30,11 +31,6 @@ function formatoFecha(iso: string | null | undefined): string | null {
   } catch {
     return iso;
   }
-}
-
-function mensajeError(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  return String(e);
 }
 
 export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
@@ -86,7 +82,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
         );
         onJobDone();
       } catch (e) {
-        const msg = mensajeError(e);
+        const msg = mensajeDeError(e);
         setFielError(msg);
         toast.error(msg);
       } finally {
@@ -112,7 +108,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
     try {
       await apiClient.abrir(ruta, modo);
     } catch (e) {
-      const msg = mensajeError(e);
+      const msg = mensajeDeError(e);
       setFielError(msg);
       toast.error(msg);
     } finally {

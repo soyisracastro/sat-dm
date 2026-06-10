@@ -21,6 +21,7 @@ import type {
   FacturasPPDResponse,
   PagoRelacionadoDetalle,
 } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
   data: FacturasPPDResponse | null;
@@ -255,7 +256,7 @@ function PagosDetalleDrilldown({ uuid, moneda }: { uuid: string; moneda: string 
         if (mounted) setItems(r.items);
       })
       .catch((e) => {
-        if (mounted) setError(e instanceof Error ? e.message : String(e));
+        if (mounted) setError(mensajeDeError(e));
       });
     return () => {
       mounted = false;

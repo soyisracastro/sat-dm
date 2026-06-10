@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import type { Empresa } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 type Confirmacion = 'archive' | 'unarchive' | 'delete';
 
@@ -52,7 +53,7 @@ export default function EmpresasPage() {
     try {
       await fn();
     } catch (e) {
-      setAccionError(e instanceof Error ? e.message : String(e));
+      setAccionError(mensajeDeError(e));
     } finally {
       setBusy(null);
     }

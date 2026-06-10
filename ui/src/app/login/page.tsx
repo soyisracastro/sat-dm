@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
+import { mensajeDeError } from '@/lib/errores';
 
 type Phase = 'idle' | 'iniciando' | 'esperando' | 'exito' | 'error';
 
@@ -97,7 +98,7 @@ export default function LoginPage() {
         }
       }, POLL_INTERVAL_MS);
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : String(e));
+      setErrorMsg(mensajeDeError(e));
       setPhase('error');
     }
   }, [apiClient, cleanup, refresh]);

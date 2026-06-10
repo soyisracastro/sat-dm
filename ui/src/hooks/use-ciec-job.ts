@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useServer } from '@/providers/server-provider';
 import { notifyDescargaCompleta, notifyDescargaError } from '@/lib/notify';
 import type { JobEvent } from '@/lib/types';
+import { mensajeDeError } from '@/lib/errores';
 
 export type JobUiEstado =
   | 'idle'
@@ -113,6 +114,10 @@ export function useCiecJob(): UseCiecJob {
           addLog(`captcha solicitado (intento ${ev.intento}/${ev.max})`, 'warn');
           break;
         case 'captcha_timeout':
+          // Cierra el modal de inmediato y avisa al usuario; el cambio a
+          // 'cancelled' llega del backend en su propio evento.
+          setCaptcha(null);
+          setError('El captcha expiró (pasaron 5 minutos sin respuesta). Inicia la descarga de nuevo.');
           addLog('captcha: tiempo agotado', 'warn');
           break;
         case 'done': {
@@ -175,12 +180,12 @@ export function useCiecJob(): UseCiecJob {
         esRef.current = apiClient.subscribeJob(job_id, onEvent);
       } catch (e) {
         setEstado('error');
-        setError(e instanceof Error ? e.message : String(e));
+        setError(mensajeDeError(e));
         if (meta.rfc) {
           notifyDescargaError({
             canal: 'ciec',
             rfc: meta.rfc,
-            motivo: e instanceof Error ? e.message : String(e),
+            motivo: mensajeDeError(e),
           });
         }
       }
