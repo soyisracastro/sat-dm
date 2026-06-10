@@ -72,9 +72,42 @@ certificado (token USB FIPS) o en un HSM en la nube. Consecuencia directa:
    invoque ese CLI por cada binario.
 4. Mismos pasos 4-5 de arriba.
 
-## macOS
+## macOS — DMG firmado y notarizado
 
-La firma + notarización de macOS va en su propio track (Developer ID +
-notarytool); ver el PR del instalador macOS. Bonus conocido: firmar el agente
-PyInstaller en macOS elimina el cuelgue de `keyring.get_password()` con
-binarios sin firma.
+Prerequisito: **Apple Developer Program** ($99 USD/año) → certificado
+**"Developer ID Application"**. A diferencia de Windows, Apple SÍ permite
+exportar la llave como `.p12` — la vía `CSC_LINK` de electron-builder funciona.
+
+El CI ya construye DMG **por arquitectura** (job `release-macos` en
+`release.yml`: `macos-13` → x64, `macos-latest` → arm64, porque PyInstaller no
+cross-compila el agente). Sin secrets, los DMG salen **sin firmar** — sirven
+para QA con clic-derecho → Abrir.
+
+### Checklist al tener la cuenta de Apple
+
+1. Crear el cert *Developer ID Application* en developer.apple.com, exportarlo
+   de Keychain como `.p12` con contraseña.
+2. Secrets del repo: `MAC_CSC_LINK` (`base64 < cert.p12`),
+   `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
+   (generarla en appleid.apple.com), `APPLE_TEAM_ID`.
+3. En `desktop/electron-builder.yml` descomentar `notarize: true` (la config
+   de `hardenedRuntime` + entitlements ya está activa; sin identidad no estorba).
+4. **Validar en el primer build firmado** que la notarización acepte los
+   binarios del agente PyInstaller en `Contents/Resources/agent/`. Si los
+   rechaza por falta de firma, agregar `mac.binaries` o un hook `afterSign`
+   con `codesign --force --options runtime` recursivo (nota en el yml).
+5. QA: `spctl -a -vv TodoConta.app` (aceptado), `xcrun stapler validate` sobre
+   el DMG, e instalar en un Mac limpio: abre sin advertencia de Gatekeeper.
+
+### Bonus conocido
+
+Firmar el agente PyInstaller en macOS **elimina el cuelgue de
+`keyring.get_password()`** que hoy obliga a mover `empresas.json` antes del
+smoke local (ver memoria del proyecto): el Keychain deja de bloquear binarios
+sin firma.
+
+### Pendiente (no bloquea)
+
+`electron-updater` para macOS: cada arquitectura genera su `latest-mac.yml` y
+el último en subir pisa al otro. Unificar ese metadata cuando se active el
+auto-update en Mac.

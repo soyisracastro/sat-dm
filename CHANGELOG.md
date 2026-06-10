@@ -40,6 +40,10 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 
 - **Pipeline de firma de código Windows listo** (certificado pendiente): `release.yml` trae los steps de firma de `sat-agent.exe` (Azure Trusted Signing) y verificación post-build, ambos auto-saltables hasta que existan los secrets; `electron-builder.yml` documenta el bloque `azureSignOptions` + `forceCodeSigning`. ⚠️ Documentado en [docs/firma-codigo.md](docs/firma-codigo.md): la vía `WIN_CSC_LINK` (PFX) ya no aplica a certs OV/EV modernos — decidir entre Azure Trusted Signing (~$10/mes) y EV+firma en nube del CA antes de comprar. Firmar el agente, además de SmartScreen, reduce el escaneo de Defender que causa los 30-60 s del primer arranque.
 
+### Infra (macOS)
+
+- **El release ahora construye DMG de macOS por arquitectura** (job `release-macos`: Intel x64 en `macos-13`, Apple Silicon arm64 en `macos-latest` — PyInstaller no cross-compila el agente), con smoke test de `/health` del binario empacado. Sin los secrets de Apple salen sin firmar (QA con clic-derecho → Abrir); la config de hardened runtime + entitlements (Electron JIT + dylibs del agente PyInstaller) ya está lista y la notarización se activa descomentando `notarize` al tener el Developer ID. Checklist en [docs/firma-codigo.md](docs/firma-codigo.md).
+
 ### Seguridad
 
 - **Token efímero entre Electron y el agente local.** El shell genera un token aleatorio por arranque y se lo pasa al agente (env `SAT_AGENT_TOKEN`) y al renderer (preload → `window.satAgent.token`); un middleware del agente rechaza con 401 cualquier request sin él (header `X-Agent-Token`, o `?token=` en SSE porque `EventSource` no acepta headers). Cierra el hueco de que cualquier otro proceso local del usuario usara el agente — que mantiene la FIEL cargada en sesión. Sin la env (CLI o `uvicorn` manual en dev) no se exige nada.

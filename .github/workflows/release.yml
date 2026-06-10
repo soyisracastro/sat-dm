@@ -188,3 +188,104 @@ jobs:
             desktop/dist/latest.yml
           if-no-files-found: warn
           retention-days: 14
+
+  # ---------------------------------------------------------------------
+  # macOS — un DMG por arquitectura. PyInstaller NO cross-compila, así que
+  # cada runner construye su agente nativo: macos-13 = Intel (x64),
+  # macos-latest (14+) = Apple Silicon (arm64). El `artifactName` del dmg ya
+  # incluye ${arch}, así que no chocan en el draft release.
+  #
+  # Firma/notarización: sin los secrets de Apple, electron-builder construye
+  # el DMG SIN firmar (instalable con clic-derecho → Abrir; suficiente para
+  # QA). Al agregar MAC_CSC_LINK + APPLE_* y descomentar `notarize` en
+  # electron-builder.yml, sale firmado y notarizado. Ver docs/firma-codigo.md.
+  #
+  # NOTA electron-updater: cada arquitectura genera su propio latest-mac.yml
+  # y el último en subir gana — el auto-update de macOS queda pendiente de
+  # unificar ese metadata (no bloquea distribuir los DMG).
+  # ---------------------------------------------------------------------
+  release-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x64
+          - runner: macos-latest
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      # Cert "Developer ID Application" exportado como .p12 en base64.
+      # (A diferencia de Windows, Apple SÍ permite exportar la llave.)
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      # Notarización (notarytool) — se usan cuando `notarize` esté activo.
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm 9
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Python deps (server + ciec + pyinstaller)
+        run: pip install -e ".[server,ciec]" pyinstaller
+
+      - name: Build sat-agent con PyInstaller (${{ matrix.arch }})
+        run: pyinstaller packaging/sat-agent.spec --noconfirm --clean --distpath packaging/dist --workpath packaging/build
+
+      - name: Smoke test del agente empacado
+        run: |
+          exe="packaging/dist/sat-agent/sat-agent"
+          test -x "$exe" || { echo "No se encontró el binario en $exe"; exit 1; }
+          "$exe" --port 18787 &
+          pid=$!
+          ok=""
+          for _ in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:18787/health >/dev/null 2>&1; then ok=1; break; fi
+            sleep 0.5
+          done
+          kill "$pid" 2>/dev/null || true
+          [ -n "$ok" ] || { echo "El agente empacado no respondió a /health en 45s."; exit 1; }
+          echo "✓ /health OK"
+
+      - name: Build UI (Next.js export)
+        working-directory: ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & publish DMG (${{ matrix.arch }})
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm exec electron-builder --mac dmg --${{ matrix.arch }} --publish always
+
+      - name: Subir artefactos a Actions (backup además del Release)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: todoconta-desktop-macos-${{ matrix.arch }}
+          path: desktop/dist/*.dmg
+          if-no-files-found: warn
+          retention-days: 14
