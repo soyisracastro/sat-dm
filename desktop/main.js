@@ -457,20 +457,7 @@ function resolverRendererUrl() {
   return 'http://localhost:3001';
 }
 
-async function startAgent() {
-  // Si el dev ya levantó el agente manualmente, conéctate a ese. Si ese
-  // agente exige token (SAT_AGENT_TOKEN en su env), pásalo también aquí.
-  if (process.env.SAT_AGENT_URL) {
-    agentUrl = process.env.SAT_AGENT_URL.replace(/\/+$/, '');
-    agentToken = process.env.SAT_AGENT_TOKEN || null;
-    await waitForHealth(agentUrl);
-    return;
-  }
-
-  const port = await getFreePort();
-  agentUrl = `http://127.0.0.1:${port}`;
-  agentToken = crypto.randomBytes(32).toString('hex');
-
+function spawnAgent(port) {
   const { cmd, cwd } = resolverComandoAgente(port);
 
   log.info('[agente] iniciando:', cmd.join(' '), 'cwd:', cwd);
@@ -491,8 +478,102 @@ async function startAgent() {
   }
   agentProc.on('error', (e) => log.error('[agente] no se pudo lanzar:', e.message));
   agentProc.on('exit', (code) => log.info('[agente] terminó (código', code + ')'));
+}
 
-  await waitForHealth(agentUrl);
+/**
+ * Asigna puerto/token y lanza el agente (o se conecta a uno externo vía
+ * SAT_AGENT_URL). NO espera /health: la ventana se abre de inmediato y el
+ * StartupSplash del renderer informa el progreso; quien necesite el agente
+ * listo debe esperar con waitForHealth() aparte.
+ */
+async function startAgent() {
+  // Si el dev ya levantó el agente manualmente, conéctate a ese. Si ese
+  // agente exige token (SAT_AGENT_TOKEN en su env), pásalo también aquí.
+  if (process.env.SAT_AGENT_URL) {
+    agentUrl = process.env.SAT_AGENT_URL.replace(/\/+$/, '');
+    agentToken = process.env.SAT_AGENT_TOKEN || null;
+    return;
+  }
+
+  const port = await getFreePort();
+  agentUrl = `http://127.0.0.1:${port}`;
+  agentToken = crypto.randomBytes(32).toString('hex');
+  spawnAgent(port);
+}
+
+// ---------------------------------------------------------------------------
+// Monitor del agente: detecta si muere DESPUÉS del arranque (crash, OOM) y lo
+// reinicia en el MISMO puerto y con el MISMO token — el renderer conserva el
+// baseUrl/token que le dio el preload, así que un puerto nuevo lo dejaría
+// incomunicado sin recargar la ventana. El renderer se entera de la caída y
+// la recuperación solo, por su propio polling de /health (badge Conectado).
+// ---------------------------------------------------------------------------
+
+const MONITOR_INTERVAL_MS = 10_000;
+const MONITOR_FALLOS_REINICIO = 3; // ~30s sin responder → reinicio
+const MONITOR_MAX_REINICIOS = 3;   // consecutivos; un periodo sano resetea
+
+let monitorTimer = null;
+
+async function reiniciarAgente() {
+  const port = Number(new URL(agentUrl).port);
+  try {
+    if (agentProc && !agentProc.killed) agentProc.kill('SIGKILL');
+  } catch (_) { /* noop */ }
+  agentProc = null;
+  spawnAgent(port);
+  await waitForHealth(agentUrl, 60000);
+}
+
+function iniciarMonitorAgente() {
+  // Agente externo (SAT_AGENT_URL): no es nuestro, no lo administramos.
+  if (monitorTimer || process.env.SAT_AGENT_URL) return;
+
+  let fallos = 0;
+  let reinicios = 0;
+  let ocupado = false;
+
+  monitorTimer = setInterval(() => {
+    if (ocupado) return;
+
+    const evaluar = (ok) => {
+      if (ok) {
+        fallos = 0;
+        reinicios = 0;
+        return;
+      }
+      fallos += 1;
+      if (fallos < MONITOR_FALLOS_REINICIO) return;
+      fallos = 0;
+      if (reinicios >= MONITOR_MAX_REINICIOS) {
+        log.error(
+          `[monitor] el agente sigue caído tras ${MONITOR_MAX_REINICIOS} reinicios; se detiene el monitor.`,
+        );
+        clearInterval(monitorTimer);
+        monitorTimer = null;
+        return;
+      }
+      reinicios += 1;
+      ocupado = true;
+      log.warn(`[monitor] agente sin respuesta; reinicio ${reinicios}/${MONITOR_MAX_REINICIOS}…`);
+      reiniciarAgente()
+        .then(() => log.info('[monitor] agente reiniciado y respondiendo.'))
+        .catch((e) => log.error('[monitor] el reinicio falló:', e && e.message))
+        .finally(() => {
+          ocupado = false;
+        });
+    };
+
+    const req = http.get(
+      `${agentUrl}/health`,
+      { headers: agentToken ? { 'X-Agent-Token': agentToken } : {} },
+      (res) => {
+        res.resume();
+        evaluar(res.statusCode === 200);
+      },
+    );
+    req.on('error', () => evaluar(false));
+  }, MONITOR_INTERVAL_MS);
 }
 
 function createWindow() {
@@ -638,13 +719,28 @@ app.whenReady().then(async () => {
   }
 
   try {
-    await startAgent();
+    await startAgent(); // solo puerto + spawn: milisegundos, ya no espera /health
   } catch (e) {
-    log.error('No se pudo iniciar el agente Python:', e && e.message);
+    log.error('No se pudo lanzar el agente Python:', e && e.message);
     // Abrimos la ventana de todos modos; el renderer mostrará el splash con
     // mensaje útil y botón "Reintentar".
   }
+
+  // Ventana INMEDIATA: antes se esperaba el /health completo y, en equipos
+  // con HDD + antivirus escaneando el binario sin firma, eso eran 30-60s sin
+  // NADA en pantalla (la app parecía rota). El renderer ya conoce el baseUrl
+  // (el puerto se asigna antes del spawn) y su StartupSplash informa el
+  // progreso mientras el agente termina de arrancar.
   createWindow();
+
+  if (agentUrl) {
+    waitForHealth(agentUrl, 120000)
+      .then(() => {
+        log.info('[agente] /health OK — agente listo');
+        iniciarMonitorAgente();
+      })
+      .catch((e) => log.error('[agente] no respondió /health:', e && e.message));
+  }
 
   setupAutoUpdaterListeners();
   scheduleUpdateCheck();
@@ -658,12 +754,44 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('will-quit', () => {
-  if (agentProc) {
+let _salidaEnCurso = false;
+
+app.on('will-quit', (event) => {
+  if (monitorTimer) {
+    clearInterval(monitorTimer);
+    monitorTimer = null;
+  }
+  if (!agentProc || _salidaEnCurso) return;
+  if (agentProc.exitCode !== null) {
+    // Ya estaba muerto (crash previo): no hay nada que esperar.
+    agentProc = null;
+    return;
+  }
+
+  // Detener la salida hasta que el agente muera de verdad: si el main se va
+  // antes, un Python colgado queda huérfano consumiendo memoria. SIGTERM
+  // primero; si en 2s no salió, SIGKILL y adiós.
+  event.preventDefault();
+  _salidaEnCurso = true;
+  const proc = agentProc;
+  agentProc = null;
+
+  const forzar = setTimeout(() => {
     try {
-      agentProc.kill();
-    } catch (_) {
-      /* noop */
-    }
+      proc.kill('SIGKILL');
+    } catch (_) { /* noop */ }
+    app.quit();
+  }, 2000);
+
+  proc.once('exit', () => {
+    clearTimeout(forzar);
+    app.quit();
+  });
+
+  try {
+    proc.kill();
+  } catch (_) {
+    clearTimeout(forzar);
+    app.quit();
   }
 });
