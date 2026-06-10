@@ -258,7 +258,8 @@ export interface EmpresasResponse {
 // POST /empresas/ciec
 export interface EmpresaCiecRequest {
   rfc: string;
-  nombre: string;
+  /** Opcional: vacío → el agente usa el RFC como nombre provisional. */
+  nombre?: string;
   ciec: string;
 }
 

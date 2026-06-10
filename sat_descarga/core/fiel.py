@@ -111,6 +111,20 @@ class FIEL:
         raise ValueError("No se pudo extraer el RFC del certificado.")
 
     @property
+    def legal_name(self) -> str | None:
+        """
+        Razón social (PM) o nombre completo (PF) del titular. El SAT lo pone en
+        el CN del subject del certificado. None si no se puede extraer.
+        """
+        try:
+            cn = self._cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
+            if cn and cn[0].value.strip():
+                return cn[0].value.strip()
+        except Exception:
+            pass
+        return None
+
+    @property
     def not_valid_after(self) -> datetime:
         """Fecha de vencimiento del certificado."""
         return self._cert.not_valid_after_utc

@@ -8,7 +8,7 @@ import { PortalDescargaForm } from '@/components/descarga/portal-descarga-form';
 import { PortalDescargasRecientes } from '@/components/descarga/portal-descargas-recientes';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Callout } from '@/components/shared/callout';
 import { Icon } from '@/components/ui/icon';
 import { useServer } from '@/providers/server-provider';
 import { useEmpresas } from '@/hooks/use-empresas';
@@ -34,10 +34,10 @@ export default function DescargaRapidaPage() {
   }, [refreshHistorial]);
 
   const description = !empresaActiva
-    ? 'Selecciona una empresa activa en Empresas para descargar sus CFDIs.'
+    ? 'Selecciona una empresa activa en Empresas para descargar sus facturas.'
     : metodo
-      ? 'CFDIs directos del portal del SAT, sin esperar al Web Service. Limitada a la cuota diaria del portal.'
-      : 'Esta empresa no tiene credenciales registradas.';
+      ? 'Trae tus facturas directo del portal del SAT, sin esperar al Web Service. Limitada al máximo de descargas que el portal permite por día.'
+      : 'Esta empresa no tiene accesos registrados.';
 
   return (
     <div className="space-y-6">
@@ -54,14 +54,14 @@ export default function DescargaRapidaPage() {
         }
       />
 
-      {/* Server not connected */}
+      {/* Agente local no disponible */}
       {!isConnected && (
         <Alert variant="destructive">
           <Icon icon="ph:warning-circle-light" className="size-4" />
-          <AlertTitle>Servidor no disponible</AlertTitle>
+          <AlertTitle>Sin conexión</AlertTitle>
           <AlertDescription>
-            No se puede conectar al servidor Python en localhost:8787.
-            Asegurate de que este ejecutandose.
+            No pudimos conectar con la aplicación. Ciérrala por completo y
+            vuelve a abrirla; si sigue igual, escríbenos desde Ayuda.
           </AlertDescription>
         </Alert>
       )}
@@ -91,24 +91,19 @@ export default function DescargaRapidaPage() {
         <>
           {/* CTA recíproco: Web Service para volúmenes grandes (solo aplica a FIEL). */}
           {tieneFiel && (
-            <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1 text-sm">
-                <div className="flex items-center gap-2 font-medium">
-                  <Icon icon="ph:cloud-arrow-down-light" className="size-4" />
-                  ¿Volúmenes grandes?
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Descarga masiva por el Web Service oficial con tu e.firma. Sin cuota diaria,
-                  pero la solicitud puede tardar 24–72 h en resolverse.
-                </p>
-              </div>
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/descarga">
-                  Web Service
-                  <Icon icon="ph:arrow-right-light" className="size-4" />
-                </Link>
-              </Button>
-            </Card>
+            <Callout
+              icon="ph:cloud-arrow-down-light"
+              title="¿Tienes muchas facturas?"
+              text="Usa la descarga masiva por el Web Service oficial con tu e.firma. No tiene límite diario y normalmente queda lista en un par de horas."
+              action={
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/descarga">
+                    Web Service
+                    <Icon icon="ph:arrow-right-light" className="size-4" />
+                  </Link>
+                </Button>
+              }
+            />
           )}
 
           <PortalDescargaForm empresa={empresaActiva} onJobDone={onJobDone} />

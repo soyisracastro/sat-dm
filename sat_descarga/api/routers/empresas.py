@@ -24,7 +24,8 @@ router = APIRouter()
 
 class EmpresaCiecRequest(BaseModel):
     rfc: str
-    nombre: str
+    # Opcional: si viene vacío, config_store usa el RFC como nombre provisional.
+    nombre: str = ""
     ciec: str
 
 
@@ -63,11 +64,12 @@ async def empresas_add_fiel(
     cer_file: UploadFile = File(...),
     key_file: UploadFile = File(...),
     password: str = Form(...),
-    nombre: str = Form(...),
+    nombre: str = Form(""),
     rfc_esperado: Optional[str] = Form(None),
 ):
     """
     Registra una empresa por e.firma. La contraseña se guarda en el keychain.
+    `nombre` es opcional: si viene vacío se usa la razón social del certificado.
     Si se manda `rfc_esperado` (al agregar e.firma a una empresa existente), se valida
     que el RFC del certificado coincida y se rechaza si es de otro contribuyente.
     """
@@ -107,6 +109,25 @@ def empresas_remove(rfc: str):
     """Elimina la empresa del catálogo y borra sus credenciales del keychain."""
     from ...cli import config_store
     config_store.remove_empresa(rfc)
+    return {"ok": True}
+
+
+@router.delete("/empresas/{rfc}/fiel")
+def empresas_remove_fiel(rfc: str):
+    """
+    Quita SOLO la e.firma de la empresa (archivos, contraseña del keychain y
+    campos del catálogo); la CIEC no se toca. Si esa e.firma estaba cargada en
+    la sesión, también se descarga de memoria.
+    """
+    from ...cli import config_store
+    from ..state import _limpiar_session, _session
+
+    try:
+        config_store.remove_efirma(rfc)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if _session.get("rfc") == rfc:
+        _limpiar_session()
     return {"ok": True}
 
 

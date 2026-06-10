@@ -47,6 +47,12 @@ const POOL_EFIRMA_AVISO = [
   '{n} e.firmas necesitan renovación. La que urge: {rfc} a {dias} días.',
 ];
 
+// Cuando la más urgente YA venció ({dias} llega negativo desde el semáforo).
+const POOL_EFIRMA_VENCIDA = [
+  'La e.firma de {rfc} venció hace {dias} días. Renuévala o quítala y sigue con la CIEC.',
+  'Tienes una e.firma vencida: {rfc} (hace {dias} días). Puedes renovarla o quitarla en Empresas.',
+];
+
 interface Vars {
   count?: number;
   rfc?: string;
@@ -77,5 +83,15 @@ export function mensajeDescargaError(canal: DescargaCanal, vars: Vars): string {
 }
 
 export function mensajeEfirmaAviso(vars: Vars): string {
+  // Vencida (días negativos): otro copy, con los días en positivo.
+  if (vars.dias != null && vars.dias < 0) {
+    return interpolate(pick(POOL_EFIRMA_VENCIDA), {
+      ...vars,
+      dias: Math.abs(vars.dias),
+    });
+  }
+  if (vars.dias === 0) {
+    return interpolate('La e.firma de {rfc} vence HOY. Renuévala cuanto antes.', vars);
+  }
   return interpolate(pick(POOL_EFIRMA_AVISO), vars);
 }

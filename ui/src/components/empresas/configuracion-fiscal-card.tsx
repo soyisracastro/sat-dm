@@ -279,7 +279,10 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
             {actividades.map((a, idx) => (
               <li
                 key={`${a.descripcion}-${idx}`}
-                className="flex items-start gap-2 rounded-md border bg-card px-2 py-1.5"
+                className={cn(
+                  'flex items-start gap-2 rounded-md border bg-card px-2 py-1.5',
+                  a.principal && 'border-primary bg-accent',
+                )}
               >
                 <button
                   type="button"

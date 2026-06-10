@@ -12,7 +12,6 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 import { useEmpresas } from '@/hooks/use-empresas';
-import { PageHeading } from '@/components/layout/page-heading';
 import { Icon } from '@/components/ui/icon';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,8 +19,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
 import { ConfiguracionFiscalCard } from '@/components/empresas/configuracion-fiscal-card';
+import { colorEmpresa, tipoPersona } from '@/lib/empresa-visual';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import type { Empresa } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
@@ -29,7 +37,8 @@ import { mensajeDeError } from '@/lib/errores';
 export function EmpresaDetalle() {
   const searchParams = useSearchParams();
   const rfc = searchParams.get('rfc') ?? '';
-  const { empresas, loading, addCiec, addFiel, activarSesion, update } = useEmpresas();
+  const { empresas, loading, addCiec, addFiel, removeEfirma, activarSesion, update } =
+    useEmpresas();
   const empresa = empresas.find((e) => e.rfc === rfc);
 
   const volver = (
@@ -64,22 +73,40 @@ export function EmpresaDetalle() {
   const tieneFiel = empresa.metodos.includes('fiel');
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="max-w-220 space-y-6">
       {volver}
-      <PageHeading title={empresa.nombre} description={`${empresa.rfc}`} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        {tieneFiel && (
-          <Badge variant="secondary" className="gap-1">
-            <Icon icon="ph:shield-check-light" className="size-3" /> e.firma
-          </Badge>
-        )}
-        {tieneCiec && (
-          <Badge variant="secondary" className="gap-1">
-            <Icon icon="ph:key-light" className="size-3" /> CIEC
-          </Badge>
-        )}
-        {tieneFiel && <VencimientoBadge vencimiento={empresa.vencimiento} />}
+      {/* Cabecera: cuadro PF/PM + nombre + RFC + pills de estado */}
+      <div className="space-y-4">
+        <div className="flex items-start gap-4">
+          <span
+            className="flex size-11.5 shrink-0 items-center justify-center rounded-[11px] font-mono text-[15px] font-bold text-white"
+            style={{ background: colorEmpresa(empresa.rfc) }}
+          >
+            {tipoPersona(empresa.rfc)}
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-extrabold leading-tight tracking-tight">
+              {empresa.nombre}
+            </h1>
+            <div className="mt-0.5 font-mono text-sm font-semibold text-muted-foreground">
+              {empresa.rfc}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {tieneFiel && (
+            <Badge variant="secondary" className="gap-1">
+              <Icon icon="ph:shield-check-light" className="size-3" /> e.firma
+            </Badge>
+          )}
+          {tieneCiec && (
+            <Badge variant="secondary" className="gap-1">
+              <Icon icon="ph:key-light" className="size-3" /> CIEC
+            </Badge>
+          )}
+          {tieneFiel && <VencimientoBadge vencimiento={empresa.vencimiento} />}
+        </div>
       </div>
 
       <ConfiguracionFiscalCard
@@ -89,7 +116,7 @@ export function EmpresaDetalle() {
 
       <CiecSection
         empresa={empresa}
-        onGuardar={(ciec) => addCiec(empresa.rfc, empresa.nombre, ciec)}
+        onGuardar={(ciec) => addCiec(empresa.rfc, ciec, empresa.nombre)}
       />
       <FielSection
         empresa={empresa}
@@ -98,6 +125,7 @@ export function EmpresaDetalle() {
           // Cargar la e.firma recién agregada/renovada en la sesión (cabecera/Inicio).
           await activarSesion(empresa.rfc);
         }}
+        onQuitar={() => removeEfirma(empresa.rfc)}
       />
     </div>
   );
@@ -159,7 +187,8 @@ function CiecSection({
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          La contraseña CIEC está guardada en el keychain del sistema.
+          Tu contraseña CIEC se guarda protegida y solo en este equipo. Nunca se
+          muestra a la vista.
         </p>
       </Card>
     );
@@ -211,14 +240,19 @@ function CiecSection({
 function FielSection({
   empresa,
   onGuardar,
+  onQuitar,
 }: {
   empresa: Empresa;
   onGuardar: (cer: File, key: File, password: string) => Promise<void>;
+  onQuitar: () => Promise<void>;
 }) {
   const tiene = empresa.metodos.includes('fiel');
+  const tieneCiec = empresa.metodos.includes('ciec');
   const sem = tiene ? semaforoVencimiento(empresa.vencimiento) : null;
   const avisaRenovar = sem !== null && sem.estado !== 'verde';
   const [mostrarForm, setMostrarForm] = useState(!tiene);
+  const [confirmQuitar, setConfirmQuitar] = useState(false);
+  const [quitando, setQuitando] = useState(false);
   const [cer, setCer] = useState<File | null>(null);
   const [key, setKey] = useState<File | null>(null);
   const [password, setPassword] = useState('');
@@ -227,6 +261,20 @@ function FielSection({
   const [error, setError] = useState<string | null>(null);
   const cerRef = useRef<HTMLInputElement>(null);
   const keyRef = useRef<HTMLInputElement>(null);
+
+  async function quitar() {
+    setQuitando(true);
+    setError(null);
+    try {
+      await onQuitar();
+      setConfirmQuitar(false);
+      setMostrarForm(false);
+    } catch (err) {
+      setError(mensajeDeError(err));
+    } finally {
+      setQuitando(false);
+    }
+  }
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault();
@@ -250,19 +298,29 @@ function FielSection({
     }
   }
 
-  // Empresa ya tiene FIEL y el form está colapsado → resumen + botón.
+  // Empresa ya tiene FIEL y el form está colapsado → resumen + botones.
   if (tiene && !mostrarForm) {
     return (
       <Card className="space-y-3 p-5">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Icon icon="ph:shield-check-light" className="size-4 text-primary" />
             <span className="text-sm font-medium">e.firma</span>
             {ok && <Guardado />}
           </div>
-          <Button variant="outline" size="sm" onClick={() => setMostrarForm(true)}>
-            Renovar e.firma
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMostrarForm(true)}>
+              Renovar e.firma
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setConfirmQuitar(true)}
+            >
+              Quitar e.firma
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
           {sem ? `Vence el ${sem.fecha} · ${sem.label}` : 'Certificado registrado.'}
@@ -278,11 +336,36 @@ function FielSection({
           >
             <AlertDescription className="text-xs">
               {sem.vencida
-                ? `Esta e.firma venció el ${sem.fecha}. Renuévala subiendo el nuevo .cer y .key.`
+                ? `Esta e.firma venció el ${sem.fecha}. Renuévala con el nuevo .cer y .key — o quítala y sigue trabajando con tu CIEC mientras la renuevas.`
                 : `Esta e.firma ${sem.label.toLowerCase()} (vence el ${sem.fecha}). Conviene renovarla.`}
             </AlertDescription>
           </Alert>
         )}
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <Dialog open={confirmQuitar} onOpenChange={(o) => !o && setConfirmQuitar(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Quitar e.firma</DialogTitle>
+              <DialogDescription>
+                {tieneCiec
+                  ? `Se quitará la e.firma de "${empresa.nombre}" de este equipo (archivos y contraseña). La empresa seguirá funcionando con su CIEC; podrás cargar una e.firma nueva cuando la renueves.`
+                  : `Se quitará la e.firma de "${empresa.nombre}" de este equipo (archivos y contraseña). Esta empresa no tiene CIEC registrada, así que quedará sin acceso al SAT hasta que agregues una e.firma o una CIEC.`}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmQuitar(false)}>
+                Cancelar
+              </Button>
+              <Button variant="destructive" disabled={quitando} onClick={quitar}>
+                {quitando ? (
+                  <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
+                ) : null}
+                Quitar e.firma
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </Card>
     );
   }

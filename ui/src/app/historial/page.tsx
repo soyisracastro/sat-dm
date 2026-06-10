@@ -25,7 +25,7 @@ import { mensajeDeError } from '@/lib/errores';
 
 const TIPO_META: Record<TipoDescarga, { label: string; icon: string }> = {
   cfdi: { label: 'CFDIs', icon: 'ph:download-simple-light' },
-  metadata: { label: 'Metadata', icon: 'ph:database-light' },
+  metadata: { label: 'Listado', icon: 'ph:database-light' },
   constancia: { label: 'Constancia', icon: 'ph:file-text-light' },
   opinion: { label: 'Opinión 32-D', icon: 'ph:seal-check-light' },
 };

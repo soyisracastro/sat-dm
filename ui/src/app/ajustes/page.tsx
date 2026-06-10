@@ -1,23 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTheme } from 'next-themes';
 
-import { Icon } from '@/components/ui/icon';
-
+import { cn } from '@/lib/utils';
 import { useServer } from '@/providers/server-provider';
+import { useAuth } from '@/providers/auth-provider';
 import { PageHeading } from '@/components/layout/page-heading';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Icon } from '@/components/ui/icon';
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from '@/lib/notify/prefs';
 
 const TEMAS = [
-  { value: 'light', label: 'Claro', icon: 'ph:sun-light' },
-  { value: 'dark', label: 'Oscuro', icon: 'ph:moon-light' },
-  { value: 'system', label: 'Sistema', icon: 'ph:desktop-light' },
+  { value: 'light', label: 'Claro' },
+  { value: 'dark', label: 'Oscuro' },
+  { value: 'system', label: 'Sistema' },
 ] as const;
 
 /** Selector de carpeta nativo del SO (solo en Electron); null en navegador. */
@@ -29,10 +29,66 @@ function elegirCarpetaNativo(): Promise<string | null> | null {
   return d?.elegirCarpeta ? d.elegirCarpeta() : null;
 }
 
+/** Tarjeta de sección: encabezado con icono + filas divididas. */
+function AjCard({
+  icon,
+  title,
+  children,
+}: {
+  icon: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="gap-0 px-5 py-1.5">
+      <div className="flex items-center gap-2 pb-1.5 pt-3.5 text-[15px] font-bold tracking-tight">
+        <Icon icon={icon} className="size-4.5 text-foreground/70" />
+        {title}
+      </div>
+      <div>{children}</div>
+    </Card>
+  );
+}
+
+/** Fila de ajuste: label + descripción a la izquierda, control a la derecha. */
+function AjRow({
+  label,
+  sub,
+  control,
+  col,
+}: {
+  label: string;
+  sub?: ReactNode;
+  control: ReactNode;
+  /** Control debajo del texto (para grupos de botones anchos). */
+  col?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex gap-4 border-t py-3.75',
+        col ? 'flex-col' : 'items-center justify-between',
+      )}
+    >
+      <div className="min-w-0">
+        <div className="text-[13.5px] font-semibold">{label}</div>
+        {sub && (
+          <div className="mt-0.5 max-w-prose text-xs leading-snug text-muted-foreground">
+            {sub}
+          </div>
+        )}
+      </div>
+      <div className="shrink-0">{control}</div>
+    </div>
+  );
+}
+
 export default function AjustesPage() {
   const { apiClient } = useServer();
+  const { license, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [esWindows, setEsWindows] = useState(false);
   const [dir, setDir] = useState('');
   const [editable, setEditable] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -44,6 +100,8 @@ export default function AjustesPage() {
   useEffect(() => {
     setMounted(true);
     setNotifPrefsState(getNotifPrefs());
+    const ua = navigator.platform || navigator.userAgent || '';
+    setEsWindows(/Win/i.test(ua));
   }, []);
 
   function actualizarNotif(patch: Partial<NotifPrefs>) {
@@ -78,115 +136,138 @@ export default function AjustesPage() {
     }
   }
 
+  const version = process.env.NEXT_PUBLIC_APP_VERSION;
+  const sistema = mounted ? (esWindows ? 'Windows' : 'macOS') : '—';
+
   return (
-    <div className="max-w-2xl space-y-6">
-      <PageHeading title="Ajustes" description="Configuración de la aplicación." />
+    <div className="max-w-260 space-y-6">
+      <PageHeading
+        title="Preferencias de la aplicación"
+        description="Estos ajustes se guardan solo en este equipo."
+      />
 
-      <Card className="space-y-3 p-5">
-        <div className="space-y-1">
-          <Label>Apariencia</Label>
-          <p className="text-xs text-muted-foreground">
-            Elige el tema visual. &quot;Sistema&quot; sigue la preferencia de tu sistema operativo.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {TEMAS.map((t) => {
-            const activo = mounted && theme === t.value;
-            return (
-              <Button
-                key={t.value}
-                variant={activo ? 'default' : 'outline'}
-                onClick={() => setTheme(t.value)}
-                aria-pressed={activo}
-              >
-                <Icon icon={t.icon} className="size-4" />
-                {t.label}
+      <div className="grid items-start gap-4.5 md:grid-cols-2">
+        {/* Almacenamiento */}
+        <AjCard icon="ph:folder-light" title="Almacenamiento">
+          <AjRow
+            label="Carpeta de descarga"
+            sub={
+              <span className="block truncate font-mono">{dir || '—'}</span>
+            }
+            control={
+              <Button variant="outline" size="sm" onClick={cambiar} disabled={saving}>
+                {saving ? (
+                  <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
+                ) : (
+                  'Cambiar'
+                )}
               </Button>
-            );
-          })}
-        </div>
-      </Card>
+            }
+          />
+          {editable && (
+            <div className="flex gap-2 border-t py-3.75">
+              <Input
+                value={dir}
+                onChange={(e) => setDir(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <Button size="sm" onClick={() => guardar(dir)} disabled={saving}>
+                Guardar
+              </Button>
+            </div>
+          )}
+          <AjRow
+            label="Estructura"
+            sub="Las facturas se ordenan en subcarpetas por tipo y por RFC."
+            control={<span className="text-xs text-muted-foreground">Automática</span>}
+          />
+        </AjCard>
 
-      <Card className="space-y-4 p-5">
-        <div className="space-y-1">
-          <Label>Notificaciones</Label>
-          <p className="text-xs text-muted-foreground">
-            Si la app está enfocada, el aviso aparece dentro (in-app). Si
-            estás en otra ventana, llega al centro de notificaciones del SO.
-          </p>
-        </div>
+        {/* Apariencia */}
+        <AjCard icon="ph:sun-light" title="Apariencia">
+          <AjRow
+            label="Tema"
+            sub="«Sistema» sigue lo que use tu computadora."
+            col
+            control={
+              <div className="flex gap-2">
+                {TEMAS.map((t) => {
+                  const activo = mounted && theme === t.value;
+                  return (
+                    <Button
+                      key={t.value}
+                      size="sm"
+                      variant={activo ? 'default' : 'outline'}
+                      onClick={() => setTheme(t.value)}
+                      aria-pressed={activo}
+                    >
+                      {t.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            }
+          />
+        </AjCard>
 
-        <div className="space-y-3">
-          <label className="flex items-start gap-3">
-            <Switch
-              checked={notifPrefs.descargas}
-              onCheckedChange={(v) => actualizarNotif({ descargas: v })}
-              className="mt-0.5"
-            />
-            <span className="space-y-0.5">
-              <span className="block text-sm">Avisarme cuando termine una descarga</span>
-              <span className="block text-xs text-muted-foreground">
-                Aplica a descargas WS (FIEL) y CIEC. También avisa si fallan.
+        {/* Notificaciones */}
+        <AjCard icon="ph:bell-light" title="Notificaciones">
+          <AjRow
+            label="Avisarme cuando termine una descarga"
+            sub="Vale para e.firma o CIEC. También te avisamos si alguna falla."
+            control={
+              <Switch
+                checked={notifPrefs.descargas}
+                onCheckedChange={(v) => actualizarNotif({ descargas: v })}
+              />
+            }
+          />
+          <AjRow
+            label="Recordarme si mi e.firma está por vencer"
+            sub="Una vez al día, cuando le queden 30 días o menos."
+            control={
+              <Switch
+                checked={notifPrefs.efirma}
+                onCheckedChange={(v) => actualizarNotif({ efirma: v })}
+              />
+            }
+          />
+        </AjCard>
+
+        {/* Acerca de */}
+        <AjCard icon="ph:info-light" title="Acerca de">
+          <AjRow
+            label="Versión"
+            control={
+              <span className="font-mono text-[13px] text-foreground/80">
+                {version || '—'}
               </span>
-            </span>
-          </label>
-
-          <label className="flex items-start gap-3">
-            <Switch
-              checked={notifPrefs.efirma}
-              onCheckedChange={(v) => actualizarNotif({ efirma: v })}
-              className="mt-0.5"
-            />
-            <span className="space-y-0.5">
-              <span className="block text-sm">
-                Recordarme cuando mi e.firma esté por vencer
+            }
+          />
+          <AjRow
+            label="Equipo"
+            control={
+              <span className="font-mono text-[13px] text-foreground/80">
+                {sistema}
               </span>
-              <span className="block text-xs text-muted-foreground">
-                Una vez al día si la e.firma activa vence en 30 días o menos.
-              </span>
-            </span>
-          </label>
-        </div>
-
-      </Card>
-
-      <Card className="space-y-3 p-5">
-        <div className="space-y-1">
-          <Label>Carpeta de descargas</Label>
-          <p className="text-xs text-muted-foreground">
-            Dónde se guardan los CFDIs y documentos descargados (en subcarpetas por
-            tipo y RFC).
-          </p>
-        </div>
-
-        {editable ? (
-          <div className="flex gap-2">
-            <Input
-              value={dir}
-              onChange={(e) => setDir(e.target.value)}
-              className="font-mono text-xs"
-            />
-            <Button onClick={() => guardar(dir)} disabled={saving}>
-              {saving ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : 'Guardar'}
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <code className="flex-1 truncate rounded-md border bg-secondary px-3 py-2 font-mono text-xs">
-              {dir || '—'}
-            </code>
-            <Button variant="outline" onClick={cambiar} disabled={saving}>
-              {saving ? (
-                <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
-              ) : (
-                <Icon icon="ph:folder-light" className="size-4" />
-              )}
-              Cambiar…
-            </Button>
-          </div>
-        )}
-      </Card>
+            }
+          />
+          <AjRow
+            label="Cuenta"
+            sub={license?.email ? <span className="truncate">{license.email}</span> : undefined}
+            control={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => logout()}
+              >
+                Cerrar sesión
+              </Button>
+            }
+          />
+        </AjCard>
+      </div>
     </div>
   );
 }

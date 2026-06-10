@@ -96,6 +96,9 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
     ya existía (p. ej. con CIEC), sin quitar el otro método. Valida la FIEL, copia
     .cer/.key a ./efirma/{RFC}/ y guarda la contraseña en el keychain. Retorna el RFC.
 
+    `nombre` puede venir vacío: se resuelve con la razón social del certificado
+    (CN del subject) y, en último caso, con el RFC.
+
     Si se pasa `rfc_esperado` (al agregar e.firma a una empresa existente), se valida
     que el RFC del certificado coincida; si no, se rechaza (evita subir la e.firma de
     otro contribuyente).
@@ -126,7 +129,7 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
         existente = data["empresas"].get(rfc, {})
         entry = {
             **existente,
-            "nombre": existente.get("nombre") or nombre,
+            "nombre": existente.get("nombre") or nombre or fiel.legal_name or rfc,
             "metodos": sorted(set(_metodos(existente)) | {"fiel"}),
             "cer_path": str(cer_dest),
             "key_path": str(key_dest),
@@ -144,6 +147,9 @@ def add_empresa_ciec(rfc: str, nombre: str, ciec: str) -> str:
     """
     Registra una empresa por CIEC — o le AGREGA el método CIEC si el RFC ya existía
     (p. ej. con e.firma), sin quitar el otro. Guarda la contraseña CIEC en el keychain.
+
+    `nombre` puede venir vacío: queda el RFC como nombre y se completa después
+    (p. ej. al parsear la Constancia de Situación Fiscal).
     """
     rfc = rfc.strip().upper()
     secretos.guardar(rfc, secretos.CIEC, ciec)
@@ -153,7 +159,7 @@ def add_empresa_ciec(rfc: str, nombre: str, ciec: str) -> str:
         existente = data["empresas"].get(rfc, {})
         entry = {
             **existente,
-            "nombre": existente.get("nombre") or nombre,
+            "nombre": existente.get("nombre") or nombre or rfc,
             "metodos": sorted(set(_metodos(existente)) | {"ciec"}),
         }
         entry.pop("metodo", None)
@@ -175,6 +181,28 @@ def remove_empresa(rfc: str):
     # Borrar credenciales del keychain (ambos métodos; no falla si no existen).
     secretos.borrar(rfc, secretos.FIEL)
     secretos.borrar(rfc, secretos.CIEC)
+
+
+def remove_efirma(rfc: str):
+    """
+    Quita SOLO el método e.firma de una empresa (la CIEC no se toca): borra
+    .cer/.key de ./efirma/{RFC}/, la contraseña del keychain y los campos del
+    catálogo. Caso de uso: la e.firma venció y el contribuyente no puede
+    renovarla aún — la empresa queda operando solo con CIEC.
+    Lanza KeyError si el RFC no existe.
+    """
+    with _catalogo_lock:
+        data = load_empresas()
+        if rfc not in data["empresas"]:
+            raise KeyError(f"No se encontró empresa con RFC {rfc}")
+        info = data["empresas"][rfc]
+        info["metodos"] = [m for m in _metodos(info) if m != "fiel"]
+        for campo in ("cer_path", "key_path", "vencimiento"):
+            info.pop(campo, None)
+        info.pop("metodo", None)  # campo legacy
+        save_empresas(data)
+    secretos.borrar(rfc, secretos.FIEL)
+    shutil.rmtree(EFIRMA_DIR / rfc, ignore_errors=True)
 
 
 def list_empresas() -> list[dict]:
