@@ -1,295 +1,655 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import Image from 'next/image';
 
 import { useServer } from '@/providers/server-provider';
 import { useAuth } from '@/providers/auth-provider';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
+import { ApiError } from '@/lib/api-client';
 import { mensajeDeError } from '@/lib/errores';
+import { cn } from '@/lib/utils';
 
-type Phase = 'idle' | 'iniciando' | 'esperando' | 'exito' | 'error';
+// ---------------------------------------------------------------------------
+// Login en-app estilo Notion (sin navegador): contraseña u OTP de 6 dígitos.
+// La sesión Supabase se guarda en el agente (keyring); el renderer solo ve el
+// estado derivado vía useAuth(). Reemplaza al device-code flow (que sigue
+// disponible en el agente como fallback, pero sin UI).
+// ---------------------------------------------------------------------------
 
-const POLL_INTERVAL_MS = 2500;
-const POLL_TIMEOUT_MS = 9 * 60 * 1000; // device code expira a 10 min en backend
+type Vista = 'login' | 'signup';
+type Metodo = 'password' | 'codigo';
+type Paso = 'form' | 'otp' | 'done';
+
+/** Contexto del paso OTP: cómo verificar y cómo reenviar. */
+interface OtpContexto {
+  /** Tipo de verificación GoTrue: 'email' (login/registro por código) | 'signup' (confirmar registro con contraseña). */
+  tipo: 'email' | 'signup';
+  crearCuenta: boolean;
+  nombre: string;
+}
+
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+function mensajeAuth(e: unknown): string {
+  // ApiError.message viene como "[401] detalle"; mostramos solo el detalle.
+  if (e instanceof ApiError) return e.detail;
+  return mensajeDeError(e);
+}
 
 export default function LoginPage() {
   const { apiClient } = useServer();
   const { refresh } = useAuth();
 
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [deviceCode, setDeviceCode] = useState<string | null>(null);
-  const [activateUrl, setActivateUrl] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [vista, setVista] = useState<Vista>('login');
+  // Código de acceso por default: los usuarios existentes de la web no tienen
+  // contraseña (la app en línea usa magic link); la contraseña es opcional.
+  const [metodo, setMetodo] = useState<Metodo>('codigo');
+  const [paso, setPaso] = useState<Paso>('form');
+  const [otpCtx, setOtpCtx] = useState<OtpContexto>({
+    tipo: 'email',
+    crearCuenta: false,
+    nombre: '',
+  });
 
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startedAtRef = useRef<number>(0);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const cleanup = useCallback(() => {
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
+  const esLogin = vista === 'login';
+  const esPwd = metodo === 'password';
+
+  const cambiarVista = useCallback((v: Vista) => {
+    setVista(v);
+    setMetodo('codigo');
+    setPaso('form');
+    setPassword('');
+    setError(null);
   }, []);
 
-  useEffect(() => cleanup, [cleanup]);
-
-  const iniciar = useCallback(async () => {
-    cleanup();
-    setPhase('iniciando');
-    setErrorMsg(null);
-    try {
-      const r = await apiClient.authInit();
-      setDeviceCode(r.device_code);
-      setActivateUrl(r.activate_url);
-      startedAtRef.current = Date.now();
-      setPhase('esperando');
-
-      // No encimar polls si la red anda lenta (el tick siguiente se salta).
-      let pollEnCurso = false;
-      pollTimerRef.current = setInterval(async () => {
-        if (Date.now() - startedAtRef.current > POLL_TIMEOUT_MS) {
-          cleanup();
-          setErrorMsg(
-            'El código de activación expiró. Genera uno nuevo y vuelve a intentar.',
-          );
-          setPhase('error');
-          return;
-        }
-        if (pollEnCurso) return;
-        pollEnCurso = true;
-        try {
-          const res = await apiClient.authPoll(r.device_code);
-          if (res.status === 'ok') {
-            cleanup();
-            setPhase('exito');
-            // Estilo Notion / 1Password: cuando la activación se completa en
-            // el browser, la desktop se trae automáticamente al frente. Sin
-            // esto, el usuario tiene que cambiarse de ventana manualmente.
-            const w = window as unknown as {
-              satDesktop?: { focusWindow?: () => Promise<boolean> };
-            };
-            w.satDesktop?.focusWindow?.().catch(() => {
-              /* en browser/dev no hay satDesktop — no-op */
-            });
-            // Pequeña pausa para que el usuario vea el estado de éxito antes
-            // de que `refresh()` re-renderee el shell con el dashboard.
-            setTimeout(() => {
-              refresh();
-            }, 800);
-          } else if (res.status === 'expired') {
-            cleanup();
-            setErrorMsg('El código expiró. Genera uno nuevo.');
-            setPhase('error');
-          } else if (res.status === 'not_found') {
-            cleanup();
-            setErrorMsg('El código fue invalidado. Genera uno nuevo.');
-            setPhase('error');
-          }
-          // 'pending' → seguimos polling.
-        } catch (e) {
-          // Errores de red transitorios: no rompemos el polling, solo logueamos.
-          console.warn('[login] poll falló:', e);
-        } finally {
-          pollEnCurso = false;
-        }
-      }, POLL_INTERVAL_MS);
-    } catch (e) {
-      setErrorMsg(mensajeDeError(e));
-      setPhase('error');
-    }
-  }, [apiClient, cleanup, refresh]);
-
-  // Auto-iniciar al cargar la página la primera vez.
-  useEffect(() => {
-    if (phase === 'idle') {
-      iniciar();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const cambiarMetodo = useCallback((m: Metodo) => {
+    setMetodo(m);
+    setError(null);
   }, []);
 
-  // Escucha deep links del protocolo `todoconta://activated?code=XXX`.
-  // Cuando la web hace el redirect post-activate, el SO trae a esta app al
-  // frente con el code; aquí hacemos un poll inmediato para no esperar el
-  // próximo tick de polling regular (~2.5s) — UX más snappy.
+  // Al completar el login, una pequeña pausa para que se vea el estado de
+  // éxito antes de que refresh() re-renderee el shell con el dashboard.
   useEffect(() => {
-    const w = window as unknown as {
-      satDesktop?: {
-        onProtocolActivated?: (
-          cb: (payload: { action: string; code: string | null }) => void,
-        ) => () => void;
-      };
-    };
-    const subscribe = w.satDesktop?.onProtocolActivated;
-    if (!subscribe) return;
+    if (paso !== 'done') return;
+    const t = setTimeout(() => {
+      refresh();
+    }, 900);
+    return () => clearTimeout(t);
+  }, [paso, refresh]);
 
-    const dispose = subscribe(async ({ action, code }) => {
-      if (action !== 'activated' || !code) return;
-      try {
-        const res = await apiClient.authPoll(code);
-        if (res.status === 'ok') {
-          cleanup();
-          setPhase('exito');
-          setTimeout(() => refresh(), 600);
-        }
-        // Si todavía está pending o el code no coincide con el del polling
-        // regular, dejamos que el polling regular lo recoja.
-      } catch (e) {
-        console.warn('[login] poll desde deep link falló:', e);
+  const submit = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      const correo = email.trim();
+      if (!EMAIL_RE.test(correo)) {
+        setError('Escribe un correo válido.');
+        return;
       }
-    });
-    return dispose;
-  }, [apiClient, cleanup, refresh]);
-
-  const copyCode = useCallback(() => {
-    if (deviceCode) {
-      navigator.clipboard?.writeText(deviceCode).catch(() => {
-        /* ignore */
-      });
-    }
-  }, [deviceCode]);
-
-  const openActivate = useCallback(() => {
-    if (activateUrl) {
-      window.open(activateUrl, '_blank', 'noopener,noreferrer');
-    }
-  }, [activateUrl]);
+      setError(null);
+      setLoading(true);
+      try {
+        if (esLogin && esPwd) {
+          if (!password) {
+            setError('Escribe tu contraseña.');
+            return;
+          }
+          await apiClient.authLoginPassword(correo, password);
+          setPaso('done');
+        } else if (esLogin) {
+          await apiClient.authOtpSend(correo);
+          setOtpCtx({ tipo: 'email', crearCuenta: false, nombre: '' });
+          setPaso('otp');
+        } else if (esPwd) {
+          if (password.length < 8) {
+            setError('La contraseña debe tener mínimo 8 caracteres.');
+            return;
+          }
+          const r = await apiClient.authSignup(correo, password, nombre.trim());
+          if (r.requiere_confirmacion) {
+            setOtpCtx({ tipo: 'signup', crearCuenta: false, nombre: nombre.trim() });
+            setPaso('otp');
+          } else {
+            setPaso('done');
+          }
+        } else {
+          await apiClient.authOtpSend(correo, {
+            crearCuenta: true,
+            nombre: nombre.trim(),
+          });
+          setOtpCtx({ tipo: 'email', crearCuenta: true, nombre: nombre.trim() });
+          setPaso('otp');
+        }
+      } catch (err) {
+        setError(mensajeAuth(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apiClient, email, password, nombre, esLogin, esPwd],
+  );
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-background to-muted/30 flex items-center justify-center p-6">
-      <div className="w-full max-w-md space-y-4">
-        <div className="text-center space-y-2">
-          <Image
-            src="/icon.png"
-            alt="TodoConta"
-            width={56}
-            height={56}
-            className="mx-auto rounded-xl"
-            priority
+    <div className="flex min-h-full justify-center bg-background px-6 pb-10 pt-14">
+      <div className="w-full max-w-96">
+        {paso === 'done' ? (
+          <DoneStep esLogin={esLogin} />
+        ) : paso === 'otp' ? (
+          <OtpStep
+            email={email.trim()}
+            esLogin={esLogin}
+            ctx={otpCtx}
+            onVolver={() => {
+              setPaso('form');
+              setError(null);
+            }}
+            onExito={() => setPaso('done')}
           />
-          <h1 className="text-2xl font-semibold">TodoConta Desktop</h1>
-          <p className="text-sm text-muted-foreground">
-            Inicia sesión para empezar
-          </p>
-        </div>
+        ) : (
+          <div className="animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <Marca />
+            <h1 className="mb-8 text-center">
+              <span className="block text-[26px] font-bold leading-[1.22] tracking-[-0.02em] text-foreground">
+                {esLogin ? 'Bienvenido de vuelta.' : 'Crea tu cuenta.'}
+              </span>
+              <span className="block text-[26px] font-bold leading-[1.22] tracking-[-0.02em] text-muted-foreground/70">
+                {esLogin ? 'Inicia sesión en TodoConta' : 'Empieza gratis con TodoConta'}
+              </span>
+            </h1>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Vincular a tu cuenta</CardTitle>
-            <CardDescription>
-              Necesitas una cuenta de TodoConta. Si aún no la tienes, créala
-              gratis desde el navegador.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {(phase === 'iniciando' || phase === 'idle') && (
-              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
-                Generando código…
-              </div>
-            )}
+            <form onSubmit={submit} noValidate>
+              {!esLogin && (
+                <Campo label="Nombre completo" htmlFor="login-nombre">
+                  <TxtInput
+                    id="login-nombre"
+                    type="text"
+                    autoComplete="name"
+                    placeholder="Tu nombre"
+                    value={nombre}
+                    onChange={(v) => setNombre(v)}
+                  />
+                </Campo>
+              )}
 
-            {phase === 'esperando' && deviceCode && (
-              <>
-                <ol className="space-y-3 text-sm">
-                  <li className="flex gap-2">
-                    <span className="font-mono text-xs text-muted-foreground pt-0.5">
-                      1.
-                    </span>
-                    <div className="space-y-2 flex-1">
-                      <p>Abre TodoConta en tu navegador:</p>
-                      <Button
-                        onClick={openActivate}
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                      >
-                        <Icon icon="ph:arrow-square-out-light" className="size-4" />
-                        Abrir página de activación
-                      </Button>
-                    </div>
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-mono text-xs text-muted-foreground pt-0.5">
-                      2.
-                    </span>
-                    <div className="space-y-2 flex-1">
-                      <p>
-                        Si te pide login, inicia sesión. Después confirma que el
-                        código mostrado en la web coincide con éste:
-                      </p>
-                      <div className="rounded-md border bg-muted/40 p-3 text-center space-y-1">
-                        <p className="text-xs text-muted-foreground">
-                          Código de activación
-                        </p>
-                        <p className="font-mono text-2xl tracking-[0.4em] font-semibold">
-                          {deviceCode}
-                        </p>
-                        <button
-                          onClick={copyCode}
-                          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                        >
-                          <Icon icon="ph:copy-light" className="size-3" />
-                          Copiar
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-mono text-xs text-muted-foreground pt-0.5">
-                      3.
-                    </span>
-                    <p className="flex-1">
-                      Cuando confirmes en la web, esta ventana entrará
-                      automáticamente.
-                    </p>
-                  </li>
-                </ol>
-                <div className="flex items-center justify-center gap-2 pt-2 text-xs text-muted-foreground">
-                  <Icon icon="ph:circle-notch-light" className="size-3 animate-spin" />
-                  Esperando confirmación…
-                </div>
-              </>
-            )}
-
-            {phase === 'exito' && (
-              <div className="space-y-2 py-4 text-center">
-                <Icon
-                  icon="ph:check-circle-fill"
-                  className="mx-auto size-10 text-green-600"
+              <Campo
+                label="Correo electrónico"
+                htmlFor="login-email"
+                help={
+                  !esPwd
+                    ? esLogin
+                      ? 'Te enviaremos un código de acceso de un solo uso a tu correo.'
+                      : 'Te enviaremos un código para confirmar tu correo.'
+                    : undefined
+                }
+              >
+                <TxtInput
+                  id="login-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="tucorreo@despacho.mx"
+                  value={email}
+                  onChange={(v) => setEmail(v)}
                 />
-                <p className="text-sm font-medium">¡Listo!</p>
-                <p className="text-xs text-muted-foreground">
-                  Entrando a TodoConta Desktop…
-                </p>
-              </div>
-            )}
+              </Campo>
 
-            {phase === 'error' && (
-              <>
-                <Alert variant="destructive">
-                  <AlertTitle>No pudimos completar el login</AlertTitle>
-                  <AlertDescription>
-                    {errorMsg ?? 'Error desconocido'}
-                  </AlertDescription>
-                </Alert>
-                <Button onClick={iniciar} variant="outline" className="w-full">
-                  <Icon icon="ph:arrow-clockwise-light" className="size-4" />
-                  Intentar de nuevo
-                </Button>
-              </>
-            )}
-          </CardContent>
-        </Card>
+              {esPwd && (
+                <div className="animate-in fade-in slide-in-from-bottom-1 mb-4.5 duration-200">
+                  <label
+                    htmlFor="login-pwd"
+                    className="mb-2 flex items-baseline justify-between gap-3 text-[13px] font-semibold text-foreground"
+                  >
+                    <span>{esLogin ? 'Contraseña' : 'Crea una contraseña'}</span>
+                    {esLogin && (
+                      <button
+                        type="button"
+                        className="shrink-0 whitespace-nowrap text-xs font-medium text-primary hover:underline"
+                        onClick={() => cambiarMetodo('codigo')}
+                        title="Entra con un código a tu correo"
+                      >
+                        ¿La olvidaste?
+                      </button>
+                    )}
+                  </label>
+                  <div className="relative flex items-center">
+                    <TxtInput
+                      id="login-pwd"
+                      type={showPwd ? 'text' : 'password'}
+                      autoComplete={esLogin ? 'current-password' : 'new-password'}
+                      placeholder={esLogin ? 'Tu contraseña' : 'Mínimo 8 caracteres'}
+                      value={password}
+                      onChange={(v) => setPassword(v)}
+                      className="pr-12"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-1.5 flex size-9 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-muted-foreground"
+                      title={showPwd ? 'Ocultar' : 'Mostrar'}
+                      aria-label={showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      onClick={() => setShowPwd((s) => !s)}
+                    >
+                      <Icon
+                        icon={showPwd ? 'ph:eye-slash-light' : 'ph:eye-light'}
+                        className="size-4.5"
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
 
-        <p className="text-center text-xs text-muted-foreground">
-          Tu e.firma y datos de empresas viven solo en este equipo. La cuenta
-          es para licencia y actualizaciones.
-        </p>
+              {error && <ErrorInline mensaje={error} />}
+
+              <BotonPrimario loading={loading}>
+                {esLogin ? (esPwd ? 'Iniciar sesión' : 'Continuar') : 'Crear cuenta'}
+              </BotonPrimario>
+
+              <button
+                type="button"
+                className="mt-4 block w-full text-center text-[13.5px] font-medium text-primary hover:underline"
+                onClick={() => cambiarMetodo(esPwd ? 'codigo' : 'password')}
+              >
+                {esLogin
+                  ? esPwd
+                    ? 'Ingresar con código de acceso'
+                    : 'Prefiero usar mi contraseña'
+                  : esPwd
+                    ? 'Crear cuenta con código de acceso'
+                    : 'Prefiero crear una contraseña'}
+              </button>
+            </form>
+
+            <Divider>{esLogin ? 'o continúa con' : 'o regístrate con'}</Divider>
+
+            {/* OAuth Google: visible pero deshabilitado — la vinculación real
+                se implementa después. El span wrapper lleva el title porque
+                un botón disabled no siempre dispara el tooltip nativo. */}
+            <span title="Próximamente" className="block">
+              <button
+                type="button"
+                disabled
+                className="flex h-11.5 w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-lg border border-input bg-card text-[15px] font-semibold text-foreground opacity-50 dark:bg-secondary"
+              >
+                <GoogleG />
+                Google
+              </button>
+            </span>
+
+            <div className="mt-7 text-center">
+              <p className="text-sm text-muted-foreground">
+                {esLogin ? '¿Primera vez?' : '¿Ya tienes cuenta?'}{' '}
+                <button
+                  type="button"
+                  className="font-semibold text-primary hover:underline"
+                  onClick={() => cambiarVista(esLogin ? 'signup' : 'login')}
+                >
+                  {esLogin ? 'Crea tu cuenta' : 'Inicia sesión'}
+                </button>
+              </p>
+              <p className="mt-7 border-t border-border/60 pt-5 text-xs leading-relaxed text-muted-foreground/80">
+                {esLogin ? 'Al continuar' : 'Al crear tu cuenta'}, aceptas los{' '}
+                <LinkExterno href="https://todoconta.com/terminos">
+                  Términos y condiciones
+                </LinkExterno>{' '}
+                y la{' '}
+                <LinkExterno href="https://todoconta.com/privacidad">
+                  Política de privacidad
+                </LinkExterno>{' '}
+                de TodoConta.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Paso OTP: 6 cajas de dígito, auto-advance, reenviar con timer, volver.
+// ---------------------------------------------------------------------------
+
+const OTP_LEN = 6;
+const RESEND_SECS = 30;
+
+function OtpStep({
+  email,
+  esLogin,
+  ctx,
+  onVolver,
+  onExito,
+}: {
+  email: string;
+  esLogin: boolean;
+  ctx: OtpContexto;
+  onVolver: () => void;
+  onExito: () => void;
+}) {
+  const { apiClient } = useServer();
+  const [vals, setVals] = useState<string[]>(Array(OTP_LEN).fill(''));
+  const [secs, setSecs] = useState(RESEND_SECS);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    refs.current[0]?.focus();
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setSecs((s) => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const setAt = (i: number, v: string) => {
+    const d = v.replace(/\D/g, '').slice(-1);
+    setVals((prev) => {
+      const n = [...prev];
+      n[i] = d;
+      return n;
+    });
+    if (d && i < OTP_LEN - 1) refs.current[i + 1]?.focus();
+  };
+
+  const onKey = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !vals[i] && i > 0) refs.current[i - 1]?.focus();
+  };
+
+  // Pegar el código completo desde el correo llena las 6 cajas de una vez.
+  const onPaste = (e: React.ClipboardEvent) => {
+    const digits = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LEN);
+    if (!digits) return;
+    e.preventDefault();
+    setVals(digits.split('').concat(Array(OTP_LEN - digits.length).fill('')));
+    refs.current[Math.min(digits.length, OTP_LEN - 1)]?.focus();
+  };
+
+  const completo = vals.every(Boolean);
+
+  const verificar = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await apiClient.authOtpVerify(email, vals.join(''), ctx.tipo);
+      onExito();
+    } catch (e) {
+      setError(mensajeAuth(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reenviar = async () => {
+    setError(null);
+    try {
+      if (ctx.tipo === 'signup') {
+        await apiClient.authOtpSend(email, { tipo: 'signup' });
+      } else {
+        await apiClient.authOtpSend(email, {
+          crearCuenta: ctx.crearCuenta,
+          nombre: ctx.nombre,
+        });
+      }
+      setSecs(RESEND_SECS);
+      setVals(Array(OTP_LEN).fill(''));
+      refs.current[0]?.focus();
+    } catch (e) {
+      setError(mensajeAuth(e));
+    }
+  };
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-1 duration-200">
+      <button
+        type="button"
+        className="mb-6 inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground"
+        onClick={onVolver}
+      >
+        <Icon icon="ph:arrow-left-light" className="size-4" />
+        Volver
+      </button>
+      <Marca />
+      <h1 className="mb-7 text-center">
+        <span className="block text-[26px] font-bold leading-[1.22] tracking-[-0.02em] text-foreground">
+          Revisa tu correo
+        </span>
+        <span className="mt-2 block text-[15px] font-medium leading-relaxed text-muted-foreground">
+          Enviamos un código de 6 dígitos a
+          <br />
+          <span className="font-semibold text-foreground">{email}</span>
+        </span>
+      </h1>
+
+      <div className="flex justify-between gap-2.5">
+        {vals.map((v, i) => (
+          <input
+            key={i}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            className="h-14 w-full rounded-[9px] border border-input bg-card text-center font-mono text-[22px] font-semibold text-foreground outline-none transition-[border-color,box-shadow] focus:border-primary focus:ring-[3px] focus:ring-primary/15 dark:bg-secondary"
+            inputMode="numeric"
+            maxLength={1}
+            value={v}
+            aria-label={`Dígito ${i + 1} de ${OTP_LEN}`}
+            onChange={(e) => setAt(i, e.target.value)}
+            onKeyDown={(e) => onKey(i, e)}
+            onPaste={onPaste}
+          />
+        ))}
+      </div>
+
+      {error && (
+        <div className="mt-4">
+          <ErrorInline mensaje={error} />
+        </div>
+      )}
+
+      <div className="mt-5">
+        <BotonPrimario loading={loading} disabled={!completo} onClick={verificar} type="button">
+          {esLogin ? 'Verificar e iniciar sesión' : 'Verificar y crear cuenta'}
+        </BotonPrimario>
+      </div>
+
+      <p className="mt-5 text-center text-[13px] text-muted-foreground">
+        ¿No te llegó?{' '}
+        {secs > 0 ? (
+          <span>Reenviar en 0:{String(secs).padStart(2, '0')}</span>
+        ) : (
+          <button
+            type="button"
+            className="font-semibold text-primary hover:underline"
+            onClick={reenviar}
+          >
+            Reenviar código
+          </button>
+        )}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Estado de éxito
+// ---------------------------------------------------------------------------
+
+function DoneStep({ esLogin }: { esLogin: boolean }) {
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-1 py-16 text-center duration-200">
+      <span className="mx-auto mb-5 flex size-16 items-center justify-center rounded-full bg-success/10 text-success">
+        <Icon icon="ph:check-light" className="size-8" />
+      </span>
+      <h3 className="text-xl font-semibold text-foreground">
+        {esLogin ? 'Sesión iniciada' : 'Cuenta creada'}
+      </h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {esLogin ? 'Abriendo tu espacio de trabajo…' : 'Preparando tu espacio de trabajo…'}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Piezas compartidas
+// ---------------------------------------------------------------------------
+
+function Marca() {
+  return (
+    <div className="mb-6 flex justify-center">
+      <Image
+        src="/todoconta-icon.svg"
+        alt="TodoConta"
+        width={46}
+        height={46}
+        className="rounded-xl shadow-sm"
+        priority
+      />
+    </div>
+  );
+}
+
+function Campo({
+  label,
+  htmlFor,
+  help,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  help?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mb-4.5">
+      <label
+        htmlFor={htmlFor}
+        className="mb-2 block text-[13px] font-semibold text-foreground"
+      >
+        {label}
+      </label>
+      {children}
+      {help && (
+        <p className="mt-2 px-0.5 text-xs leading-normal text-muted-foreground/80">{help}</p>
+      )}
+    </div>
+  );
+}
+
+function TxtInput({
+  onChange,
+  className,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'className'> & {
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return (
+    <input
+      {...rest}
+      className={cn(
+        'h-11.5 w-full rounded-lg border border-input bg-card px-3.5 text-[15px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-primary focus:ring-[3px] focus:ring-primary/15 dark:bg-secondary',
+        className,
+      )}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+function BotonPrimario({
+  children,
+  loading = false,
+  disabled = false,
+  type = 'submit',
+  onClick,
+}: {
+  children: ReactNode;
+  loading?: boolean;
+  disabled?: boolean;
+  type?: 'submit' | 'button';
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type={type}
+      disabled={disabled || loading}
+      onClick={onClick}
+      className="mt-1.5 flex h-11.5 w-full items-center justify-center gap-2 rounded-lg bg-primary text-[15px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-55"
+    >
+      {loading ? (
+        <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
+      ) : (
+        children
+      )}
+    </button>
+  );
+}
+
+function Divider({ children }: { children: ReactNode }) {
+  return (
+    <div className="my-6 flex items-center gap-3.5 text-[13px] text-muted-foreground/80">
+      <span className="h-px flex-1 bg-border" />
+      {children}
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+function ErrorInline({ mensaje }: { mensaje: string }) {
+  return (
+    <p
+      role="alert"
+      className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-snug text-destructive"
+    >
+      {mensaje}
+    </p>
+  );
+}
+
+function LinkExterno({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-muted-foreground underline hover:text-foreground"
+    >
+      {children}
+    </a>
+  );
+}
+
+/** Logo oficial de Google (marca de OAuth, multicolor — no Phosphor). */
+function GoogleG() {
+  return (
+    <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="size-4.75">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
   );
 }
