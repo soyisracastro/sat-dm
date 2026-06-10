@@ -17,6 +17,12 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 - **El polling de `/health` se pausa con la ventana oculta** (minimizada o en background) y ya no encima requests si el agente tarda más que el intervalo; al volver el foco dispara un check inmediato. Mismo guard anti-encimado en el polling de verificación WS y en el del login.
 - **Listas largas con render acotado**: paginación local opcional en `ResourceList` (aplicada a solicitudes WS) y "Mostrar más" incremental en el historial — pintar cientos de filas de golpe congelaba equipos modestos.
 
+### Arranque y resiliencia
+
+- **La ventana abre de inmediato.** Antes, Electron esperaba el `/health` completo del agente antes de crear la ventana: en equipos con HDD + antivirus escaneando el binario sin firma eso eran 30-60 segundos sin NADA en pantalla (la app parecía rota). Ahora el spawn asigna puerto/token, la ventana se crea al instante y el `StartupSplash` del renderer (que ya tenía mensajes por fases) por fin se ve durante el arranque real.
+- **Monitor del agente con reinicio automático.** Si el agente muere después del arranque (crash, OOM), el shell lo detecta (3 checks fallidos ≈ 30s) y lo reinicia en el mismo puerto y con el mismo token, hasta 3 veces consecutivas; el renderer se recupera solo vía su polling de `/health`. Antes un crash dejaba la app muda hasta reiniciarla a mano.
+- **Cierre sin huérfanos**: al salir, si el agente no responde al SIGTERM en 2 segundos se le manda SIGKILL — un Python colgado ya no queda vivo consumiendo memoria tras cerrar la app.
+
 ### Seguridad
 
 - **Token efímero entre Electron y el agente local.** El shell genera un token aleatorio por arranque y se lo pasa al agente (env `SAT_AGENT_TOKEN`) y al renderer (preload → `window.satAgent.token`); un middleware del agente rechaza con 401 cualquier request sin él (header `X-Agent-Token`, o `?token=` en SSE porque `EventSource` no acepta headers). Cierra el hueco de que cualquier otro proceso local del usuario usara el agente — que mantiene la FIEL cargada en sesión. Sin la env (CLI o `uvicorn` manual en dev) no se exige nada.
