@@ -14,7 +14,7 @@ import { PortalDescargaForm } from '@/components/descarga/portal-descarga-form';
 import { PortalDescargasRecientes } from '@/components/descarga/portal-descargas-recientes';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Callout } from '@/components/shared/callout';
 import { useServer } from '@/providers/server-provider';
 import { useDescarga } from '@/hooks/use-descarga';
 import { useSolicitudes } from '@/hooks/use-solicitudes';
@@ -209,19 +209,19 @@ export default function DescargaPage() {
   // -------------------------------------------------------------------------
   // Despacho según credenciales de la empresa activa.
   // -------------------------------------------------------------------------
-  // 1. Empresa con FIEL → Web Service (volumen grande, 24-72h) + CTA a /rapida.
+  // 1. Empresa con FIEL → Web Service (volumen grande, horas) + CTA a /rapida.
   // 2. Empresa con solo CIEC → scraping inline (no hay opción de WS).
   // 3. Empresa sin nada → empty state hacia /empresas.
   // El "no hay empresa activa" cae en el caso 3 (tieneFiel y tieneCiec ambos false).
   // -------------------------------------------------------------------------
 
   const description = !empresaActiva
-    ? 'Selecciona una empresa activa en Empresas para descargar sus CFDIs.'
+    ? 'Selecciona una empresa activa en Empresas para descargar sus facturas.'
     : tieneFiel
-      ? 'Descarga masiva por el Web Service oficial del SAT con tu e.firma. Ideal para grandes volúmenes (puede tardar 24–72 h).'
+      ? 'Descarga en bloque por el Web Service oficial del SAT con tu e.firma. Ideal para grandes volúmenes; normalmente queda lista en un par de horas, aunque en días de mucha demanda el SAT puede tardar más.'
       : tieneCiec
-        ? 'Descarga directa desde el portal del SAT con tu CIEC. Sujeta a captcha y a la cuota diaria del portal.'
-        : 'Esta empresa no tiene credenciales.';
+        ? 'Trae tus facturas directo del portal del SAT con tu CIEC. Te pediremos resolver el captcha del SAT y aplica el límite diario del portal.'
+        : 'Esta empresa no tiene accesos registrados.';
 
   return (
     <div className="space-y-6">
@@ -238,14 +238,14 @@ export default function DescargaPage() {
         }
       />
 
-      {/* Server not connected */}
+      {/* Agente local no disponible */}
       {!isConnected && (
         <Alert variant="destructive">
           <Icon icon="ph:warning-circle-light" className="size-4" />
-          <AlertTitle>Servidor no disponible</AlertTitle>
+          <AlertTitle>Sin conexión</AlertTitle>
           <AlertDescription>
-            No se puede conectar al servidor Python en localhost:8787.
-            Asegurate de que este ejecutandose.
+            No pudimos conectar con la aplicación. Ciérrala por completo y
+            vuelve a abrirla; si sigue igual, escríbenos desde Ayuda.
           </AlertDescription>
         </Alert>
       )}
@@ -260,13 +260,16 @@ export default function DescargaPage() {
             {empresaActiva ? 'Esta empresa no tiene método de autenticación' : 'Sin empresa activa'}
           </AlertTitle>
           <AlertDescription>
-            Agrega tu <strong>e.firma</strong> (recomendado — desbloquea descarga masiva por Web
-            Service y elimina el captcha) o tu <strong>CIEC</strong> (descarga directa con captcha)
-            en{' '}
-            <Link href="/empresas" className="font-medium underline underline-offset-2">
-              Empresas
-            </Link>
-            .
+            {/* Un solo <p>: AlertDescription es grid y apilaría texto y Link. */}
+            <p>
+              Agrega tu <strong>e.firma</strong> (recomendado — desbloquea descarga masiva por Web
+              Service y elimina el captcha) o tu <strong>CIEC</strong> (descarga directa con captcha)
+              en{' '}
+              <Link href="/empresas" className="font-medium underline underline-offset-2">
+                Empresas
+              </Link>
+              .
+            </p>
           </AlertDescription>
         </Alert>
       )}
@@ -280,11 +283,13 @@ export default function DescargaPage() {
             <Icon icon="ph:info-light" className="size-4" />
             <AlertTitle>Con e.firma desbloqueas más opciones</AlertTitle>
             <AlertDescription>
-              Agrega la e.firma de esta empresa en{' '}
-              <Link href="/empresas" className="font-medium underline underline-offset-2">
-                Empresas
-              </Link>{' '}
-              para acceder a descarga masiva por Web Service y para descargar el portal sin captcha.
+              <p>
+                Agrega la e.firma de esta empresa en{' '}
+                <Link href="/empresas" className="font-medium underline underline-offset-2">
+                  Empresas
+                </Link>{' '}
+                para acceder a descarga masiva por Web Service y para descargar el portal sin captcha.
+              </p>
             </AlertDescription>
           </Alert>
 
@@ -305,35 +310,32 @@ export default function DescargaPage() {
               <Icon icon="ph:warning-circle-light" className="size-4" />
               <AlertTitle>e-Firma no cargada</AlertTitle>
               <AlertDescription>
-                La empresa activa tiene e.firma registrada, pero no se cargó en sesión.
-                Vuelve a activarla desde{' '}
-                <Link href="/empresas" className="font-medium underline underline-offset-2">
-                  Empresas
-                </Link>
-                .
+                <p>
+                  La empresa activa tiene e.firma registrada, pero no se cargó en sesión.
+                  Vuelve a activarla desde{' '}
+                  <Link href="/empresas" className="font-medium underline underline-offset-2">
+                    Empresas
+                  </Link>
+                  .
+                </p>
               </AlertDescription>
             </Alert>
           )}
 
           {/* CTA: Descarga rápida sin esperar al SAT. */}
-          <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1 text-sm">
-              <div className="flex items-center gap-2 font-medium">
-                <Icon icon="ph:lightning-light" className="size-4" />
-                ¿Pocos XMLs y los necesitas ahora?
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Descarga directa desde el portal del SAT, sin esperar al Web Service. Limitada
-                a la cuota diaria del portal.
-              </p>
-            </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/descarga/rapida">
-                Descarga rápida
-                <Icon icon="ph:arrow-right-light" className="size-4" />
-              </Link>
-            </Button>
-          </Card>
+          <Callout
+            icon="ph:lightning-light"
+            title="¿Pocas facturas y las necesitas ya?"
+            text="Descarga directa del portal del SAT, sin esperar al Web Service. Limitada al máximo de descargas que el portal permite (500 XML por día)."
+            action={
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/descarga/rapida">
+                  Descarga rápida
+                  <Icon icon="ph:arrow-right-light" className="size-4" />
+                </Link>
+              </Button>
+            }
+          />
 
           {/* Espera larga (>30s): aviso intermedio para que el usuario sepa
               que el SAT está lento y pueda cambiarse a la descarga rápida sin
@@ -355,7 +357,7 @@ export default function DescargaPage() {
                   >
                     Descarga rápida
                   </Link>{' '}
-                  (limitada a la cuota diaria del portal).
+                  (limitada a 500 XML por día).
                 </div>
               </AlertDescription>
             </Alert>
@@ -382,7 +384,7 @@ export default function DescargaPage() {
                       >
                         Descarga rápida
                       </Link>{' '}
-                      (limitada a la cuota diaria del portal).
+                      (limitada a 500 XML por día).
                     </div>
                   )}
                 </AlertDescription>

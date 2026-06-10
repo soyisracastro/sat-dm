@@ -93,10 +93,10 @@ export default function EmpresasPage() {
       <PageHeading
         title={
           activas.length > 0
-            ? `${activas.length} RFC${activas.length === 1 ? '' : 's'} configurados`
+            ? `${activas.length} ${activas.length === 1 ? 'empresa' : 'empresas'}`
             : 'Empresas'
         }
-        description="Cada empresa guarda su método de autenticación localmente. La e.firma nunca sale de tu computadora."
+        description="Gestiona las empresas y sus RFCs"
         action={
           <Button onClick={() => setAddOpen(true)}>
             <Icon icon="ph:plus-light" className="size-4" /> Agregar empresa
@@ -183,12 +183,14 @@ export default function EmpresasPage() {
         </>
       )}
 
-      <div className="flex items-center gap-2 rounded-lg border bg-secondary px-4 py-3 text-xs text-muted-foreground">
-        <Icon icon="ph:lock-light" className="size-4 shrink-0" />
+      <div className="flex items-center gap-2.5 rounded-lg border bg-card px-4 py-3.5 text-[13px] text-muted-foreground">
+        <Icon icon="ph:key-light" className="size-4.5 shrink-0" />
         <span>
-          Las contraseñas de tu e.firma y CIEC se guardan en el{' '}
-          <span className="font-medium text-foreground">keychain del sistema</span>{' '}
-          (Keychain en macOS, Credential Manager en Windows), nunca en texto plano.
+          e.firma y CIEC se guardan{' '}
+          <span className="font-semibold text-foreground">
+            protegidas y solo en este equipo
+          </span>
+          . Nunca se muestran a la vista ni se envían a internet.
         </span>
       </div>
 
@@ -308,7 +310,7 @@ function EmpresaRowActions({
             </DialogTitle>
             <DialogDescription>
               {confirm === 'delete'
-                ? `Esto borrará "${empresa.nombre}" del catálogo y sus credenciales del keychain del sistema. Los archivos descargados no se borran.`
+                ? `Esto borrará "${empresa.nombre}" del catálogo junto con sus accesos guardados en este equipo. Los archivos descargados no se borran.`
                 : confirm === 'archive'
                   ? `"${empresa.nombre}" se ocultará de la lista principal. Podrás desarchivarla cuando la necesites.`
                   : `"${empresa.nombre}" volverá a la lista principal.`}

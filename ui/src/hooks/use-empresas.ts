@@ -20,15 +20,19 @@ interface UseEmpresasState {
   loading: boolean;
   error: string | null;
   refresh: () => void;
-  addCiec: (rfc: string, nombre: string, ciec: string) => Promise<void>;
+  /** `nombre` es opcional: vacío → el agente usa el RFC como nombre provisional. */
+  addCiec: (rfc: string, ciec: string, nombre?: string) => Promise<void>;
+  /** `nombre` es opcional: vacío → el agente usa la razón social del certificado. */
   addFiel: (
     cer: File,
     key: File,
     password: string,
-    nombre: string,
+    nombre?: string,
     rfcEsperado?: string,
   ) => Promise<void>;
   remove: (rfc: string) => Promise<void>;
+  /** Quita SOLO la e.firma de la empresa (la CIEC se conserva). */
+  removeEfirma: (rfc: string) => Promise<void>;
   /** Marca la empresa como activa (predeterminada); si tiene FIEL, carga la e.firma. */
   seleccionar: (rfc: string, metodos: MetodoEmpresa[]) => Promise<void>;
   /** Carga la e.firma de la empresa en la sesión (sin cambiar la predeterminada). */
@@ -86,7 +90,7 @@ export function useEmpresas(): UseEmpresasState {
   }, [apiClient, tick]);
 
   const addCiec = useCallback(
-    async (rfc: string, nombre: string, ciec: string) => {
+    async (rfc: string, ciec: string, nombre = '') => {
       await apiClient.addEmpresaCiec({ rfc, nombre, ciec });
       refresh();
     },
@@ -94,7 +98,7 @@ export function useEmpresas(): UseEmpresasState {
   );
 
   const addFiel = useCallback(
-    async (cer: File, key: File, password: string, nombre: string, rfcEsperado?: string) => {
+    async (cer: File, key: File, password: string, nombre = '', rfcEsperado?: string) => {
       await apiClient.addEmpresaFiel(cer, key, password, nombre, rfcEsperado);
       refresh();
     },
@@ -107,6 +111,16 @@ export function useEmpresas(): UseEmpresasState {
       refresh();
     },
     [apiClient, refresh],
+  );
+
+  const removeEfirma = useCallback(
+    async (rfc: string) => {
+      await apiClient.removeEfirmaEmpresa(rfc);
+      refresh();
+      // Si esa e.firma estaba en sesión, el agente la descargó → reflejarlo.
+      refreshHealth();
+    },
+    [apiClient, refresh, refreshHealth],
   );
 
   const seleccionar = useCallback(
@@ -161,7 +175,7 @@ export function useEmpresas(): UseEmpresasState {
 
   return {
     empresas, loading, error, refresh,
-    addCiec, addFiel, remove, seleccionar, activarSesion,
+    addCiec, addFiel, remove, removeEfirma, seleccionar, activarSesion,
     archive, unarchive, update,
   };
 }

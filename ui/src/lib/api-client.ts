@@ -378,13 +378,14 @@ export class SatApiClient {
     cerFile: File,
     keyFile: File,
     password: string,
-    nombre: string,
+    nombre = '',
     rfcEsperado?: string,
   ): Promise<{ ok: boolean; rfc: string }> {
     const formData = new FormData();
     formData.append('cer_file', cerFile);
     formData.append('key_file', keyFile);
     formData.append('password', password);
+    // Opcional: vacío → el agente usa la razón social del certificado.
     formData.append('nombre', nombre);
     // Al agregar e.firma a una empresa existente, valida que el RFC del cert coincida.
     if (rfcEsperado) formData.append('rfc_esperado', rfcEsperado);
@@ -404,6 +405,11 @@ export class SatApiClient {
 
   async removeEmpresa(rfc: string): Promise<{ ok: boolean }> {
     return this.del<{ ok: boolean }>(`/empresas/${encodeURIComponent(rfc)}`);
+  }
+
+  /** Quita SOLO la e.firma de la empresa (la CIEC no se toca). */
+  async removeEfirmaEmpresa(rfc: string): Promise<{ ok: boolean }> {
+    return this.del<{ ok: boolean }>(`/empresas/${encodeURIComponent(rfc)}/fiel`);
   }
 
   /** Activa una empresa para la sesión (FIEL → carga la e.firma en memoria). */

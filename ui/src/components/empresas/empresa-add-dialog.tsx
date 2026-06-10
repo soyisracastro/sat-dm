@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 
+import { cn } from '@/lib/utils';
 import { Icon } from '@/components/ui/icon';
 import {
   Dialog,
@@ -20,13 +21,14 @@ import { mensajeDeError } from '@/lib/errores';
 interface EmpresaAddDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  addFiel: (cer: File, key: File, password: string, nombre: string) => Promise<void>;
-  addCiec: (rfc: string, nombre: string, ciec: string) => Promise<void>;
+  addFiel: (cer: File, key: File, password: string) => Promise<void>;
+  addCiec: (rfc: string, ciec: string) => Promise<void>;
 }
 
 /**
- * Modal de alta de empresa con dos métodos (tabs): e.firma (.cer/.key/contraseña) y
- * CIEC (RFC + contraseña). Las credenciales las guarda el agente en el keychain del SO.
+ * Modal de alta de empresa, simplificado: solo el acceso (e.firma o CIEC), sin
+ * pedir el nombre — se completa solo (razón social del certificado o RFC) en
+ * cuanto conectamos con el SAT.
  */
 export function EmpresaAddDialog({
   open,
@@ -35,31 +37,23 @@ export function EmpresaAddDialog({
   addCiec,
 }: EmpresaAddDialogProps) {
   // e.firma
-  const [nombre, setNombre] = useState('');
   const [cer, setCer] = useState<File | null>(null);
   const [key, setKey] = useState<File | null>(null);
   const [password, setPassword] = useState('');
   // CIEC
-  const [cnombre, setCnombre] = useState('');
   const [rfc, setRfc] = useState('');
   const [ciec, setCiec] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cerRef = useRef<HTMLInputElement>(null);
-  const keyRef = useRef<HTMLInputElement>(null);
 
   function reset() {
-    setNombre('');
     setCer(null);
     setKey(null);
     setPassword('');
-    setCnombre('');
     setRfc('');
     setCiec('');
     setError(null);
-    if (cerRef.current) cerRef.current.value = '';
-    if (keyRef.current) keyRef.current.value = '';
   }
 
   function handleOpenChange(next: boolean) {
@@ -80,9 +74,8 @@ export function EmpresaAddDialog({
     }
   }
 
-  const fielOk = !!cer && !!key && password.length > 0 && nombre.trim().length > 0;
-  const ciecOk =
-    rfc.trim().length >= 12 && cnombre.trim().length > 0 && ciec.length > 0;
+  const fielOk = !!cer && !!key && password.length > 0;
+  const ciecOk = rfc.trim().length >= 12 && ciec.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -90,8 +83,8 @@ export function EmpresaAddDialog({
         <DialogHeader>
           <DialogTitle>Agregar empresa</DialogTitle>
           <DialogDescription>
-            Las credenciales se guardan localmente en el keychain del sistema. La
-            e.firma nunca sale de tu equipo.
+            Tus accesos se guardan protegidos y solo en este equipo. Tu e.firma
+            nunca sale de tu computadora.
           </DialogDescription>
         </DialogHeader>
 
@@ -108,28 +101,30 @@ export function EmpresaAddDialog({
           {/* e.firma */}
           <TabsContent value="fiel" className="mt-4">
             <form
-              className="space-y-3"
+              className="space-y-3.5"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (fielOk) run(() => addFiel(cer!, key!, password, nombre));
+                if (fielOk) run(() => addFiel(cer!, key!, password));
               }}
             >
-              <Field label="Nombre de la empresa" htmlFor="fiel-nombre">
-                <Input id="fiel-nombre" value={nombre} placeholder="Mi Empresa SA de CV"
-                       onChange={(e) => setNombre(e.target.value)} />
-              </Field>
-              <Field label="Certificado (.cer)" htmlFor="fiel-cer">
-                <Input ref={cerRef} id="fiel-cer" type="file" accept=".cer"
-                       onChange={(e) => setCer(e.target.files?.[0] ?? null)} />
-              </Field>
-              <Field label="Llave privada (.key)" htmlFor="fiel-key">
-                <Input ref={keyRef} id="fiel-key" type="file" accept=".key"
-                       onChange={(e) => setKey(e.target.files?.[0] ?? null)} />
-              </Field>
+              <FileField
+                label="Certificado (.cer)"
+                accept=".cer"
+                file={cer}
+                onPick={setCer}
+              />
+              <FileField
+                label="Llave privada (.key)"
+                accept=".key"
+                file={key}
+                onPick={setKey}
+              />
               <Field label="Contraseña de la clave privada" htmlFor="fiel-pass">
                 <Input id="fiel-pass" type="password" value={password}
+                       placeholder="••••••••"
                        onChange={(e) => setPassword(e.target.value)} />
               </Field>
+              <HintNombre />
               <Button type="submit" className="w-full" disabled={!fielOk || loading}>
                 {loading ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:shield-check-light" className="size-4" />}
                 Registrar con e.firma
@@ -140,16 +135,12 @@ export function EmpresaAddDialog({
           {/* CIEC */}
           <TabsContent value="ciec" className="mt-4">
             <form
-              className="space-y-3"
+              className="space-y-3.5"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (ciecOk) run(() => addCiec(rfc.trim().toUpperCase(), cnombre, ciec));
+                if (ciecOk) run(() => addCiec(rfc.trim().toUpperCase(), ciec));
               }}
             >
-              <Field label="Nombre de la empresa" htmlFor="ciec-nombre">
-                <Input id="ciec-nombre" value={cnombre} placeholder="Mi Empresa SA de CV"
-                       onChange={(e) => setCnombre(e.target.value)} />
-              </Field>
               <Field label="RFC" htmlFor="ciec-rfc">
                 <Input id="ciec-rfc" value={rfc} placeholder="XAXX010101000"
                        className="font-mono uppercase"
@@ -157,8 +148,10 @@ export function EmpresaAddDialog({
               </Field>
               <Field label="Contraseña CIEC" htmlFor="ciec-pass">
                 <Input id="ciec-pass" type="password" value={ciec}
+                       placeholder="••••••••"
                        onChange={(e) => setCiec(e.target.value)} />
               </Field>
+              <HintNombre />
               <Button type="submit" className="w-full" disabled={!ciecOk || loading}>
                 {loading ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:key-light" className="size-4" />}
                 Registrar con CIEC
@@ -178,6 +171,15 @@ export function EmpresaAddDialog({
   );
 }
 
+function HintNombre() {
+  return (
+    <div className="flex items-start gap-2 rounded-lg bg-accent px-3 py-2.5 text-xs leading-relaxed text-accent-foreground">
+      <Icon icon="ph:info-light" className="mt-px size-3.75 shrink-0" />
+      El nombre de la empresa se completa en cuanto conectamos con el SAT.
+    </div>
+  );
+}
+
 function Field({
   label,
   htmlFor,
@@ -191,6 +193,60 @@ function Field({
     <div className="space-y-2">
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
+    </div>
+  );
+}
+
+/** Selector de archivo estilo prototipo: pill "Seleccionar" + nombre + check. */
+function FileField({
+  label,
+  accept,
+  file,
+  onPick,
+}: {
+  label: string;
+  accept: string;
+  file: File | null;
+  onPick: (f: File | null) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <button
+        type="button"
+        onClick={() => ref.current?.click()}
+        className={cn(
+          'flex w-full items-center gap-2.5 rounded-lg border bg-card p-1.5 pl-2 text-left transition-colors',
+          file ? 'border-success' : 'border-input hover:border-primary',
+        )}
+      >
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-semibold text-secondary-foreground">
+          <Icon icon="ph:upload-light" className="size-3.5" />
+          Seleccionar
+        </span>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate text-xs',
+            file ? 'font-medium text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {file ? file.name : 'Ningún archivo seleccionado'}
+        </span>
+        {file && (
+          <Icon
+            icon="ph:check-circle-light"
+            className="mr-1 size-4 shrink-0 text-success"
+          />
+        )}
+        <input
+          ref={ref}
+          type="file"
+          accept={accept}
+          className="hidden"
+          onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+        />
+      </button>
     </div>
   );
 }

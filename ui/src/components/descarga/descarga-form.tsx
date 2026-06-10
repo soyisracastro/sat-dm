@@ -83,12 +83,12 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Icon icon="ph:calendar-light" className="size-5" />
-          Solicitar Descarga
+          <Icon icon="ph:download-simple-light" className="size-5" />
+          Solicitar descarga
         </CardTitle>
         <CardDescription>
-          Define el rango, qué quieres descargar y de qué comprobantes. &quot;Ambos&quot;
-          dispara dos solicitudes (emitidos y recibidos) en paralelo.
+          Elige el periodo, el tipo de descarga y de qué facturas. «Ambas» pide
+          las emitidas y las recibidas al mismo tiempo.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -130,14 +130,14 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="CFDI">CFDIs completos (24-72 hrs)</SelectItem>
-                  <SelectItem value="Metadata">Metadata (rápido)</SelectItem>
+                  <SelectItem value="CFDI">Facturas completas (un par de horas)</SelectItem>
+                  <SelectItem value="Metadata">Solo el listado (más rápido)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label>Comprobantes</Label>
+              <Label>Facturas</Label>
               <Select
                 value={tipoComprobante}
                 onValueChange={(v) => setTipoComprobante(v as ComprobanteSeleccion)}
@@ -147,9 +147,9 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="E">Emitidos</SelectItem>
-                  <SelectItem value="R">Recibidos</SelectItem>
-                  <SelectItem value="A">Ambos</SelectItem>
+                  <SelectItem value="E">Emitidas</SelectItem>
+                  <SelectItem value="R">Recibidas</SelectItem>
+                  <SelectItem value="A">Ambas</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -165,7 +165,7 @@ export function DescargaForm({ onSubmit, isLoading, disabled }: DescargaFormProp
             ) : (
               <>
                 <Icon icon="ph:download-simple-light" className="size-4" />
-                Solicitar Descarga
+                Solicitar descarga
               </>
             )}
           </Button>

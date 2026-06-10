@@ -264,8 +264,8 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
               </>
             )}
             <p className="text-xs text-muted-foreground">
-              Escanea la carpeta de descargas de la empresa activa y agrega los CFDIs
-              encontrados (deduplicación por UUID).
+              Escanea la carpeta de descargas de la empresa activa y agrega las
+              facturas encontradas (las repetidas se cargan una sola vez).
             </p>
           </TabsContent>
         </Tabs>

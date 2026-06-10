@@ -3,7 +3,6 @@
 import { PageHeading } from '@/components/layout/page-heading';
 import { OrganizadorForm } from '@/components/organizador/organizador-form';
 import { OrganizadorResults } from '@/components/organizador/organizador-results';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useOrganizador } from '@/hooks/use-organizador';
 
 export default function OrganizadorPage() {
@@ -13,25 +12,19 @@ export default function OrganizadorPage() {
   return (
     <div className="space-y-6">
       <PageHeading
-        title="Organizador de CFDIs"
-        description="Organiza, renombra y deduplica archivos XML de CFDIs."
+        title="Organizador de archivos"
+        description="Ordena en carpetas, renombra y quita duplicados de las facturas que descargaste."
         action={
           result ? (
             <button
               onClick={reset}
               className="text-sm text-muted-foreground underline-offset-4 hover:underline"
             >
-              Nueva operacion
+              Nueva operación
             </button>
           ) : undefined
         }
       />
-
-      <Alert>
-        <AlertDescription>
-          No requiere e.firma. Las rutas son relativas al servidor Python.
-        </AlertDescription>
-      </Alert>
 
       <OrganizadorForm
         onOrganizar={organizar}

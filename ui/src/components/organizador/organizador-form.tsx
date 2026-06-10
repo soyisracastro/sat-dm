@@ -189,7 +189,7 @@ export function OrganizadorForm({
           <TabsList className="mb-4">
             <TabsTrigger value="organizar">Organizar</TabsTrigger>
             <TabsTrigger value="renombrar">Renombrar</TabsTrigger>
-            <TabsTrigger value="deduplicar">Deduplicar</TabsTrigger>
+            <TabsTrigger value="deduplicar">Quitar duplicados</TabsTrigger>
           </TabsList>
 
           {/* ---- Tab: Organizar ---- */}
@@ -197,7 +197,7 @@ export function OrganizadorForm({
             <div className="space-y-4">
               <DirectoryField
                 id="org-origen"
-                label="Directorio origen"
+                label="Carpeta de origen"
                 value={orgOrigen}
                 onChange={cambiarOrigen}
                 examinable={examinable}
@@ -222,7 +222,7 @@ export function OrganizadorForm({
 
               <DirectoryField
                 id="org-destino"
-                label="Directorio destino"
+                label="Carpeta de destino"
                 value={orgDestino}
                 onChange={cambiarDestino}
                 examinable={examinable}
@@ -254,7 +254,7 @@ export function OrganizadorForm({
             <div className="space-y-4">
               <DirectoryField
                 id="ren-directorio"
-                label="Directorio"
+                label="Carpeta a renombrar"
                 value={renDirectorio}
                 onChange={setRenDirectorio}
                 examinable={examinable}
@@ -262,7 +262,7 @@ export function OrganizadorForm({
               />
 
               <div className="space-y-2">
-                <Label htmlFor="ren-patron">Patron de nombre</Label>
+                <Label htmlFor="ren-patron">Nombre del archivo</Label>
                 <Select value={renPatron} onValueChange={setRenPatron}>
                   <SelectTrigger id="ren-patron" className="w-full">
                     <SelectValue />
@@ -291,7 +291,7 @@ export function OrganizadorForm({
             <div className="space-y-4">
               <DirectoryField
                 id="ded-directorio"
-                label="Directorio"
+                label="Carpeta a revisar"
                 value={dedDirectorio}
                 onChange={setDedDirectorio}
                 examinable={examinable}

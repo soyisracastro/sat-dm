@@ -1,9 +1,11 @@
 'use client';
 
-import { Card, CardContent } from '@/components/ui/card';
+import { useState } from 'react';
+
+import { cn } from '@/lib/utils';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -38,28 +40,66 @@ const DIRECCIONES: { value: 'todos' | 'E' | 'R'; label: string }[] = [
 ];
 
 export function CfdiFiltersPanel({ filtros, setFiltro, reset, filtrosActivos }: Props) {
-  return (
-    <Card>
-      <CardContent className="space-y-4 pt-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Icon icon="ph:funnel-light" className="size-4" />
-            Filtros
-            {filtrosActivos > 0 && (
-              <span className="text-xs text-muted-foreground">
-                ({filtrosActivos} activo{filtrosActivos > 1 ? 's' : ''})
-              </span>
-            )}
-          </div>
-          {filtrosActivos > 0 && (
-            <Button variant="ghost" size="sm" onClick={reset}>
-              <Icon icon="ph:x-light" className="size-3.5" />
-              Limpiar
-            </Button>
-          )}
-        </div>
+  const [open, setOpen] = useState(true);
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+  return (
+    <Card className="gap-0 overflow-hidden py-0">
+      {/* Encabezado-toggle: contador de filtros activos + nota cuando está
+          colapsado, para saber de un vistazo si el listado está filtrado. */}
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3.5 px-5 py-3.75 text-left transition-colors hover:bg-secondary"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight">
+          <Icon icon="ph:funnel-light" className="size-4 text-foreground/70" />
+          Filtros
+          {filtrosActivos > 0 && (
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11.5px] font-bold tabular-nums text-primary-foreground">
+              {filtrosActivos}
+            </span>
+          )}
+          {!open && (
+            <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+              {filtrosActivos > 0
+                ? '· el listado está filtrado'
+                : '· mostrando todas las facturas'}
+            </span>
+          )}
+        </span>
+        <span className="inline-flex items-center gap-3">
+          {filtrosActivos > 0 && (
+            <span
+              role="button"
+              tabIndex={0}
+              className="text-xs font-semibold text-primary hover:underline hover:underline-offset-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                reset();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation();
+                  reset();
+                }
+              }}
+            >
+              Limpiar
+            </span>
+          )}
+          <Icon
+            icon="ph:caret-down-light"
+            className={cn(
+              'size-4 text-muted-foreground transition-transform',
+              open && 'rotate-180',
+            )}
+          />
+        </span>
+      </button>
+
+      {open && (
+        <div className="grid grid-cols-1 gap-4 border-t px-5 pb-5 pt-4 md:grid-cols-2 lg:grid-cols-4">
           {/* Búsqueda */}
           <div className="space-y-2 lg:col-span-2">
             <Label htmlFor="busqueda">Búsqueda</Label>
@@ -174,7 +214,7 @@ export function CfdiFiltersPanel({ filtros, setFiltro, reset, filtrosActivos }: 
             />
           </div>
         </div>
-      </CardContent>
+      )}
     </Card>
   );
 }

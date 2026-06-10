@@ -48,10 +48,13 @@ export default function ListasNegrasPage() {
         <Alert variant="destructive">
           <Icon icon="ph:warning-light" className="size-4" />
           <AlertDescription>
-            Necesitas iniciar sesión para consultar las listas negras.{' '}
-            <Link href="/login" className="font-medium underline underline-offset-2">
-              Iniciar sesión
-            </Link>
+            {/* Un solo <p>: AlertDescription es grid y apilaría texto y Link. */}
+            <p>
+              Necesitas iniciar sesión para consultar las listas negras.{' '}
+              <Link href="/login" className="font-medium underline underline-offset-2">
+                Iniciar sesión
+              </Link>
+            </p>
           </AlertDescription>
         </Alert>
       )}

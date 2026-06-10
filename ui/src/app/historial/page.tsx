@@ -25,7 +25,7 @@ import { mensajeDeError } from '@/lib/errores';
 
 const TIPO_META: Record<TipoDescarga, { label: string; icon: string }> = {
   cfdi: { label: 'CFDIs', icon: 'ph:download-simple-light' },
-  metadata: { label: 'Metadata', icon: 'ph:database-light' },
+  metadata: { label: 'Listado', icon: 'ph:database-light' },
   constancia: { label: 'Constancia', icon: 'ph:file-text-light' },
   opinion: { label: 'Opinión 32-D', icon: 'ph:seal-check-light' },
 };
@@ -113,11 +113,14 @@ export default function HistorialPage() {
         <Alert>
           <Icon icon="ph:info-light" className="size-4" />
           <AlertDescription>
-            No hay empresa activa. Actívala desde{' '}
-            <Link href="/empresas" className="font-medium underline underline-offset-2">
-              Empresas
-            </Link>
-            .
+            {/* Un solo <p>: AlertDescription es grid y apilaría texto y Link. */}
+            <p>
+              No hay empresa activa. Actívala desde{' '}
+              <Link href="/empresas" className="font-medium underline underline-offset-2">
+                Empresas
+              </Link>
+              .
+            </p>
           </AlertDescription>
         </Alert>
       ) : filtradas.length === 0 ? (
