@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Optional
 from lxml import etree
 
+from ..core.xml_seguro import parser_seguro
+
 
 # Namespaces comunes en CFDIs — usamos local-name() para ser agnosticos
 _CFDI_NS = "http://www.sat.gob.mx/cfd/4"
@@ -57,7 +59,7 @@ def leer_cfdi(xml_path: str) -> CfdiHeader:
     Raises:
         ValueError: Si el archivo no es un CFDI válido.
     """
-    tree = etree.parse(xml_path)
+    tree = etree.parse(xml_path, parser=parser_seguro())
     root = tree.getroot()
 
     # Usar local-name() para ser namespace-agnostic

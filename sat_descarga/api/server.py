@@ -1513,21 +1513,34 @@ def abrir(req: AbrirRequest):
     """
     from ..cli import config_store
 
-    rutas = {d.get("ruta") for d in config_store.list_todas_descargas() if d.get("ruta")}
-    if req.ruta not in rutas:
+    # Comparar rutas CANONICALIZADAS (resolve() normaliza ".." y sigue symlinks):
+    # así un symlink o una variante de la misma ruta no brinca la lista blanca.
+    rutas = set()
+    for d in config_store.list_todas_descargas():
+        if not d.get("ruta"):
+            continue
+        try:
+            rutas.add(Path(d["ruta"]).resolve())
+        except OSError:
+            continue
+
+    try:
+        objetivo = Path(req.ruta).resolve()
+    except OSError:
+        raise HTTPException(status_code=400, detail="Ruta inválida.")
+    if objetivo not in rutas:
         raise HTTPException(status_code=403, detail="Ruta no permitida (no está en el historial).")
 
-    objetivo = req.ruta
-    if req.modo == "carpeta" and os.path.isfile(objetivo):
-        objetivo = os.path.dirname(objetivo)
-    if not os.path.exists(objetivo):
+    if req.modo == "carpeta" and objetivo.is_file():
+        objetivo = objetivo.parent
+    if not objetivo.exists():
         raise HTTPException(status_code=404, detail="La ruta ya no existe (¿se movió o borró?).")
 
     try:
-        _abrir_en_so(objetivo)
+        _abrir_en_so(str(objetivo))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"No se pudo abrir: {e}")
-    return {"ok": True, "ruta": objetivo}
+    return {"ok": True, "ruta": str(objetivo)}
 
 
 # ---------------------------------------------------------------------------

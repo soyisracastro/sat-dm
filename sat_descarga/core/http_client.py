@@ -123,8 +123,8 @@ def make_request(
 def _check_soap_fault(content: bytes, operation: str) -> None:
     """Lanza RuntimeError si la respuesta contiene un SOAP Fault."""
     try:
-        from lxml import etree
-        root = etree.fromstring(content)
+        from .xml_seguro import fromstring_seguro
+        root = fromstring_seguro(content)
         fault = root.find(".//{http://schemas.xmlsoap.org/soap/envelope/}Fault")
         if fault is not None:
             code_el = fault.find("faultcode")

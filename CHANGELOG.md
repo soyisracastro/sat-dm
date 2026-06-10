@@ -10,6 +10,14 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 
 - **Descripción de la app unificada en todas las distribuciones.** El tooltip del acceso directo en Windows mostraba un texto interno/técnico (`TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python)`). Ahora dice **«TodoConta Desktop — Administración de CFDIs y herramientas fiscales»** (`description` en `desktop/package.json`, mapeado al `FileDescription` del `.exe`). El `Comment` del desktop entry de Linux (`electron-builder.yml`) se alinea con el mismo copy (sin el prefijo del nombre, que el campo `Name` ya provee). Toma efecto en el próximo build del instalador.
 
+### Seguridad
+
+- **Anti zip-slip en la descarga WS**: los miembros del ZIP que regresa el SAT se validan antes de extraer; una ruta `../` o absoluta rechaza el paquete completo (`webservice/descarga.py`).
+- **Parser lxml endurecido** para todo XML de origen externo (respuestas SOAP del SAT, CFDIs del usuario): sin resolución de entidades, sin DTD y sin red (anti-XXE). Helper central `core/xml_seguro.py` aplicado en `webservice/`, `utils/xml_reader.py` y el parser del procesador.
+- **Catálogo a prueba de concurrencia**: `empresas.json`, `historial/*.json` y `settings.json` ahora se escriben de forma atómica (`.tmp` + `os.replace`) y los read-modify-write van serializados con lock — mismo patrón que ya tenían las solicitudes. Evita altas perdidas y JSON corrupto con requests concurrentes.
+- **`/abrir` canonicaliza rutas** (resuelve symlinks y `..`) antes de compararlas contra la lista blanca del historial.
+- **Electron**: el handler del protocolo `app://` valida el path con `path.relative`; `shell.openExternal` solo acepta `http(s):`/`mailto:`; el `code` del deep link `todoconta://` se valida con charset estricto antes de cruzar al renderer.
+
 ---
 
 ## [1.0.6] - próximo release

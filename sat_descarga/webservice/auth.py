@@ -13,6 +13,7 @@ from lxml import etree
 from ..core.fiel import FIEL
 from ..core.config import ENDPOINTS, SOAP_ACTIONS
 from ..core.http_client import make_request
+from ..core.xml_seguro import fromstring_seguro
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +159,7 @@ def obtener_token(fiel: FIEL) -> str:
 
     # Extraer el token del response
     # <AutenticaResult>...</AutenticaResult>
-    root = etree.fromstring(resp_xml)
+    root = fromstring_seguro(resp_xml)
     ns = {"des": _DES_NS}
     result = root.find(".//{%s}AutenticaResult" % _DES_NS)
     if result is None or not result.text:

@@ -24,6 +24,7 @@ from ..core.config import (
 )
 from ..core.fiel import FIEL
 from ..core.http_client import make_request
+from ..core.xml_seguro import parser_seguro
 from . import auth as _auth
 
 logger = logging.getLogger(__name__)
@@ -225,7 +226,7 @@ def _parse_estado(resp_xml: bytes) -> EstadoSolicitud:
     """Parsea la respuesta de VerificaSolicitudDescarga."""
     logger.debug("[Verificacion] Respuesta XML cruda:\n%s", resp_xml.decode(errors="replace"))
 
-    parser = etree.XMLParser(huge_tree=True)
+    parser = parser_seguro(huge_tree=True)
     root = etree.fromstring(resp_xml, parser=parser)
 
     result = root.find(f".//{{{_DES_NS}}}VerificaSolicitudDescargaResult")
