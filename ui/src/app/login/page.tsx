@@ -49,7 +49,9 @@ export default function LoginPage() {
   const { refresh } = useAuth();
 
   const [vista, setVista] = useState<Vista>('login');
-  const [metodo, setMetodo] = useState<Metodo>('password');
+  // Código de acceso por default: los usuarios existentes de la web no tienen
+  // contraseña (la app en línea usa magic link); la contraseña es opcional.
+  const [metodo, setMetodo] = useState<Metodo>('codigo');
   const [paso, setPaso] = useState<Paso>('form');
   const [otpCtx, setOtpCtx] = useState<OtpContexto>({
     tipo: 'email',
@@ -69,7 +71,7 @@ export default function LoginPage() {
 
   const cambiarVista = useCallback((v: Vista) => {
     setVista(v);
-    setMetodo('password');
+    setMetodo('codigo');
     setPaso('form');
     setPassword('');
     setError(null);
