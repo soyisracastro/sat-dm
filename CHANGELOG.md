@@ -4,7 +4,30 @@
 
 ## [Unreleased]
 
-_Cambios mergeados a `main` aún no etiquetados. El release de la semana los promueve a su `## [X.Y.Z]` y sincroniza la versión en `pyproject.toml`, `ui/package.json` y `desktop/package.json` (ver [docs/versionado.md](docs/versionado.md))._
+_Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
+
+## [1.1.0] - 2026-06-10
+
+### Rediseño de la interfaz (v2)
+
+- **Sidebar nuevo** colapsable: marca arriba, **selector de empresa** con badge PF/PM a
+  color y RFC, navegación plana de 7 secciones, y footer con Ayuda + menú de cuenta
+  (plan, email, suscripción, cerrar sesión; corona de Fundador con tooltip).
+- **Barra de estado inferior**: conexión con el agente, CFDIs del mes y última descarga
+  de la empresa activa, y semáforo de vencimiento de su e.firma (o "Acceso con CIEC").
+- **Pantalla de Ayuda** nueva: FAQ con buscador, contacto de soporte y guías.
+- **Alta de empresa simplificada**: ya no pide nombre — se completa solo con la razón
+  social del certificado (e.firma) o el RFC (CIEC).
+- **Quitar e.firma** desde el detalle de empresa (con confirmación): la empresa queda
+  solo-CIEC y deja de intentarse la FIEL vencida.
+- **Filtros de comprobantes colapsables** con contador de filtros activos.
+- **Ajustes en rejilla de tarjetas** (Almacenamiento, Apariencia, Notificaciones,
+  Acerca de).
+- **Titlebar de Windows sin marco** con controles propios (minimizar/maximizar/cerrar,
+  Aero Snap y doble-click conservados); macOS intacto.
+- **Copy depurado en toda la app**: fuera tecnicismos de implementación (keychain,
+  servidor, localhost); se quedan los términos fiscales (CFDI, RFC, e.firma, CIEC,
+  EFOS, Art. 69-B).
 
 ### Login en-app (reemplaza el device-code flow)
 
@@ -68,9 +91,11 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 - **`/abrir` canonicaliza rutas** (resuelve symlinks y `..`) antes de compararlas contra la lista blanca del historial.
 - **Electron**: el handler del protocolo `app://` valida el path con `path.relative`; `shell.openExternal` solo acepta `http(s):`/`mailto:`; el `code` del deep link `todoconta://` se valida con charset estricto antes de cruzar al renderer.
 
+- Bump 1.0.6 → 1.1.0 (3 archivos; `pyproject.toml` venía desincronizado en 1.0.4).
+
 ---
 
-## [1.0.6] - próximo release
+## [1.0.6] - 2026-06-08
 
 Cierra los **huecos de navegación en subrutas (2 segmentos)** que quedaron tras el protocolo `app://` de v1.0.5, y agrega un flujo para **depurar el bundle empacado en Mac sin instalador**.
 
@@ -88,7 +113,7 @@ Cierra los **huecos de navegación en subrutas (2 segmentos)** que quedaron tras
 
 ---
 
-## [1.0.5] - próximo release
+## [1.0.5] - 2026-06-06
 
 Fix de **navegación entre secciones (white-screen), imágenes e íconos** en el bundle empacado. Continúa el diagnóstico de v1.0.4: el `assetPrefix: './'` arreglaba los chunks `_next/` del index, pero `file://` no puede servir paths absolutos ni navegación SPA.
 
@@ -108,7 +133,7 @@ Sigue vigente: con `allow_origins=["*"]` el cambio de origen `file://` → `app:
 
 ---
 
-## [1.0.4] - próximo release
+## [1.0.4] - 2026-06-05
 
 **ROOT CAUSE REAL** del *"Cargando…" infinito en Windows*. Diagnóstico definitivo desde DevTools del renderer empacado.
 
