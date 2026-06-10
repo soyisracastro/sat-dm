@@ -22,6 +22,7 @@
 
 const { app, BrowserWindow, Notification, nativeImage, shell, dialog, ipcMain, protocol, net: electronNet } = require('electron');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const path = require('path');
 const net = require('net');
 const http = require('http');
@@ -261,6 +262,11 @@ function scheduleUpdateCheck() {
 
 let agentProc = null;
 let agentUrl = null;
+// Token efímero por arranque: el agente solo acepta requests que lo traigan
+// (header X-Agent-Token; ?token= para SSE). Lo conocen únicamente este
+// proceso, el agente (vía env) y el renderer (vía preload). Cierra el hueco
+// de que cualquier otro proceso local use el agente con la FIEL en sesión.
+let agentToken = null;
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -283,9 +289,10 @@ function waitForHealth(baseUrl, timeoutMs = 60000) {
   // sigue mostrando un mensaje útil (ver app-shell.tsx) en lugar de un blank
   // eterno.
   const deadline = Date.now() + timeoutMs;
+  const headers = agentToken ? { 'X-Agent-Token': agentToken } : {};
   return new Promise((resolve, reject) => {
     const attempt = () => {
-      const req = http.get(`${baseUrl}/health`, (res) => {
+      const req = http.get(`${baseUrl}/health`, { headers }, (res) => {
         res.resume();
         if (res.statusCode === 200) resolve();
         else retry();
@@ -451,15 +458,18 @@ function resolverRendererUrl() {
 }
 
 async function startAgent() {
-  // Si el dev ya levantó el agente manualmente, conéctate a ese.
+  // Si el dev ya levantó el agente manualmente, conéctate a ese. Si ese
+  // agente exige token (SAT_AGENT_TOKEN en su env), pásalo también aquí.
   if (process.env.SAT_AGENT_URL) {
     agentUrl = process.env.SAT_AGENT_URL.replace(/\/+$/, '');
+    agentToken = process.env.SAT_AGENT_TOKEN || null;
     await waitForHealth(agentUrl);
     return;
   }
 
   const port = await getFreePort();
   agentUrl = `http://127.0.0.1:${port}`;
+  agentToken = crypto.randomBytes(32).toString('hex');
 
   const { cmd, cwd } = resolverComandoAgente(port);
 
@@ -470,7 +480,7 @@ async function startAgent() {
   // menos queda traza en `main.log` del shell.
   agentProc = spawn(cmd[0], cmd.slice(1), {
     cwd,
-    env: { ...process.env, SAT_AGENT_PORT: String(port) },
+    env: { ...process.env, SAT_AGENT_PORT: String(port), SAT_AGENT_TOKEN: agentToken },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (agentProc.stdout) {
@@ -501,8 +511,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // El preload lee este arg y expone window.satAgent.baseUrl al renderer.
-      additionalArguments: [`--sat-agent-url=${agentUrl || ''}`],
+      // El preload lee estos args y expone window.satAgent.{baseUrl,token}.
+      additionalArguments: [
+        `--sat-agent-url=${agentUrl || ''}`,
+        `--sat-agent-token=${agentToken || ''}`,
+      ],
     },
   });
 

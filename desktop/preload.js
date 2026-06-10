@@ -10,16 +10,21 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-function leerAgentUrl() {
-  const arg = process.argv.find((a) => a.startsWith('--sat-agent-url='));
+function leerArg(prefijo) {
+  const arg = process.argv.find((a) => a.startsWith(prefijo));
   if (!arg) return null;
-  const url = arg.slice('--sat-agent-url='.length);
-  return url || null;
+  return arg.slice(prefijo.length) || null;
 }
 
 contextBridge.exposeInMainWorld('satAgent', {
   /** Base URL del agente Python local (http://127.0.0.1:<puerto efímero>). */
-  baseUrl: leerAgentUrl(),
+  baseUrl: leerArg('--sat-agent-url='),
+  /**
+   * Token efímero de autenticación con el agente (uno nuevo por arranque).
+   * El agente rechaza requests sin él; va como header X-Agent-Token
+   * (o ?token= en SSE, porque EventSource no acepta headers).
+   */
+  token: leerArg('--sat-agent-token='),
   /** Marca para que el renderer sepa que corre dentro de Electron. */
   isDesktop: true,
 });
