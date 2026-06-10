@@ -6,6 +6,21 @@
 
 _Cambios mergeados a `main` aún no etiquetados. El release de la semana los promueve a su `## [X.Y.Z]` y sincroniza la versión en `pyproject.toml`, `ui/package.json` y `desktop/package.json` (ver [docs/versionado.md](docs/versionado.md))._
 
+### Login en-app (reemplaza el device-code flow)
+
+- **Inicia sesión sin salir de la app**: pantalla de login estilo Notion con correo +
+  contraseña o **código de acceso de 6 dígitos** que se teclea en la misma ventana
+  (auto-avance, pegar el código completo, reenviar con timer). Antes había que abrir el
+  navegador, confirmar un código de activación y esperar el polling.
+- **Crear cuenta desde el desktop**: registro con nombre + correo (+ contraseña o por
+  código), contra la misma base de cuentas de app.todoconta.com — la cuenta sirve igual
+  en la app en línea. Botón de Google visible pero deshabilitado (próximamente).
+- **La sesión ya no se cae ante un 401**: el agente renueva la sesión con el
+  `refresh_token` guardado antes de desloguear (esto deslogueó a un usuario en vivo el
+  2026-06-10). Aplica al license check y al checkout de Fundador.
+- El device-code flow sigue disponible en el agente como fallback (`/auth/init` +
+  `/auth/poll`), pero la UI ya no lo usa.
+
 ### Copy
 
 - **Descripción de la app unificada en todas las distribuciones.** El tooltip del acceso directo en Windows mostraba un texto interno/técnico (`TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python)`). Ahora dice **«TodoConta Desktop — Administración de CFDIs y herramientas fiscales»** (`description` en `desktop/package.json`, mapeado al `FileDescription` del `.exe`). El `Comment` del desktop entry de Linux (`electron-builder.yml`) se alinea con el mismo copy (sin el prefijo del nombre, que el campo `Name` ya provee). Toma efecto en el próximo build del instalador.

@@ -119,6 +119,9 @@ import sidebarSimple from '@iconify-icons/ph/sidebar-simple-light';
 import signOut from '@iconify-icons/ph/sign-out-light';
 import user from '@iconify-icons/ph/user-light';
 
+// Login v2 (login en-app con contraseña / código).
+import eyeSlash from '@iconify-icons/ph/eye-slash-light';
+
 addIcon('ph:arrow-counter-clockwise-light', arrowCounterClockwise);
 addIcon('ph:arrow-down-light', arrowDown);
 addIcon('ph:arrow-left-light', arrowLeft);
@@ -224,3 +227,6 @@ addIcon('ph:play-light', play);
 addIcon('ph:sidebar-simple-light', sidebarSimple);
 addIcon('ph:sign-out-light', signOut);
 addIcon('ph:user-light', user);
+
+// Login v2 (ver bloque de imports arriba).
+addIcon('ph:eye-slash-light', eyeSlash);

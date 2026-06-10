@@ -241,6 +241,49 @@ def fetch_license_remote(session: Session) -> dict:
     raise RuntimeError(f"fetch_license falló ({resp.status_code}): {detail}")
 
 
+def _fetch_license_con_refresh(session: Session) -> dict:
+    """
+    `fetch_license_remote` con un reintento tras renovar el Bearer. Si el 401
+    persiste (o no hay refresh_token utilizable) propaga PermissionError; los
+    errores de red se propagan tal cual para que el caller use su cache.
+    """
+    try:
+        return fetch_license_remote(session)
+    except PermissionError:
+        nueva = try_refresh_session(session)
+        if nueva is None:
+            raise
+        return fetch_license_remote(nueva)
+
+
+def try_refresh_session(session: Session) -> Optional[Session]:
+    """
+    Intenta renovar la sesión con el refresh_token guardado en el keyring.
+    Devuelve la sesión nueva (ya persistida) o None si no se pudo.
+
+    El access token de Supabase dura ~1h; sin este paso, cualquier 401
+    deslogueaba al usuario aunque el refresh_token siguiera siendo válido.
+    """
+    if not session.refresh_token:
+        return None
+    # Import diferido: supabase_auth importa Session de este módulo.
+    from . import supabase_auth
+
+    try:
+        nueva = supabase_auth.refresh(session.refresh_token)
+    except Exception as e:  # noqa: BLE001 — red o refresh_token revocado
+        logger.warning("[license] refresh de sesión falló: %s", e)
+        return None
+    # Conservar identidad previa si el payload viniera incompleto.
+    if not nueva.user_id:
+        nueva.user_id = session.user_id
+    if not nueva.email:
+        nueva.email = session.email
+    save_session(nueva)
+    logger.info("[license] sesión renovada vía refresh_token")
+    return nueva
+
+
 def get_license_status(force_refresh: bool = False) -> dict:
     """
     Devuelve el estado de licencia del usuario.
@@ -270,9 +313,9 @@ def get_license_status(force_refresh: bool = False) -> dict:
         return {**cache.get("payload", {}), "from_cache": True}
 
     try:
-        payload = fetch_license_remote(session)
+        payload = _fetch_license_con_refresh(session)
     except PermissionError:
-        # Sesión inválida / expirada → limpia todo.
+        # Sesión inválida y el refresh tampoco la salvó → limpia todo.
         clear_session()
         return {"authenticated": False, "reason": "session_expired"}
     except Exception as e:  # noqa: BLE001 — red / DNS / timeout

@@ -808,6 +808,49 @@ export class SatApiClient {
     return this.post<AuthPollResponse>('/auth/poll', { device_code });
   }
 
+  /** Login en-app con correo + contraseña (directo contra Supabase). */
+  async authLoginPassword(email: string, password: string): Promise<AuthSessionResponse> {
+    return this.post<AuthSessionResponse>('/auth/login-password', { email, password });
+  }
+
+  /**
+   * Envía un código de 6 dígitos al correo. Con `crearCuenta` el código
+   * también registra al usuario (con `nombre` opcional). `tipo='signup'`
+   * reenvía la confirmación de un registro con contraseña.
+   */
+  async authOtpSend(
+    email: string,
+    opts: { crearCuenta?: boolean; nombre?: string; tipo?: 'email' | 'signup' } = {},
+  ): Promise<{ ok: boolean }> {
+    return this.post<{ ok: boolean }>('/auth/otp-send', {
+      email,
+      crear_cuenta: opts.crearCuenta ?? false,
+      nombre: opts.nombre ?? '',
+      tipo: opts.tipo ?? 'email',
+    });
+  }
+
+  /** Verifica el código tecleado en la app y guarda la sesión en el agente. */
+  async authOtpVerify(
+    email: string,
+    token: string,
+    tipo: 'email' | 'signup' = 'email',
+  ): Promise<AuthSessionResponse> {
+    return this.post<AuthSessionResponse>('/auth/otp-verify', { email, token, tipo });
+  }
+
+  /**
+   * Registro con correo + contraseña. Si `requiere_confirmacion` viene true,
+   * Supabase mandó un código al correo y hay que verificarlo (tipo='signup').
+   */
+  async authSignup(
+    email: string,
+    password: string,
+    nombre: string,
+  ): Promise<AuthSessionResponse> {
+    return this.post<AuthSessionResponse>('/auth/signup', { email, password, nombre });
+  }
+
   /** Estado de licencia del usuario actual (cached 24h). */
   async authLicense(refresh = false): Promise<LicenseStatus> {
     const qs = refresh ? '?refresh=true' : '';
@@ -899,6 +942,13 @@ export interface AuthInitResponse {
   device_code: string;
   expires_at: string;
   activate_url: string;
+}
+
+/** Respuesta de login-password / otp-verify / signup (auth en-app). */
+export interface AuthSessionResponse {
+  ok: boolean;
+  user?: { id: string; email: string | null };
+  requiere_confirmacion?: boolean;
 }
 
 export type AuthPollStatus = 'ok' | 'pending' | 'expired' | 'not_found';

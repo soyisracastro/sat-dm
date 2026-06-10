@@ -1,9 +1,11 @@
 """
 Router: estado del servidor, integración con el SO y auth de licencia.
 
-Endpoints: /health, /abrir, /config/descargas-dir y el auth desktop contra
-todoconta-apps (/auth/init, /auth/poll, /auth/license, /auth/upgrade,
-/auth/logout).
+Endpoints: /health, /abrir, /config/descargas-dir y el auth desktop:
+- Directo contra Supabase (login en-app): /auth/login-password, /auth/otp-send,
+  /auth/otp-verify, /auth/signup.
+- Contra todoconta-apps: /auth/license, /auth/upgrade, /auth/logout, y el
+  device-code flow legado (/auth/init, /auth/poll) que queda como fallback.
 """
 
 import os
@@ -141,6 +143,30 @@ class AuthPollRequest(BaseModel):
     device_code: str
 
 
+class LoginPasswordRequest(BaseModel):
+    email: str
+    password: str
+
+
+class OtpSendRequest(BaseModel):
+    email: str
+    crear_cuenta: bool = False
+    nombre: str = ""
+    tipo: str = "email"  # "email" (login/registro por código) | "signup" (reenviar confirmación)
+
+
+class OtpVerifyRequest(BaseModel):
+    email: str
+    token: str
+    tipo: str = "email"  # "email" (login/registro por código) | "signup" (confirmar registro)
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    nombre: str = ""
+
+
 @router.post("/auth/init")
 def auth_init():
     """
@@ -187,6 +213,92 @@ def auth_poll(req: AuthPollRequest):
     return {"status": result}
 
 
+# --- Auth directa contra Supabase (login en-app, sin navegador) -------------
+#
+# Reemplaza al device-code flow como camino principal: la sesión resultante
+# son los mismos JWT de Supabase y se guarda igual en el keyring, así que
+# /auth/license y el checkout siguen funcionando sin cambios. Los endpoints
+# /auth/init y /auth/poll se conservan como fallback (la página de activación
+# web sigue viva), pero la UI ya no los usa.
+
+
+def _guardar_sesion(session) -> dict:
+    from .. import license_client as lc
+
+    lc.save_session(session)
+    lc.clear_license_cache()
+    return {"ok": True, "user": {"id": session.user_id, "email": session.email}}
+
+
+def _http_de_auth_error(e) -> HTTPException:
+    # 4xx de GoTrue viajan con su mensaje ya en español; 5xx/red como 502.
+    status = e.status if 400 <= e.status < 500 else 502
+    return HTTPException(status_code=status, detail=e.mensaje)
+
+
+@router.post("/auth/login-password")
+def auth_login_password(req: LoginPasswordRequest):
+    """Login con correo + contraseña. Guarda la sesión en el keyring."""
+    from .. import supabase_auth as sa
+
+    try:
+        session = sa.login_password(req.email.strip(), req.password)
+    except sa.SupabaseAuthError as e:
+        raise _http_de_auth_error(e)
+    return _guardar_sesion(session)
+
+
+@router.post("/auth/otp-send")
+def auth_otp_send(req: OtpSendRequest):
+    """
+    Envía un código de 6 dígitos al correo. Con `crear_cuenta=true` el código
+    también registra al usuario (registro por código, con `nombre` opcional).
+    Con `tipo="signup"` reenvía la confirmación de un registro con contraseña.
+    """
+    from .. import supabase_auth as sa
+
+    try:
+        if req.tipo == "signup":
+            sa.signup_resend(req.email.strip())
+        else:
+            sa.otp_send(req.email.strip(), crear_cuenta=req.crear_cuenta, nombre=req.nombre.strip())
+    except sa.SupabaseAuthError as e:
+        raise _http_de_auth_error(e)
+    return {"ok": True}
+
+
+@router.post("/auth/otp-verify")
+def auth_otp_verify(req: OtpVerifyRequest):
+    """Verifica el código tecleado en la app y guarda la sesión."""
+    from .. import supabase_auth as sa
+
+    try:
+        session = sa.otp_verify(req.email.strip(), req.token.strip(), tipo=req.tipo)
+    except sa.SupabaseAuthError as e:
+        raise _http_de_auth_error(e)
+    return _guardar_sesion(session)
+
+
+@router.post("/auth/signup")
+def auth_signup(req: SignupRequest):
+    """
+    Registro con correo + contraseña. Si Supabase exige confirmar el correo
+    (default), devuelve `requiere_confirmacion=true` y la UI pasa al paso de
+    código con tipo="signup".
+    """
+    from .. import supabase_auth as sa
+
+    try:
+        session, requiere_confirmacion = sa.signup(
+            req.email.strip(), req.password, nombre=req.nombre.strip()
+        )
+    except sa.SupabaseAuthError as e:
+        raise _http_de_auth_error(e)
+    if session is not None:
+        return {**_guardar_sesion(session), "requiere_confirmacion": False}
+    return {"ok": True, "requiere_confirmacion": True}
+
+
 @router.get("/auth/license")
 def auth_license(refresh: bool = False):
     """
@@ -220,9 +332,18 @@ def auth_upgrade():
     try:
         result = lc.init_checkout(session)
     except PermissionError:
-        # Sesión expirada: limpiamos y obligamos a re-login.
-        lc.clear_session()
-        raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
+        # Bearer expirado: refresh ANTES de desloguear (mismo patrón que license).
+        nueva = lc.try_refresh_session(session)
+        if nueva is None:
+            lc.clear_session()
+            raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
+        try:
+            result = lc.init_checkout(nueva)
+        except PermissionError:
+            lc.clear_session()
+            raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return result
