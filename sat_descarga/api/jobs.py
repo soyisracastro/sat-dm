@@ -61,6 +61,11 @@ class Job:
 class JobRegistry:
     """Catálogo de jobs + utilidades de emisión/captcha/stream. Thread-safe."""
 
+    # Jobs ya terminados que se conservan para consultas de /jobs/{id}; el resto
+    # se poda al crear un job nuevo. Sin esto, el registry (y la cola de eventos
+    # de cada job, si nadie la consumió) crece con cada descarga de la sesión.
+    MAX_TERMINADOS = 20
+
     def __init__(self):
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
@@ -68,8 +73,20 @@ class JobRegistry:
     def crear(self) -> Job:
         job = Job(id=uuid.uuid4().hex)
         with self._lock:
+            self._podar()
             self._jobs[job.id] = job
         return job
+
+    def _podar(self) -> None:
+        """Poda los jobs terminados más viejos (dict preserva orden de inserción),
+        conservando los últimos MAX_TERMINADOS. Llamar con `self._lock` tomado."""
+        terminados = [
+            jid for jid, j in self._jobs.items()
+            if j.estado in ("done", "error", "cancelled")
+        ]
+        exceso = len(terminados) - self.MAX_TERMINADOS
+        for jid in terminados[:max(exceso, 0)]:
+            del self._jobs[jid]
 
     def get(self, job_id: str) -> Optional[Job]:
         with self._lock:

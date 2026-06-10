@@ -93,12 +93,17 @@ export function useDescarga(
     }
   }, []);
 
+  // Evita encimar verificaciones si el SAT responde más lento que el intervalo.
+  const pollBusyRef = useRef(false);
+
   // -----------------------------------------------------------------------
   // Poll once
   // -----------------------------------------------------------------------
 
   const pollOnce = useCallback(
     async (id: string) => {
+      if (pollBusyRef.current) return;
+      pollBusyRef.current = true;
       try {
         const res = await apiClient.verificar({ id_solicitud: id, poll: false });
         if (!mountedRef.current) return;
@@ -127,6 +132,8 @@ export function useDescarga(
         setError(`Error al verificar solicitud: ${msg}`);
         setState('error');
         stopPolling();
+      } finally {
+        pollBusyRef.current = false;
       }
     },
     [apiClient, stopPolling],

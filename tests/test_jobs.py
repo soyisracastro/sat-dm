@@ -14,6 +14,27 @@ import pytest
 from sat_descarga.api import jobs
 
 
+def test_registry_poda_jobs_terminados():
+    """Los jobs terminados se podan al crear nuevos (conserva MAX_TERMINADOS);
+    sin esto el registry crece con cada descarga de la sesión."""
+    registro = jobs.JobRegistry()
+    for _ in range(registro.MAX_TERMINADOS + 5):
+        job = registro.crear()
+        job.estado = "done"
+    activo = registro.crear()  # dispara la poda
+
+    terminados = [j for j in registro._jobs.values() if j.estado == "done"]
+    assert len(terminados) == registro.MAX_TERMINADOS
+    assert registro.get(activo.id) is activo
+
+
+def test_poda_no_toca_jobs_activos():
+    registro = jobs.JobRegistry()
+    activos = [registro.crear() for _ in range(registro.MAX_TERMINADOS + 10)]  # pending
+    registro.crear()
+    assert all(registro.get(j.id) is not None for j in activos)
+
+
 def _leer(job, tipo, timeout=3):
     """Lee eventos del job hasta encontrar `tipo` (ignora los previos)."""
     fin = time.time() + timeout

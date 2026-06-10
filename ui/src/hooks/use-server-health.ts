@@ -49,10 +49,16 @@ export function useServerHealth(
   // Ref to track whether we should still process the result (component mounted).
   const mountedRef = useRef(true);
 
+  // Evita encimar checks: si el agente tarda más que el intervalo (equipo o
+  // red lentos), los requests pendientes se acumulaban sin tope.
+  const checkingRef = useRef(false);
+
   // Counter to force an immediate check (bumped by `refresh()`).
   const [refreshCounter, setRefreshCounter] = useState(0);
 
   const checkHealth = useCallback(async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
     try {
       const data = await apiClient.health();
       if (!mountedRef.current) return;
@@ -68,6 +74,8 @@ export function useServerHealth(
       setRfcCargado(null);
       setEfirmaLista(false);
       setEfirmaVencimiento(null);
+    } finally {
+      checkingRef.current = false;
     }
   }, [apiClient]);
 
@@ -76,15 +84,27 @@ export function useServerHealth(
     checkHealth();
   }, [checkHealth, refreshCounter]);
 
-  // Periodic polling
+  // Periodic polling. Con la ventana oculta (minimizada / en background) no
+  // tiene caso pollear — se salta el tick y, al volver a ser visible, se
+  // dispara un check inmediato para que el badge no muestre estado viejo.
   useEffect(() => {
     mountedRef.current = true;
 
-    const id = setInterval(checkHealth, intervalMs);
+    const tick = () => {
+      if (document.hidden) return;
+      checkHealth();
+    };
+    const id = setInterval(tick, intervalMs);
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) checkHealth();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       mountedRef.current = false;
       clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [checkHealth, intervalMs]);
 

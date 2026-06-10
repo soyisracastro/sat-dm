@@ -33,6 +33,12 @@ interface ResourceListProps<T> {
   activeId?: string | null;
   /** Dim all rows (used for archived lists). */
   dimmed?: boolean;
+  /**
+   * Pagina la lista localmente (controles ‹ › al pie). Úsalo en listas que
+   * crecen sin tope (historial, solicitudes): renderizar cientos de filas de
+   * golpe congela equipos modestos. Sin esta prop, renderiza todo (igual que antes).
+   */
+  pageSize?: number;
   className?: string;
 }
 
@@ -46,9 +52,20 @@ export function ResourceList<T>({
   onRowClick,
   activeId,
   dimmed = false,
+  pageSize,
   className,
 }: ResourceListProps<T>) {
   const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set());
+
+  const [page, setPage] = React.useState(0);
+  const totalPages = pageSize ? Math.max(1, Math.ceil(items.length / pageSize)) : 1;
+  // Si la lista encoge (filtro, borrado), regresa a una página válida.
+  React.useEffect(() => {
+    if (page > totalPages - 1) setPage(totalPages - 1);
+  }, [page, totalPages]);
+  const visibles = pageSize
+    ? items.slice(page * pageSize, (page + 1) * pageSize)
+    : items;
 
   const toggleExpanded = (key: string) => {
     setExpandedKeys((prev) => {
@@ -91,7 +108,7 @@ export function ResourceList<T>({
       )}
 
       <ul className="divide-y divide-border">
-        {items.map((item) => {
+        {visibles.map((item) => {
           const key = getKey(item);
           const isExpanded = expandedKeys.has(key);
           const isActive = activeId === key;
@@ -177,6 +194,35 @@ export function ResourceList<T>({
           );
         })}
       </ul>
+
+      {pageSize !== undefined && items.length > pageSize && (
+        <div className="flex items-center justify-between border-t border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+          <span>
+            {page * pageSize + 1}–{Math.min((page + 1) * pageSize, items.length)} de{' '}
+            {items.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded transition-colors hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              aria-label="Página anterior"
+            >
+              <Icon icon="ph:caret-left-light" className="size-4" />
+            </button>
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded transition-colors hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              aria-label="Página siguiente"
+            >
+              <Icon icon="ph:caret-right-light" className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

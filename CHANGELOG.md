@@ -10,6 +10,13 @@ _Cambios mergeados a `main` aún no etiquetados. El release de la semana los pro
 
 - **Descripción de la app unificada en todas las distribuciones.** El tooltip del acceso directo en Windows mostraba un texto interno/técnico (`TodoConta Desktop — app de escritorio (Electron) sobre el agente SAT (Python)`). Ahora dice **«TodoConta Desktop — Administración de CFDIs y herramientas fiscales»** (`description` en `desktop/package.json`, mapeado al `FileDescription` del `.exe`). El `Comment` del desktop entry de Linux (`electron-builder.yml`) se alinea con el mismo copy (sin el prefijo del nombre, que el campo `Name` ya provee). Toma efecto en el próximo build del instalador.
 
+### Rendimiento
+
+- **El registry de jobs ya no crece sin tope**: los jobs terminados se podan al crear nuevos (se conservan los últimos 20 para `/jobs/{id}`); antes cada descarga de la sesión dejaba su job y su cola de eventos en memoria para siempre.
+- **Log de jobs CIEC acotado a 500 entradas (FIFO)** en la UI: un job largo emitía miles de eventos y cada uno re-renderizaba una lista cada vez más grande.
+- **El polling de `/health` se pausa con la ventana oculta** (minimizada o en background) y ya no encima requests si el agente tarda más que el intervalo; al volver el foco dispara un check inmediato. Mismo guard anti-encimado en el polling de verificación WS y en el del login.
+- **Listas largas con render acotado**: paginación local opcional en `ResourceList` (aplicada a solicitudes WS) y "Mostrar más" incremental en el historial — pintar cientos de filas de golpe congelaba equipos modestos.
+
 ### Seguridad
 
 - **Token efímero entre Electron y el agente local.** El shell genera un token aleatorio por arranque y se lo pasa al agente (env `SAT_AGENT_TOKEN`) y al renderer (preload → `window.satAgent.token`); un middleware del agente rechaza con 401 cualquier request sin él (header `X-Agent-Token`, o `?token=` en SSE porque `EventSource` no acepta headers). Cierra el hueco de que cualquier otro proceso local del usuario usara el agente — que mantiene la FIEL cargada en sesión. Sin la env (CLI o `uvicorn` manual en dev) no se exige nada.

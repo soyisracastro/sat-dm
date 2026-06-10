@@ -128,6 +128,7 @@ export function SolicitudesList({
         items={solicitudes}
         getKey={(s) => s.id_solicitud}
         columns={columns}
+        pageSize={25}
         actionsHeader="Acciones"
         actions={(s) => (
           <RowActions

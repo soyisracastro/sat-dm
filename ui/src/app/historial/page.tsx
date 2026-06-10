@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import { useHistorial } from '@/hooks/use-historial';
@@ -73,6 +73,14 @@ export default function HistorialPage() {
     ? descargas.filter((d) => d.rfc === empresaActiva.rfc)
     : [];
 
+  // Render incremental: el historial crece sin tope con cada descarga y pintar
+  // cientos de filas de golpe congela equipos modestos. Se muestran 50 y un
+  // botón "Mostrar más"; al cambiar de empresa se reinicia.
+  const PAGE = 50;
+  const [visibleCount, setVisibleCount] = useState(PAGE);
+  useEffect(() => setVisibleCount(PAGE), [empresaActiva?.rfc]);
+  const visibles = filtradas.slice(0, visibleCount);
+
   const description = empresaActiva
     ? `Descargas completadas de ${empresaActiva.nombre} (${empresaActiva.rfc}).`
     : 'Selecciona una empresa activa en Empresas para ver su historial.';
@@ -131,7 +139,7 @@ export default function HistorialPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtradas.map((d, i) => (
+              {visibles.map((d, i) => (
                 <DescargaRow
                   key={`${d.rfc}-${d.timestamp}-${i}`}
                   d={d}
@@ -140,6 +148,17 @@ export default function HistorialPage() {
               ))}
             </TableBody>
           </Table>
+          {filtradas.length > visibleCount && (
+            <div className="border-t border-border p-2 text-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setVisibleCount((n) => n + PAGE)}
+              >
+                Mostrar más ({filtradas.length - visibleCount} restantes)
+              </Button>
+            </div>
+          )}
         </Card>
       )}
     </div>

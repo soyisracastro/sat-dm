@@ -47,6 +47,8 @@ export default function LoginPage() {
       startedAtRef.current = Date.now();
       setPhase('esperando');
 
+      // No encimar polls si la red anda lenta (el tick siguiente se salta).
+      let pollEnCurso = false;
       pollTimerRef.current = setInterval(async () => {
         if (Date.now() - startedAtRef.current > POLL_TIMEOUT_MS) {
           cleanup();
@@ -56,6 +58,8 @@ export default function LoginPage() {
           setPhase('error');
           return;
         }
+        if (pollEnCurso) return;
+        pollEnCurso = true;
         try {
           const res = await apiClient.authPoll(r.device_code);
           if (res.status === 'ok') {
@@ -88,6 +92,8 @@ export default function LoginPage() {
         } catch (e) {
           // Errores de red transitorios: no rompemos el polling, solo logueamos.
           console.warn('[login] poll falló:', e);
+        } finally {
+          pollEnCurso = false;
         }
       }, POLL_INTERVAL_MS);
     } catch (e) {
