@@ -35,7 +35,10 @@ v MAJOR . MINOR . PATCH
 - `ui/package.json` → `"version": "X.Y.Z"`
 - `desktop/package.json` → `"version": "X.Y.Z"`
 
-Luego: `git tag vX.Y.Z && git push origin vX.Y.Z`. El workflow `release.yml` (cuando esté implementado) construye el instalador y lo sube como **draft release**. El humano publica manualmente.
+Tras el bump de `pyproject.toml`, correr `uv lock` y commitear también **`uv.lock`** (registra
+la versión del propio paquete; si no se regenera queda desincronizado — pasó en v1.1.0).
+
+Luego: `git tag vX.Y.Z && git push origin vX.Y.Z`. El workflow `release.yml` construye el instalador y lo sube como **draft release**. El humano publica manualmente.
 
 ## Cadencia: release semanal
 
@@ -54,15 +57,14 @@ los consolida.
 
 1. Decidir el bump con la tabla de arriba a partir del **agregado** de la semana (si hay al
    menos una feature → MINOR; si solo fixes/copy → PATCH; si algo rompe datos/`appId` → MAJOR).
-2. **Sincronizar los 3 archivos** de versión al mismo `X.Y.Z`.
+2. **Sincronizar los 3 archivos** de versión al mismo `X.Y.Z` + `uv lock`.
 3. En `CHANGELOG.md`: renombrar `## [Unreleased]` → `## [X.Y.Z] - <fecha>` y dejar un
    `## [Unreleased]` nuevo y vacío arriba.
 4. PR → merge a `main`.
 5. Etiquetar: `git tag vX.Y.Z && git push origin vX.Y.Z` (dispara el build/draft release).
 
-> **Deuda actual:** `pyproject.toml` quedó en `1.0.4` mientras `ui`/`desktop` van en `1.0.6`
-> (los releases v1.0.5/v1.0.6 no lo re-sincronizaron). El próximo release debe poner los **3**
-> en el mismo número.
+> ~~Deuda: `pyproject.toml` quedó en `1.0.4` mientras `ui`/`desktop` van en `1.0.6`.~~
+> Resuelto en v1.1.0 (2026-06-10): los 3 archivos quedaron sincronizados.
 
 ## Histórico
 

@@ -6,6 +6,17 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Infra
+
+- **Pipeline de firma de Windows migrado a SSL.com eSigner** (Azure Trusted Signing
+  descartado: no acepta entidades de México). `release.yml` descarga CodeSignTool y
+  firma `sat-agent.exe`; electron-builder firma TodoConta.exe + uninstaller +
+  instalador vía el hook `desktop/scripts/esigner-sign.js`. Todo auto-saltable hasta
+  que existan los secrets (`ES_USERNAME`, `ES_PASSWORD`, `CREDENTIAL_ID`,
+  `ES_TOTP_SECRET`). Decisiones, costos y checklists en
+  [docs/firma-codigo.md](docs/firma-codigo.md): cert IV comprado (validación en
+  curso) + Apple Developer Program iniciado.
+
 ## [1.1.0] - 2026-06-10
 
 ### Rediseño de la interfaz (v2)

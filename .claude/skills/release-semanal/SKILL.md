@@ -54,6 +54,10 @@ arrastra `1.0.4`): este release los re-sincroniza.
 - `ui/package.json` → `"version": "X.Y.Z"`.
 - `desktop/package.json` → `"version": "X.Y.Z"`.
 
+Tras el bump de `pyproject.toml`, corre `uv lock` y **commitea también `uv.lock`**:
+registra la versión del propio paquete (`[[package]] name = "sat-descarga-masiva"`) y
+si no se regenera queda desincronizado (se nos escapó en v1.1.0).
+
 ## 4. CHANGELOG
 
 1. Construye las notas del release tomando como base lo que ya está en `## [Unreleased]`
@@ -67,7 +71,7 @@ arrastra `1.0.4`): este release los re-sincroniza.
 ## 5. Branch + commit + PR
 
 1. `git checkout -b release/vX.Y.Z` (verifica con `git branch --show-current`).
-2. `git add pyproject.toml ui/package.json desktop/package.json CHANGELOG.md`
+2. `git add pyproject.toml uv.lock ui/package.json desktop/package.json CHANGELOG.md`
 3. Commit: título `release: vX.Y.Z` + cuerpo con el resumen de la semana.
    Cierra el mensaje con el trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 4. `git push -u origin release/vX.Y.Z`.
