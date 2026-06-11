@@ -76,26 +76,31 @@ win:
   # especificamos el nombre del archivo.
   icon: icon.ico
   # Nombre que aparece en la pestaña "Publisher" del .exe y SmartScreen.
+  # ⚠️ Al recibir el certificado IV: cambiar este valor al CN EXACTO del cert
+  # (con IV es el nombre de la persona, p. ej. "Israel Castro", NO "TodoConta")
+  # — electron-updater valida la firma de cada update contra este nombre; si
+  # no coincide, el auto-update rechaza el instalador firmado.
   publisherName: TodoConta
   # ---------------------------------------------------------------------
-  # Firma de código — pendiente de adquirir el certificado.
-  # Ver docs/firma-codigo.md (decisión Azure Trusted Signing vs EV+nube).
-  # ⚠️ La vía WIN_CSC_LINK (PFX) NO aplica a certs OV/EV modernos (2023+:
-  # la llave vive en token/HSM, no en un .pfx exportable).
-  #
-  # Al tener la cuenta de Azure Trusted Signing: agregar los secrets al
-  # repo (ver release.yml), descomentar este bloque y descomentar
-  # `forceCodeSigning` abajo. El CI firma también sat-agent.exe en un
-  # step propio ANTES de empacar (release.yml).
-  #
-  # azureSignOptions:
-  #   publisherName: TodoConta
-  #   endpoint: https://eus.codesigning.azure.net
-  #   certificateProfileName: <AZURE_CERT_PROFILE>
-  #   codeSigningAccountName: <AZURE_SIGNING_ACCOUNT>
+  # Firma de código — SSL.com eSigner (IV Code Signing; decisión 2026-06-11,
+  # ver docs/firma-codigo.md). El hook firma cada binario (TodoConta.exe,
+  # uninstaller, instalador NSIS) con CodeSignTool; sin credenciales eSigner
+  # en el entorno se salta solo, así que los builds locales/QA no se rompen.
+  # Env que espera (la setea release.yml): ES_USERNAME, ES_PASSWORD,
+  # CREDENTIAL_ID, ES_TOTP_SECRET, CODE_SIGN_TOOL_PATH.
+  # ⚠️ La vía WIN_CSC_LINK (PFX) NO aplica a certs modernos (2023+: la llave
+  # vive en HSM). Azure Trusted Signing descartado (México no es elegible).
+  signtoolOptions:
+    # Solo SHA256: con el default (sha1+sha256) el hook se invocaría DOS veces
+    # por archivo y cada firma consume cuota de eSigner (Tier 1 = 240/año).
+    signingHashAlgorithms: ['sha256']
+    sign: ./scripts/esigner-sign.js
 
 # Cuando la firma esté activa: el build de release DEBE fallar si no puede
 # firmar (evita publicar un instalador sin firma por un secret mal puesto).
+# NO activarlo aún: el hook se salta sin credenciales (dev/QA local) y con
+# esto prendido esos builds fallarían. La protección equivalente en CI la da
+# el step "Verificar firmas" de release.yml cuando los secrets existen.
 # forceCodeSigning: true
 
 nsis:
