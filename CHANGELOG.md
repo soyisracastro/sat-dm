@@ -6,6 +6,8 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.1.1] - 2026-06-12
+
 ### Corregido
 
 - **El navegador de descargas ya no se pierde tras actualizar la app** (el
@@ -30,6 +32,13 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   `ES_TOTP_SECRET`). Decisiones, costos y checklists en
   [docs/firma-codigo.md](docs/firma-codigo.md): cert IV comprado (validación en
   curso) + Apple Developer Program iniciado.
+
+### Docs
+
+- Guion de presentación de venta (versión corta + demo en vivo) en
+  [docs/presentacion-pitch.md](docs/presentacion-pitch.md).
+
+- Bump 1.1.0 → 1.1.1 (3 archivos).
 
 ## [1.1.0] - 2026-06-10
 
