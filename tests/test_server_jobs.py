@@ -88,6 +88,46 @@ def test_un_job_ciec_a_la_vez(client, monkeypatch):
     assert client.get(f"/jobs/{job_id}").json()["estado"] == "done"
 
 
+def test_health_incluye_estado_del_navegador(client, monkeypatch):
+    from sat_descarga.portal import setup
+
+    monkeypatch.setattr(
+        setup, "estado_navegador",
+        lambda: {"estado": "instalando", "detalle": "Descargando…"},
+    )
+    data = client.get("/health").json()
+    assert data["navegador"] == {"estado": "instalando", "detalle": "Descargando…"}
+
+
+def test_job_avisa_cuando_instala_navegador(client, monkeypatch):
+    """Si Chromium no está en disco, el job emite el log "Preparando el
+    navegador…" por SSE antes de correr el scrape (y `asegurar_chromium`
+    bloquea el worker hasta que la instalación termina)."""
+    from sat_descarga.portal import setup
+
+    instalado = []
+    monkeypatch.setattr(setup, "navegador_listo", lambda: False)
+    monkeypatch.setattr(
+        setup, "asegurar_chromium", lambda force=False: instalado.append(True)
+    )
+    monkeypatch.setattr(
+        "sat_descarga.portal.cfdi.descargar_cfdi_ciec", lambda **kwargs: []
+    )
+
+    r = client.post("/ciec/cfdi", json={
+        "rfc": "CAUI890921DAA", "ciec": "x",
+        "fecha_inicio": "2026-01-01", "fecha_fin": "2026-01-31",
+    })
+    assert r.status_code == 200
+    job_id = r.json()["job_id"]
+
+    # El stream SSE termina cuando el job acaba; el body trae todos los eventos.
+    stream = client.get(f"/events/{job_id}").text
+    assert "Preparando el navegador" in stream
+    assert "Navegador listo" in stream
+    assert instalado == [True]
+
+
 def test_ciec_sin_password_usa_catalogo(client, monkeypatch):
     # Empresa registrada con CIEC → /ciec/cfdi sin `ciec` toma la del keychain.
     config_store.add_empresa_ciec("CAUI890921DAA", "Cliente", "miCiecGuardada")

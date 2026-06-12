@@ -6,6 +6,20 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Corregido
+
+- **El navegador de descargas ya no se pierde tras actualizar la app** (el
+  "Executable doesn't exist… playwright install" al descargar vía portal). La
+  verificación ahora valida la revisión exacta que pide la versión empaquetada de
+  Playwright — incluido el binario headless shell — en vez de aceptar cualquier
+  carpeta `chromium-*` vieja. Además: el agente descarga/actualiza Chromium en
+  background al arrancar (warm-up en el lifespan), `/health` reporta el estado
+  (`navegador: instalando|listo|error`), la UI muestra un banner "Preparando el
+  navegador…" y los jobs del portal avisan por SSE si tienen que esperar la
+  instalación. Si aun así el launch falla por binario ausente, se reinstala y
+  reintenta solo; cualquier error residual de Playwright se traduce a un mensaje
+  en español.
+
 ### Infra
 
 - **Pipeline de firma de Windows migrado a SSL.com eSigner** (Azure Trusted Signing

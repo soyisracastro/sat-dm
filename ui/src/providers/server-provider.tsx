@@ -12,6 +12,7 @@ import {
 import { SatApiClient } from '@/lib/api-client';
 import { getAgentBaseUrl } from '@/lib/constants';
 import { useServerHealth } from '@/hooks/use-server-health';
+import type { NavegadorStatus } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
 // Context shape
@@ -34,6 +35,9 @@ interface ServerContextValue {
 
   /** Current e-firma status from the server. */
   fielStatus: FielStatus;
+
+  /** Estado del navegador del portal (instalando/listo/error) o null. */
+  navegador: NavegadorStatus | null;
 
   /** Upload the FIEL (.cer + .key + password) to the local server. */
   cargarFiel: (
@@ -72,6 +76,7 @@ export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
     rfcCargado,
     efirmaLista,
     efirmaVencimiento,
+    navegador,
     refresh: refreshHealth,
   } = useServerHealth(apiClient);
 
@@ -111,11 +116,12 @@ export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
       apiClient,
       isConnected,
       fielStatus,
+      navegador,
       cargarFiel,
       descargarFiel,
       refreshHealth,
     }),
-    [apiClient, isConnected, fielStatus, cargarFiel, descargarFiel, refreshHealth],
+    [apiClient, isConnected, fielStatus, navegador, cargarFiel, descargarFiel, refreshHealth],
   );
 
   return (

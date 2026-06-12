@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { SatApiClient } from '@/lib/api-client';
+import type { NavegadorStatus } from '@/lib/types';
 import { HEALTH_POLL_INTERVAL_MS } from '@/lib/constants';
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,8 @@ interface ServerHealthState {
   efirmaLista: boolean;
   /** Vencimiento de la e.firma en sesión ("YYYY-MM-DD") o null. */
   efirmaVencimiento: string | null;
+  /** Estado del navegador del portal (instalando/listo/error) o null. */
+  navegador: NavegadorStatus | null;
   /** Manually trigger an immediate health check. */
   refresh: () => void;
 }
@@ -45,6 +48,7 @@ export function useServerHealth(
   const [rfcCargado, setRfcCargado] = useState<string | null>(null);
   const [efirmaLista, setEfirmaLista] = useState(false);
   const [efirmaVencimiento, setEfirmaVencimiento] = useState<string | null>(null);
+  const [navegador, setNavegador] = useState<NavegadorStatus | null>(null);
 
   // Ref to track whether we should still process the result (component mounted).
   const mountedRef = useRef(true);
@@ -67,6 +71,7 @@ export function useServerHealth(
       setRfcCargado(data.rfc_cargado);
       setEfirmaLista(data.efirma_lista);
       setEfirmaVencimiento(data.efirma_vencimiento ?? null);
+      setNavegador(data.navegador ?? null);
     } catch {
       if (!mountedRef.current) return;
 
@@ -74,6 +79,7 @@ export function useServerHealth(
       setRfcCargado(null);
       setEfirmaLista(false);
       setEfirmaVencimiento(null);
+      setNavegador(null);
     } finally {
       checkingRef.current = false;
     }
@@ -112,5 +118,5 @@ export function useServerHealth(
     setRefreshCounter((c) => c + 1);
   }, []);
 
-  return { isConnected, rfcCargado, efirmaLista, efirmaVencimiento, refresh };
+  return { isConnected, rfcCargado, efirmaLista, efirmaVencimiento, navegador, refresh };
 }

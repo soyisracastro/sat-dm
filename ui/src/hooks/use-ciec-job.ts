@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useServer } from '@/providers/server-provider';
 import { notifyDescargaCompleta, notifyDescargaError } from '@/lib/notify';
 import type { JobEvent } from '@/lib/types';
-import { mensajeDeError } from '@/lib/errores';
+import { mensajeAmigable, mensajeDeError } from '@/lib/errores';
 
 export type JobUiEstado =
   | 'idle'
@@ -120,6 +120,11 @@ export function useCiecJob(): UseCiecJob {
           setError('El captcha expiró (pasaron 5 minutos sin respuesta). Inicia la descarga de nuevo.');
           addLog('captcha: tiempo agotado', 'warn');
           break;
+        case 'log':
+          // Mensajes informativos del worker (p. ej. "Preparando el navegador
+          // de descargas…" mientras baja Chromium la primera vez).
+          addLog(ev.mensaje ?? '', ev.nivel ?? 'info');
+          break;
         case 'done': {
           setEstado('done');
           setResultado(ev.resultado ?? null);
@@ -140,17 +145,18 @@ export function useCiecJob(): UseCiecJob {
           break;
         }
         case 'error': {
+          const motivo = mensajeAmigable(ev.mensaje ?? 'Error');
           setEstado('error');
-          setError(ev.mensaje ?? 'Error');
+          setError(motivo);
           setCaptcha(null);
-          addLog(`error: ${ev.mensaje}`, 'error');
+          addLog(`error: ${motivo}`, 'error');
           cerrarStream();
           const rfc = metaRef.current.rfc;
           if (rfc) {
             notifyDescargaError({
               canal: 'ciec',
               rfc,
-              motivo: ev.mensaje,
+              motivo,
               jobId: jobIdRef.current ?? undefined,
             });
           }

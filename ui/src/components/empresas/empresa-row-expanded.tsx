@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CaptchaModal } from '@/components/descarga/captcha-modal';
 import { JobProgress } from '@/components/descarga/job-progress';
+import { NavegadorStatusBanner } from '@/components/shared/navegador-status';
 import { mensajeDeError } from '@/lib/errores';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
@@ -169,6 +170,8 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
 
   return (
     <div className="space-y-3">
+      <NavegadorStatusBanner />
+
       <div className="grid gap-4 sm:grid-cols-3">
         {/* FIEL (info, sin descarga) */}
         <section className="space-y-1 text-xs">

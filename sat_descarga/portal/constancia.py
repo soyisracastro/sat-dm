@@ -85,7 +85,7 @@ class ConstanciaClient:
                 "  playwright install chromium"
             )
 
-        from .setup import asegurar_chromium
+        from .setup import asegurar_chromium, lanzar_chromium
         asegurar_chromium()
 
         out_dir = Path(directorio_salida)
@@ -95,7 +95,7 @@ class ConstanciaClient:
         dest = out_dir / f"constancia_{rfc_nombre}_{fecha}.pdf"
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless, slow_mo=80)
+            browser = lanzar_chromium(p, headless=self.headless, slow_mo=80)
             context = browser.new_context(
                 accept_downloads=True,
                 user_agent=(

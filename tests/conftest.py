@@ -43,6 +43,19 @@ def keyring_en_memoria():
         keyring.set_keyring(anterior)
 
 
+@pytest.fixture(autouse=True)
+def sin_instalacion_de_navegador(monkeypatch):
+    """
+    Los tests nunca deben descargar Chromium: se desactiva el warm-up del
+    lifespan y se marca el navegador como ya verificado. Los tests de
+    portal/setup.py (test_portal_setup.py) revierten el flag localmente.
+    """
+    monkeypatch.setenv("SAT_AGENT_SKIP_BROWSER_WARMUP", "1")
+    from sat_descarga.portal import setup
+
+    monkeypatch.setattr(setup, "_install_checked", True)
+
+
 @pytest.fixture
 def fixtures_dir():
     """Ruta al directorio de fixtures."""

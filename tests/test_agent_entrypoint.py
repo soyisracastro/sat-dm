@@ -62,8 +62,14 @@ def test_entrypoint_arranca_y_responde_health(tmp_path):
     # Aislar el agente de cualquier estado del usuario (~/.sat-descarga). El
     # lifespan llama a `_autocargar_empresa_default()` que lee empresas.json y
     # en macOS sin firma puede colgarse leyendo el keychain. Vacío evita ese
-    # camino.
-    env = {**os.environ, "HOME": str(tmp_path), "USERPROFILE": str(tmp_path)}
+    # camino. El skip del warm-up evita que el lifespan intente descargar
+    # Chromium durante el test.
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        "USERPROFILE": str(tmp_path),
+        "SAT_AGENT_SKIP_BROWSER_WARMUP": "1",
+    }
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "sat_descarga.api", "--port", str(port)],
