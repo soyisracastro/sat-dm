@@ -43,15 +43,25 @@ def health():
     """Verifica que el servidor está corriendo y si hay e-firma cargada.
 
     Incluye la vigencia de la e-firma en sesión (`efirma_vencimiento` ISO y
-    `efirma_vigente`) para que la UI muestre el semáforo de vencimiento.
+    `efirma_vigente`) para que la UI muestre el semáforo de vencimiento, y el
+    estado del navegador del portal (`navegador`) para el banner de
+    "preparando el navegador…" mientras el warm-up descarga Chromium.
     """
     fiel = _session["fiel"]
+    try:
+        from ...portal.setup import estado_navegador
+
+        navegador = estado_navegador()
+    except Exception:
+        # Instalación sin playwright (extra [ciec] ausente): /health nunca truena.
+        navegador = {"estado": "desconocido", "detalle": None}
     return {
         "status": "ok",
         "rfc_cargado": _session["rfc"],
         "efirma_lista": fiel is not None,
         "efirma_vencimiento": fiel.not_valid_after.date().isoformat() if fiel else None,
         "efirma_vigente": fiel.vigente if fiel else None,
+        "navegador": navegador,
     }
 
 

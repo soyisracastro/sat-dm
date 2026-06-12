@@ -189,7 +189,27 @@ def _lanzar_job_portal(fn_factory, al_completar=None):
         )
     job = jobs.registry.crear()
     pedir_captcha = jobs.registry.pedir_captcha_callback(job)
-    jobs.registry.ejecutar(job, fn_factory(pedir_captcha), al_completar=al_completar)
+    fn = fn_factory(pedir_captcha)
+
+    def fn_con_navegador():
+        # Si el navegador del portal aún no está en disco (primera vez o tras
+        # actualizar la app), avisamos por SSE y bloqueamos aquí — si el
+        # warm-up del arranque ya está instalando, esperamos en el mismo lock.
+        from ...portal import setup
+
+        if not setup.navegador_listo():
+            jobs.registry.emitir(
+                job, "log", nivel="info",
+                mensaje=(
+                    "Preparando el navegador de descargas (~170 MB, solo la "
+                    "primera vez). Esto puede tardar unos minutos…"
+                ),
+            )
+            setup.asegurar_chromium()
+            jobs.registry.emitir(job, "log", nivel="ok", mensaje="Navegador listo.")
+        return fn()
+
+    jobs.registry.ejecutar(job, fn_con_navegador, al_completar=al_completar)
     return {"job_id": job.id}
 
 

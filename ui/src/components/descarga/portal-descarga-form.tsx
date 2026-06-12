@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { CaptchaModal } from '@/components/descarga/captcha-modal';
 import { JobProgress } from '@/components/descarga/job-progress';
+import { NavegadorStatusBanner } from '@/components/shared/navegador-status';
 import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
 import type { Empresa } from '@/lib/types';
 
@@ -87,6 +88,8 @@ export function PortalDescargaForm({ empresa, onJobDone }: PortalDescargaFormPro
 
   return (
     <>
+      <NavegadorStatusBanner />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

@@ -11,6 +11,14 @@ export interface HealthResponse {
   efirma_vencimiento?: string | null;
   /** True/false si hay e.firma cargada; null si no hay. */
   efirma_vigente?: boolean | null;
+  /** Estado del navegador del portal (Chromium): el warm-up lo descarga al arrancar. */
+  navegador?: NavegadorStatus;
+}
+
+/** Estado del navegador de descargas (Playwright/Chromium) reportado por /health. */
+export interface NavegadorStatus {
+  estado: 'pendiente' | 'instalando' | 'listo' | 'error' | 'desconocido' | string;
+  detalle?: string | null;
 }
 
 // POST /auth/cargar-fiel
@@ -194,6 +202,7 @@ export interface JobEvent {
     | 'estado'
     | 'captcha_required'
     | 'captcha_timeout'
+    | 'log'
     | 'done'
     | 'error'
     | 'cancelled'
@@ -203,7 +212,8 @@ export interface JobEvent {
   intento?: number;
   max?: number;
   resultado?: unknown; // event=done
-  mensaje?: string; // event=error|cancelled
+  mensaje?: string; // event=log|error|cancelled
+  nivel?: 'info' | 'ok' | 'warn' | 'error'; // event=log
 }
 
 // ---------------------------------------------------------------------------

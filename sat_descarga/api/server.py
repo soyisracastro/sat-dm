@@ -77,6 +77,17 @@ async def lifespan(app: "FastAPI"):
     # explícitamente después del login (no bloquea startup), o cada endpoint
     # que necesite FIEL la carga on-demand. Ver memoria
     # `feedback-keyring-macos-unsigned-hang`.
+
+    # Warm-up del navegador del portal en un hilo daemon: descarga/actualiza
+    # Chromium en background (primera vez o tras actualizar la app, cuando
+    # Playwright pide una revisión nueva). No toca keyring ni bloquea el
+    # startup — /health responde de inmediato y reporta el progreso.
+    try:
+        from ..portal.setup import warmup_async
+
+        warmup_async()
+    except Exception:
+        logger.exception("No se pudo iniciar el warm-up del navegador")
     yield
 
 

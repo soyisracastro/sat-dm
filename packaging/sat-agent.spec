@@ -55,7 +55,9 @@ if migrations_dir.exists():
 
 # Driver de Playwright (node + cli + package.json). Sin esto sync_playwright()
 # revienta porque no encuentra el driver embebido. Chromium NO se incluye —
-# se descarga en runtime (ver portal/setup.py).
+# se descarga en runtime (ver portal/setup.py). OJO: portal/setup.py también
+# depende de `driver/package/browsers.json` (revisiones exactas de browsers)
+# que viaja en estos datas — no excluirlo.
 datas.extend(collect_data_files("playwright", include_py_files=False))
 
 

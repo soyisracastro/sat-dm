@@ -100,7 +100,7 @@ class CIECClient:
         # En distribución empaquetada, Chromium no viaja en el .exe; lo
         # descargamos perezosamente en la primera invocación a un endpoint del
         # portal.
-        from .setup import asegurar_chromium
+        from .setup import asegurar_chromium, lanzar_chromium
         asegurar_chromium()
 
         tipos = _normalizar_tipos(tipo_comprobante)
@@ -109,7 +109,7 @@ class CIECClient:
         descargados: List[Path] = []
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless, slow_mo=80)
+            browser = lanzar_chromium(p, headless=self.headless, slow_mo=80)
             context = browser.new_context(
                 accept_downloads=True,
                 user_agent=(
