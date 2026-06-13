@@ -6,6 +6,17 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Feature
+
+- **Botón "Buscar actualizaciones" en Ajustes** (fila Versión): consulta el
+  release más reciente de GitHub (lo mismo que el auto-update), descarga en
+  background mostrando el progreso y ofrece "Reiniciar ahora" cuando está lista.
+  Solo visible en la app instalada (en dev el updater no opera).
+- **El auto-update ya no es un intento único**: además del check a los 30 s del
+  arranque, se re-consulta cada 4 horas. Antes, si ese único check fallaba
+  (red lenta, antivirus, GitHub caído) la sesión completa se quedaba sin
+  enterarse del update — la causa de que una máquina actualizara y otra no.
+
 ## [1.1.1] - 2026-06-12
 
 ### Corregido
