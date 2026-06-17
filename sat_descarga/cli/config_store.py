@@ -33,7 +33,13 @@ _solicitudes_lock = threading.RLock()
 _catalogo_lock = threading.RLock()
 
 CONFIG_DIR = Path.home() / ".sat-descarga"
-EFIRMA_DIR = Path("efirma")
+# Copia de trabajo de los certificados, ANCLADA a una ruta absoluta y siempre
+# escribible. Antes era `Path("efirma")` (relativa): bajo Electron empaquetado el
+# agente arranca con cwd en el directorio de la app (solo-lectura en Windows por
+# UAC), y `mkdir("efirma")` reventaba con [WinError 5] Acceso denegado. Anclarla a
+# CONFIG_DIR también hace que las rutas guardadas en empresas.json sean absolutas
+# (antes quedaban relativas y solo resolvían si el cwd coincidía).
+EFIRMA_DIR = CONFIG_DIR / "efirma"
 
 
 def get_config_dir() -> Path:
@@ -71,7 +77,7 @@ def save_empresas(data: dict):
 
 
 def _efirma_dir(rfc: str) -> Path:
-    """Retorna ./efirma/{RFC}/, creándola si no existe."""
+    """Retorna ~/.sat-descarga/efirma/{RFC}/, creándola si no existe."""
     d = EFIRMA_DIR / rfc
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -94,7 +100,8 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
     """
     Registra una empresa por e.firma (FIEL) — o le AGREGA el método e.firma si el RFC
     ya existía (p. ej. con CIEC), sin quitar el otro método. Valida la FIEL, copia
-    .cer/.key a ./efirma/{RFC}/ y guarda la contraseña en el keychain. Retorna el RFC.
+    .cer/.key a ~/.sat-descarga/efirma/{RFC}/ y guarda la contraseña en el keychain.
+    Retorna el RFC.
 
     `nombre` puede venir vacío: se resuelve con la razón social del certificado
     (CN del subject) y, en último caso, con el RFC.
