@@ -124,6 +124,7 @@ export function EmpresaAddDialog({
                        placeholder="••••••••"
                        onChange={(e) => setPassword(e.target.value)} />
               </Field>
+              <HintRespaldoFiel />
               <HintNombre />
               <Button type="submit" className="w-full" disabled={!fielOk || loading}>
                 {loading ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:shield-check-light" className="size-4" />}
@@ -176,6 +177,25 @@ function HintNombre() {
     <div className="flex items-start gap-2 rounded-lg bg-accent px-3 py-2.5 text-xs leading-relaxed text-accent-foreground">
       <Icon icon="ph:info-light" className="mt-px size-3.75 shrink-0" />
       El nombre de la empresa se completa en cuanto conectamos con el SAT.
+    </div>
+  );
+}
+
+/**
+ * Nota de privacidad/respaldo específica de la e.firma: dejamos una copia de los
+ * .cer/.key en la carpeta de descargas y la contraseña NUNCA se escribe en texto
+ * plano (vive cifrada en el llavero del SO). Refuerza el "todo queda en tu equipo".
+ */
+function HintRespaldoFiel() {
+  return (
+    <div className="flex items-start gap-2 rounded-lg bg-accent px-3 py-2.5 text-xs leading-relaxed text-accent-foreground">
+      <Icon icon="ph:lock-light" className="mt-px size-3.75 shrink-0" />
+      <span>
+        Tu e.firma se queda en tu equipo; nunca la subimos a ningún servidor.
+        Guardamos una copia de respaldo de tu .cer/.key en tu carpeta de descargas.{' '}
+        <strong className="font-medium">Tu contraseña no se guarda en texto plano</strong>{' '}
+        — resguárdala, no podemos recuperarla.
+      </span>
     </div>
   );
 }

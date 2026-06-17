@@ -83,6 +83,49 @@ def _efirma_dir(rfc: str) -> Path:
     return d
 
 
+# Aviso que acompaña al respaldo VISIBLE de la e.firma en la carpeta de descargas.
+# Deja claro el modelo de privacidad: todo se queda en el equipo del usuario y la
+# contraseña NO se guarda en ningún archivo (solo cifrada en el keychain del SO).
+_LEEME_RESPALDO_FIEL = """\
+Respaldo de tu e.firma — {rfc}
+
+Esta carpeta contiene una COPIA de tu e.firma (fiel.cer y fiel.key) hecha por TodoConta.
+
+• Todo queda en tu equipo. TodoConta NUNCA sube tu e.firma a ningún servidor ni
+  conserva una copia fuera de tu computadora.
+• Tu CONTRASEÑA no se guarda aquí ni en ningún archivo. Vive cifrada en el llavero
+  de tu sistema operativo (Windows Credential Manager / macOS Keychain), solo por
+  comodidad para no pedírtela en cada descarga.
+• Resguarda tu contraseña en un lugar seguro: si la pierdes NO podemos recuperarla
+  (el .key está cifrado con esa misma contraseña). El camino oficial es revocar y
+  regenerar tu e.firma en sat.gob.mx con tu CURP y correo.
+"""
+
+
+def _respaldar_fiel_en_descargas(rfc: str, cer_dest: Path, key_dest: Path) -> None:
+    """Guarda (best-effort) una copia VISIBLE de los .cer/.key en
+    <descargas>/fiel/{RFC}/, junto a CFDI/constancia/opinión, con un LÉEME.
+
+    La copia de trabajo que carga el agente vive en ~/.sat-descarga/efirma/ (a esa
+    apuntan cer_path/key_path en empresas.json); esta es un respaldo para el usuario.
+    NO se copia la contraseña: vive solo en el keychain del SO (core.secretos). Si la
+    carpeta de descargas no es escribible, NO se interrumpe el registro — solo se
+    loguea un warning (un respaldo que falla nunca debe tumbar el alta, que fue justo
+    la clase de bug del WinError 5)."""
+    try:
+        backup_dir = Path(get_descargas_dir()) / "fiel" / rfc
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cer_dest, backup_dir / "fiel.cer")
+        shutil.copy2(key_dest, backup_dir / "fiel.key")
+        (backup_dir / "LÉEME.txt").write_text(
+            _LEEME_RESPALDO_FIEL.format(rfc=rfc), encoding="utf-8"
+        )
+    except Exception as e:  # noqa: BLE001 — best-effort, nunca debe romper el alta
+        logger.warning(
+            "No se pudo guardar el respaldo de la e.firma de %s en descargas: %s", rfc, e
+        )
+
+
 def _metodos(info: dict) -> list[str]:
     """
     Métodos de autenticación de una empresa, como lista (['ciec'], ['fiel'] o ambos).
@@ -100,7 +143,8 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
     """
     Registra una empresa por e.firma (FIEL) — o le AGREGA el método e.firma si el RFC
     ya existía (p. ej. con CIEC), sin quitar el otro método. Valida la FIEL, copia
-    .cer/.key a ~/.sat-descarga/efirma/{RFC}/ y guarda la contraseña en el keychain.
+    .cer/.key a ~/.sat-descarga/efirma/{RFC}/ (copia de trabajo del agente), deja un
+    respaldo visible en <descargas>/fiel/{RFC}/ y guarda la contraseña en el keychain.
     Retorna el RFC.
 
     `nombre` puede venir vacío: se resuelve con la razón social del certificado
@@ -130,6 +174,7 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
     if key_src.resolve() != key_dest.resolve():
         shutil.copy2(key_src, key_dest)
     secretos.guardar(rfc, secretos.FIEL, password)
+    _respaldar_fiel_en_descargas(rfc, cer_dest, key_dest)
 
     with _catalogo_lock:
         data = load_empresas()

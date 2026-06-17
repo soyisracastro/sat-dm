@@ -10,9 +10,16 @@ from sat_descarga.cli import config_store
 
 @pytest.fixture(autouse=True)
 def temp_config(tmp_path, monkeypatch):
-    """Redirige CONFIG_DIR y EFIRMA_DIR a directorios temporales."""
+    """Redirige CONFIG_DIR, EFIRMA_DIR y la carpeta de descargas a tmp.
+
+    `descargas_dir_default` se parchea para que el respaldo visible de la e.firma
+    (<descargas>/fiel/{RFC}/) NUNCA escriba en el ~/Documents real durante los tests.
+    """
     monkeypatch.setattr(config_store, "CONFIG_DIR", tmp_path / ".sat-descarga")
     monkeypatch.setattr(config_store, "EFIRMA_DIR", tmp_path / "efirma")
+    monkeypatch.setattr(
+        config_store, "descargas_dir_default", lambda: str(tmp_path / "TodoConta")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +42,32 @@ class TestEmpresas:
         assert (efirma_dir / "fiel.key").exists()
         # La contraseña ya NO se escribe en texto plano (va al keychain).
         assert not (efirma_dir / "fiel.txt").exists()
+
+    def test_respaldo_en_descargas(self, test_cer, test_key, test_password, tmp_path):
+        rfc = config_store.add_empresa("Test", test_cer, test_key, test_password)
+        backup = tmp_path / "TodoConta" / "fiel" / rfc
+        assert (backup / "fiel.cer").exists()
+        assert (backup / "fiel.key").exists()
+        assert (backup / "LÉEME.txt").exists()
+
+    def test_respaldo_no_guarda_password(self, test_cer, test_key, test_password, tmp_path):
+        rfc = config_store.add_empresa("Test", test_cer, test_key, test_password)
+        backup = tmp_path / "TodoConta" / "fiel" / rfc
+        # La contraseña nunca se escribe en el respaldo (ni archivo aparte ni en el LÉEME).
+        assert not (backup / "fiel.txt").exists()
+        assert test_password not in (backup / "LÉEME.txt").read_text(encoding="utf-8")
+
+    def test_respaldo_falla_no_rompe_registro(
+        self, test_cer, test_key, test_password, test_rfc, tmp_path, monkeypatch
+    ):
+        # Carpeta de descargas "imposible" (un archivo, no un dir) → el respaldo falla,
+        # pero el alta debe completarse igual (best-effort, solo warning).
+        bloqueo = tmp_path / "no_es_carpeta"
+        bloqueo.write_text("x")
+        monkeypatch.setattr(config_store, "descargas_dir_default", lambda: str(bloqueo))
+        rfc = config_store.add_empresa("Test", test_cer, test_key, test_password)
+        assert rfc == test_rfc
+        assert config_store.get_empresa(rfc)["cer_path"]  # quedó registrada
 
     def test_password_no_queda_en_disco_plano(self, test_cer, test_key, test_password, tmp_path):
         config_store.add_empresa("Test", test_cer, test_key, test_password)
