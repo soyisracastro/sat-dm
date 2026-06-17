@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/ui/icon';
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from '@/lib/notify/prefs';
+import { getUpdatesBridge, type UpdatesState } from '@/lib/updates';
 
 const TEMAS = [
   { value: 'light', label: 'Claro' },
@@ -47,6 +48,84 @@ function AjCard({
       </div>
       <div>{children}</div>
     </Card>
+  );
+}
+
+/**
+ * Fila "Versión": número actual + botón "Buscar actualizaciones" (solo en la
+ * app instalada). El main de Electron consulta el GitHub Release más reciente
+ * (latest.yml), descarga en background y aquí se sigue el progreso; al quedar
+ * lista, el botón cambia a "Reiniciar ahora".
+ */
+function VersionRow({ version }: { version: string | undefined }) {
+  const [updates, setUpdates] = useState<UpdatesState | null>(null);
+  const bridge = typeof window !== 'undefined' ? getUpdatesBridge() : null;
+
+  useEffect(() => {
+    if (!bridge) return;
+    let dispose: (() => void) | undefined;
+    bridge
+      .getState()
+      .then((s) => {
+        setUpdates(s);
+        dispose = bridge.onChanged((nuevo) =>
+          setUpdates((prev) => ({ ...prev, ...nuevo })),
+        );
+      })
+      .catch(() => {});
+    return () => dispose?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const conUpdater = !!bridge && updates?.disponible === true;
+
+  const sub = !conUpdater
+    ? undefined
+    : updates?.estado === 'buscando'
+      ? 'Buscando actualizaciones…'
+      : updates?.estado === 'al-dia'
+        ? 'Estás en la última versión.'
+        : updates?.estado === 'descargando'
+          ? `Descargando la versión ${updates.version ?? ''}… ${updates.progreso ?? 0}%`
+          : updates?.estado === 'lista'
+            ? `La versión ${updates.version ?? ''} está lista para instalarse.`
+            : updates?.estado === 'error'
+              ? 'No se pudo buscar actualizaciones. Revisa tu conexión e intenta de nuevo.'
+              : undefined;
+
+  const ocupado = updates?.estado === 'buscando' || updates?.estado === 'descargando';
+
+  return (
+    <AjRow
+      label="Versión"
+      sub={sub}
+      control={
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[13px] text-foreground/80">
+            {version || '—'}
+          </span>
+          {conUpdater &&
+            (updates?.estado === 'lista' ? (
+              <Button size="sm" onClick={() => bridge?.install()}>
+                Reiniciar ahora
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={ocupado}
+                onClick={() => bridge?.check().then(setUpdates).catch(() => {})}
+              >
+                {ocupado ? (
+                  <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
+                ) : (
+                  'Buscar actualizaciones'
+                )}
+              </Button>
+            ))}
+        </div>
+      }
+    />
   );
 }
 
@@ -236,14 +315,7 @@ export default function AjustesPage() {
 
         {/* Acerca de */}
         <AjCard icon="ph:info-light" title="Acerca de">
-          <AjRow
-            label="Versión"
-            control={
-              <span className="font-mono text-[13px] text-foreground/80">
-                {version || '—'}
-              </span>
-            }
-          />
+          <VersionRow version={version} />
           <AjRow
             label="Equipo"
             control={

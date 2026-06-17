@@ -84,4 +84,25 @@ contextBridge.exposeInMainWorld('satDesktop', {
     ipcRenderer.on('protocol-activated', handler);
     return () => ipcRenderer.removeListener('protocol-activated', handler);
   },
+  /**
+   * Actualizaciones de la app (electron-updater contra GitHub Releases).
+   * Estado: { estado: 'idle'|'buscando'|'al-dia'|'descargando'|'lista'|'error',
+   *           version, progreso, mensaje, disponible }.
+   * `disponible: false` = updater inoperante (dev sin empaquetar) → la UI
+   * oculta el botón. Lo usa Ajustes → "Buscar actualizaciones".
+   */
+  updates: {
+    /** Dispara una búsqueda manual; devuelve el estado al momento. */
+    check: () => ipcRenderer.invoke('updates-check'),
+    /** Estado actual sin disparar nada. */
+    getState: () => ipcRenderer.invoke('updates-get-state'),
+    /** Reinicia e instala el update ya descargado (estado 'lista'). */
+    install: () => ipcRenderer.invoke('updates-install'),
+    /** Suscribe a cambios de estado; devuelve dispose() para limpiar. */
+    onChanged: (cb) => {
+      const handler = (_event, state) => cb(state);
+      ipcRenderer.on('updates-changed', handler);
+      return () => ipcRenderer.removeListener('updates-changed', handler);
+    },
+  },
 });

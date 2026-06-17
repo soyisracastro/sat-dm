@@ -201,13 +201,21 @@ app.on('open-url', (event, url) => {
 //
 // Flujo:
 //   1. 30s después de que la ventana esté lista, autoUpdater consulta el
-//      GitHub Release más reciente (configurado vía electron-builder.yml).
+//      GitHub Release más reciente (configurado vía electron-builder.yml), y
+//      lo re-consulta cada 4 horas (sesiones largas + checks fallidos por red
+//      lenta/antivirus ya no se quedan sin update — antes era UN solo intento
+//      silencioso por sesión).
 //   2. Si hay versión nueva, descarga el .exe + delta en background SIN
 //      molestar al usuario (no popups intermedios).
 //   3. Cuando termina la descarga (`update-downloaded`), muestra UN solo
 //      dialog: "Reiniciar ahora / Más tarde".
 //   4. Si el user elige "Más tarde", el update se aplica en el próximo
 //      arranque (electron-updater lo deja stageado).
+//
+// Además, Ajustes tiene un botón "Buscar actualizaciones": el renderer dispara
+// `updates-check` por IPC y sigue el progreso con `updates-changed`. En ese
+// caso el dialog nativo del paso 3 se omite (la UI muestra "Reiniciar ahora"
+// en su lugar, justo donde el usuario está mirando).
 //
 // En dev (NO empaquetado) NO arranca: electron-updater requiere
 // `app-update.yml` que solo existe en el bundle. Si se invoca en dev,
@@ -219,15 +227,59 @@ autoUpdater.logger = log;
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
+const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 horas
+
+// Estado del updater que consume el renderer (Ajustes → "Buscar actualizaciones").
+//   estado: 'idle' | 'buscando' | 'al-dia' | 'descargando' | 'lista' | 'error'
+const updaterState = {
+  estado: 'idle',
+  version: null, // versión nueva detectada (si hay)
+  progreso: null, // % de descarga (0-100)
+  mensaje: null, // detalle del error (si estado === 'error')
+};
+// true mientras el check en curso lo pidió el usuario desde Ajustes: el dialog
+// nativo de "update listo" se omite y la UI muestra el botón de reiniciar.
+let busquedaManual = false;
+
+function setUpdaterState(patch) {
+  Object.assign(updaterState, patch);
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('updates-changed', { ...updaterState });
+  }
+}
+
 function setupAutoUpdaterListeners() {
-  autoUpdater.on('checking-for-update', () => log.info('[updater] buscando update...'));
-  autoUpdater.on('update-available', (info) => log.info('[updater] update disponible:', info.version));
-  autoUpdater.on('update-not-available', () => log.info('[updater] no hay update'));
-  autoUpdater.on('error', (err) => log.warn('[updater] error (silencioso):', err && err.message));
-  autoUpdater.on('download-progress', (p) => log.info(`[updater] descargando ${Math.round(p.percent)}%`));
+  autoUpdater.on('checking-for-update', () => {
+    log.info('[updater] buscando update...');
+    setUpdaterState({ estado: 'buscando', mensaje: null });
+  });
+  autoUpdater.on('update-available', (info) => {
+    log.info('[updater] update disponible:', info.version);
+    // autoDownload=true: la descarga arranca sola en cuanto se detecta.
+    setUpdaterState({ estado: 'descargando', version: info.version, progreso: 0 });
+  });
+  autoUpdater.on('update-not-available', () => {
+    log.info('[updater] no hay update');
+    busquedaManual = false;
+    setUpdaterState({ estado: 'al-dia', version: null, progreso: null });
+  });
+  autoUpdater.on('error', (err) => {
+    log.warn('[updater] error (silencioso):', err && err.message);
+    busquedaManual = false;
+    setUpdaterState({ estado: 'error', mensaje: (err && err.message) || 'Error desconocido' });
+  });
+  autoUpdater.on('download-progress', (p) => {
+    log.info(`[updater] descargando ${Math.round(p.percent)}%`);
+    setUpdaterState({ estado: 'descargando', progreso: Math.round(p.percent) });
+  });
 
   autoUpdater.on('update-downloaded', async (info) => {
     log.info('[updater] update descargado:', info.version);
+    const manual = busquedaManual;
+    busquedaManual = false;
+    setUpdaterState({ estado: 'lista', version: info.version, progreso: 100 });
+    if (manual) return; // la UI de Ajustes ofrece "Reiniciar ahora"; sin doble prompt.
+
     const wins = BrowserWindow.getAllWindows();
     const parent = wins[0] || null;
     const choice = await dialog.showMessageBox(parent, {
@@ -248,16 +300,23 @@ function setupAutoUpdaterListeners() {
   });
 }
 
+function checkForUpdatesSilencioso() {
+  autoUpdater.checkForUpdates().catch((err) => {
+    log.warn('[updater] checkForUpdates falló (silencioso):', err && err.message);
+  });
+}
+
 function scheduleUpdateCheck() {
   if (!app.isPackaged) {
     log.info('[updater] skip en dev (app no empacada).');
     return;
   }
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      log.warn('[updater] checkForUpdates falló (silencioso):', err && err.message);
-    });
-  }, 30_000);
+  setTimeout(checkForUpdatesSilencioso, 30_000);
+  setInterval(() => {
+    // Con un update ya descargado/stageado no hay nada que re-consultar.
+    if (updaterState.estado === 'lista' || updaterState.estado === 'descargando') return;
+    checkForUpdatesSilencioso();
+  }, UPDATE_RECHECK_INTERVAL_MS);
 }
 
 let agentProc = null;
@@ -734,6 +793,36 @@ ipcMain.handle('notify-native', (_e, payload) => {
     }
   });
   n.show();
+  return true;
+});
+
+// Actualizaciones (Ajustes → "Buscar actualizaciones"). `disponible: false`
+// significa que el updater no opera (dev sin empaquetar): la UI oculta el botón.
+ipcMain.handle('updates-get-state', () => ({
+  ...updaterState,
+  disponible: app.isPackaged,
+}));
+
+ipcMain.handle('updates-check', () => {
+  if (!app.isPackaged) {
+    return { ...updaterState, disponible: false };
+  }
+  // No encimar checks: si ya está buscando/descargando, devolver el estado actual.
+  if (updaterState.estado !== 'buscando' && updaterState.estado !== 'descargando') {
+    busquedaManual = true;
+    autoUpdater.checkForUpdates().catch((err) => {
+      log.warn('[updater] check manual falló:', err && err.message);
+      busquedaManual = false;
+      setUpdaterState({ estado: 'error', mensaje: (err && err.message) || 'Error desconocido' });
+    });
+  }
+  return { ...updaterState, disponible: true };
+});
+
+ipcMain.handle('updates-install', () => {
+  if (updaterState.estado !== 'lista') return false;
+  // quitAndInstall(isSilent=false, isForceRunAfter=true)
+  autoUpdater.quitAndInstall(false, true);
   return true;
 });
 
