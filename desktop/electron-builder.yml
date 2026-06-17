@@ -146,9 +146,11 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Al activar la firma, descomentar para notarizar con notarytool (lee
-  # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID del env):
-  # notarize: true
+  # Notariza con notarytool (lee APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+  # APPLE_TEAM_ID del env). Sin esos secrets en el runner, electron-builder
+  # construye el DMG sin firmar/notarizar (warning, no error) — sigue sirviendo
+  # para QA con clic-derecho → Abrir.
+  notarize: true
   # ⚠️ Validar en el PRIMER build firmado: que electron-builder firme también
   # los binarios del agente en Contents/Resources/agent/ (PyInstaller onedir).
   # Si la notarización rechaza binarios sin firma ahí, agregar:
