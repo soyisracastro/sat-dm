@@ -16,6 +16,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { mensajeDeError } from '@/lib/errores';
 
 interface EmpresaAddDialogProps {
@@ -119,7 +124,8 @@ export function EmpresaAddDialog({
                 file={key}
                 onPick={setKey}
               />
-              <Field label="Contraseña de la clave privada" htmlFor="fiel-pass">
+              <Field label="Contraseña de la clave privada" htmlFor="fiel-pass"
+                     hint={<RespaldoFielTooltip />}>
                 <Input id="fiel-pass" type="password" value={password}
                        placeholder="••••••••"
                        onChange={(e) => setPassword(e.target.value)} />
@@ -180,18 +186,52 @@ function HintNombre() {
   );
 }
 
+/**
+ * Tooltip de privacidad/respaldo de la e.firma: un icono (?) junto al campo de
+ * contraseña que, al pasar el cursor (o al enfocar con teclado), explica que la
+ * copia .cer/.key se respalda en la carpeta de descargas y que la contraseña nunca
+ * se escribe en texto plano. Va como tooltip para no gastar espacio en el modal.
+ */
+function RespaldoFielTooltip() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="Qué pasa con mi e.firma y mi contraseña"
+          tabIndex={0}
+          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <Icon icon="ph:question-light" className="size-3.75" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="start" className="w-72 rounded-xl p-3.5 text-left leading-relaxed">
+        Tu e.firma se queda en tu equipo; nunca la subimos a ningún servidor.
+        Guardamos una copia de respaldo de tu .cer/.key en tu carpeta de descargas.{' '}
+        <strong className="font-semibold">Tu contraseña no se guarda en texto plano</strong>{' '}
+        — resguárdala, no podemos recuperarla.
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function Field({
   label,
   htmlFor,
+  hint,
   children,
 }: {
   label: string;
   htmlFor: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={htmlFor}>{label}</Label>
+      <div className="flex items-center gap-1.5">
+        <Label htmlFor={htmlFor}>{label}</Label>
+        {hint}
+      </div>
       {children}
     </div>
   );

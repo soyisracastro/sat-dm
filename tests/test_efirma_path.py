@@ -30,6 +30,10 @@ def test_registro_ignora_el_cwd(tmp_path, monkeypatch, test_cer, test_key, test_
     config_dir = tmp_path / ".sat-descarga"
     monkeypatch.setattr(config_store, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(config_store, "EFIRMA_DIR", config_dir / "efirma")
+    # Aísla el respaldo visible para que no escriba en el ~/Documents real.
+    monkeypatch.setattr(
+        config_store, "descargas_dir_default", lambda: str(tmp_path / "TodoConta")
+    )
 
     otro_cwd = tmp_path / "otro_cwd"
     otro_cwd.mkdir()
