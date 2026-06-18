@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { Bell } from '@/components/notifications/bell';
+import { ReportButton } from '@/components/feedback/report-button';
 import { FounderBadge } from '@/components/auth/founder-badge';
 import { WindowControls } from '@/components/layout/window-controls';
 
@@ -65,6 +66,7 @@ export function Titlebar() {
         style={desktop ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string } : undefined}
       >
         <FounderBadge />
+        <ReportButton />
         <Bell />
         {conControles && <WindowControls />}
       </div>

@@ -58,6 +58,13 @@ from .routers import (
     system_router,
 )
 
+# Telemetría de errores (Sentry). Apagada salvo que haya SENTRY_DSN en el entorno
+# (lo inyecta el shell Electron en builds empaquetados). Debe inicializarse antes
+# de crear la app para que la integración de FastAPI enganche el manejo de errores.
+from ..core.telemetria import init_sentry
+
+init_sentry()
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------

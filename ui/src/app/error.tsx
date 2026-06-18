@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { capturarExcepcion } from '@/lib/telemetria';
 
 export default function Error({
   error,
@@ -24,6 +25,8 @@ export default function Error({
   useEffect(() => {
     // Queda en la consola del renderer (visible en DevTools / `debug:packaged`).
     console.error('[error-boundary]', error);
+    // Y se reporta a Sentry (no-op fuera de Electron / sin DSN).
+    capturarExcepcion(error, { boundary: 'segment', digest: error?.digest });
   }, [error]);
 
   return (

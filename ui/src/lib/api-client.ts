@@ -1,4 +1,5 @@
 import { API_BASE_URL, getAgentToken } from './constants';
+import { agregarBreadcrumb, capturarExcepcion } from './telemetria';
 import type {
   HealthResponse,
   CargarFielResponse,
@@ -99,14 +100,23 @@ export class SatApiClient {
     options: RequestInit = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    const method = options.method ?? 'GET';
+    agregarBreadcrumb({ category: 'http', message: `${method} ${path}`, level: 'info' });
 
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        ...this.tokenHeaders(),
-        ...(options.headers ?? {}),
-      },
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...options,
+        headers: {
+          ...this.tokenHeaders(),
+          ...(options.headers ?? {}),
+        },
+      });
+    } catch (err) {
+      // Fallo de red (agente caído, conexión perdida): siempre vale reportarlo.
+      capturarExcepcion(err, { path, method });
+      throw err;
+    }
 
     if (!res.ok) {
       let detail: string;
@@ -116,7 +126,11 @@ export class SatApiClient {
       } catch {
         detail = await res.text().catch(() => res.statusText);
       }
-      throw new ApiError(res.status, detail);
+      const error = new ApiError(res.status, detail);
+      // Solo capturamos 5xx (fallo real del agente). Los 4xx son esperados
+      // (409 job concurrente, 400/422 validación, 401 token) y harían ruido.
+      if (res.status >= 500) capturarExcepcion(error, { path, method });
+      throw error;
     }
 
     return res.json() as Promise<T>;

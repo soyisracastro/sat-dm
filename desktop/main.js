@@ -34,6 +34,89 @@ const log = require('electron-log');
 const REPO_ROOT = path.resolve(__dirname, '..');
 const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
 
+// ---------------------------------------------------------------------------
+// Telemetría de errores (Sentry) — apagada salvo que haya DSN configurado.
+// ---------------------------------------------------------------------------
+// El DSN no es secreto (va embebido en el cliente) y un solo proyecto de Sentry
+// cubre el shell y el agente (el mismo DSN se inyecta al agente Python al
+// spawnearlo, ver spawnAgent). Política de activación:
+//   - Release empaquetado → usa el DSN horneado (telemetría siempre activa).
+//   - Dev → APAGADA salvo que exportes SENTRY_DSN a mano (para no spamear el
+//     proyecto en cada `pnpm dev`; env SENTRY_DSN siempre gana).
+// Privacidad: esta app maneja datos fiscales — `scrubEventoSentry` redacta RFCs y
+// rutas con nombre de usuario antes de enviar, y adjunta solo la cola del log.
+const SENTRY_DSN_HORNEADO =
+  'https://577a136e71f0ab4f39f71123b8a4d3d6@o4511587133947904.ingest.us.sentry.io/4511587138863104';
+const SENTRY_DSN = process.env.SENTRY_DSN || (app.isPackaged ? SENTRY_DSN_HORNEADO : '');
+const SENTRY_ENVIRONMENT = app.isPackaged ? 'production' : 'development';
+
+const _RFC_RE = /\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{2,3}\b/g;
+const _HOME_RES = [
+  [/([A-Za-z]:\\Users\\)[^\\/]+/gi, '$1<usuario>'],
+  [/(\/Users\/)[^/]+/g, '$1<usuario>'],
+  [/(\/home\/)[^/]+/g, '$1<usuario>'],
+];
+
+function _redactarTexto(s) {
+  let out = s.replace(_RFC_RE, '<RFC>');
+  for (const [re, rep] of _HOME_RES) out = out.replace(re, rep);
+  return out;
+}
+
+function _scrub(value) {
+  if (typeof value === 'string') return _redactarTexto(value);
+  if (Array.isArray(value)) return value.map(_scrub);
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) {
+      if (/(password|contrase|ciec|secreto|secret|token|api[_-]?key)/i.test(k)) {
+        value[k] = '<redactado>';
+      } else {
+        value[k] = _scrub(value[k]);
+      }
+    }
+  }
+  return value;
+}
+
+function _colaDelLog(maxBytes = 50 * 1024) {
+  try {
+    const p = log.transports.file.getFile().path;
+    const buf = fs.readFileSync(p);
+    const slice = buf.length > maxBytes ? buf.subarray(buf.length - maxBytes) : buf;
+    return _redactarTexto(slice.toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function scrubEventoSentry(event, hint) {
+  const limpio = _scrub(event);
+  const cola = _colaDelLog();
+  if (cola) {
+    hint.attachments = [
+      { filename: 'main.log', data: cola, contentType: 'text/plain' },
+      ...(hint.attachments || []),
+    ];
+  }
+  return limpio;
+}
+
+if (SENTRY_DSN) {
+  try {
+    const Sentry = require('@sentry/electron/main');
+    Sentry.init({
+      dsn: SENTRY_DSN,
+      release: app.getVersion(),
+      environment: SENTRY_ENVIRONMENT,
+      sendDefaultPii: false,
+      beforeSend: scrubEventoSentry,
+    });
+    log.info('[sentry] telemetría activada (%s)', SENTRY_ENVIRONMENT);
+  } catch (e) {
+    log.warn('[sentry] no se pudo inicializar:', e.message);
+  }
+}
+
 // Esquema propio para servir el renderer empacado (ui/out) con un ORIGEN real
 // (app://-/...) en lugar de file://. Necesario porque sobre file:// los paths
 // absolutos que emite Next (`/_next/...`, `/icon.png`) y la navegación del
@@ -526,7 +609,16 @@ function spawnAgent(port) {
   // menos queda traza en `main.log` del shell.
   agentProc = spawn(cmd[0], cmd.slice(1), {
     cwd,
-    env: { ...process.env, SAT_AGENT_PORT: String(port), SAT_AGENT_TOKEN: agentToken },
+    env: {
+      ...process.env,
+      SAT_AGENT_PORT: String(port),
+      SAT_AGENT_TOKEN: agentToken,
+      // Telemetría: el agente Python usa el mismo DSN/entorno que el shell.
+      // Sin DSN, su init_sentry() es no-op.
+      SENTRY_DSN,
+      SENTRY_RELEASE: app.getVersion(),
+      SENTRY_ENVIRONMENT,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (agentProc.stdout) {
@@ -661,10 +753,14 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // El preload lee estos args y expone window.satAgent.{baseUrl,token}.
+      // El preload lee estos args y expone window.satAgent.{baseUrl,token,sentry}.
       additionalArguments: [
         `--sat-agent-url=${agentUrl || ''}`,
         `--sat-agent-token=${agentToken || ''}`,
+        // Solo si el main inicializó Sentry (hay DSN). Si no, el renderer NO debe
+        // inicializar su SDK o lanza "failed to establish connection with the
+        // Electron main process" (típico en `pnpm dev` sin DSN).
+        `--sentry-enabled=${SENTRY_DSN ? '1' : '0'}`,
       ],
     },
   });
