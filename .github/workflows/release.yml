@@ -243,7 +243,10 @@ jobs:
           - runner: macos-latest
             arch: arm64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    # Holgado para firma + notarización (notarytool sube el .app a Apple y espera).
+    # Con el agente en onefile la firma es de UN binario (segundos), así que el grueso
+    # es la notarización; 90 min cubre colas/reintentos de Apple sin volver a colgarse.
+    timeout-minutes: 90
     env:
       # Cert "Developer ID Application" exportado como .p12 en base64.
       # (A diferencia de Windows, Apple SÍ permite exportar la llave.)
@@ -281,7 +284,9 @@ jobs:
 
       - name: Smoke test del agente empacado
         run: |
-          exe="packaging/dist/sat-agent/sat-agent"
+          # macOS empaqueta el agente en onefile → el binario es packaging/dist/sat-agent
+          # (un archivo), no la carpeta onedir de Windows/Linux.
+          exe="packaging/dist/sat-agent"
           test -x "$exe" || { echo "No se encontró el binario en $exe"; exit 1; }
           "$exe" --port 18787 &
           pid=$!

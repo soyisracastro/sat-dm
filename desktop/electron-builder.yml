@@ -53,22 +53,28 @@ files:
   - node_modules/**/*
 
 # Recursos que viajan FUERA del ASAR (binarios externos, archivos grandes).
-extraResources:
-  # Binario PyInstaller del agente Python (carpeta onedir con sat-agent.exe + dlls).
-  # Path relativo al `desktop/`.
-  - from: ../packaging/dist/sat-agent
-    to: agent
-    filter: ['**/*']
-  # Bundle estático del renderer Next.js (output: 'export' → ui/out/).
-  - from: ../ui/out
-    to: ui
-    filter: ['**/*']
+#
+# `extraResources` se define POR PLATAFORMA (win/mac/linux), NO en común: en
+# electron-builder los options de plataforma SOBREESCRIBEN (no fusionan) a los
+# comunes — si dejáramos el bundle de UI aquí arriba y el agente abajo por
+# plataforma, las plataformas perderían la UI. Por eso cada bloque lista UI +
+# agente. El agente difiere: Windows/Linux = onedir (carpeta), macOS = onefile
+# (un binario, para que la firma de notarización no recorra cientos de archivos).
 
 # -----------------------------------------------------------------------------
 # Windows (NSIS)
 # -----------------------------------------------------------------------------
 
 win:
+  extraResources:
+    # Bundle estático del renderer Next.js.
+    - from: ../ui/out
+      to: ui
+      filter: ['**/*']
+    # Agente PyInstaller en modo onedir (carpeta sat-agent\ con sat-agent.exe + dlls).
+    - from: ../packaging/dist/sat-agent
+      to: agent
+      filter: ['**/*']
   target:
     - target: nsis
       arch: [x64]
@@ -129,6 +135,16 @@ nsis:
 # -----------------------------------------------------------------------------
 
 mac:
+  extraResources:
+    # Bundle estático del renderer Next.js.
+    - from: ../ui/out
+      to: ui
+      filter: ['**/*']
+    # Agente PyInstaller en modo onefile (un solo binario) — ver packaging/sat-agent.spec.
+    # Onefile = 1 Mach-O a firmar para notarización (onedir serían cientos → revienta
+    # el timeout del job de CI por el throttling del timestamp server de Apple).
+    - from: ../packaging/dist/sat-agent
+      to: agent/sat-agent
   target:
     - target: dmg
       arch: [x64, arm64]
@@ -166,6 +182,15 @@ dmg:
 # -----------------------------------------------------------------------------
 
 linux:
+  # CI no buildea Linux; se mantiene autocontenido por consistencia (UI + agente
+  # onedir, igual que Windows). El spec produce onedir salvo en macOS.
+  extraResources:
+    - from: ../ui/out
+      to: ui
+      filter: ['**/*']
+    - from: ../packaging/dist/sat-agent
+      to: agent
+      filter: ['**/*']
   target:
     - target: AppImage
       arch: [x64]
