@@ -7,19 +7,28 @@ Uso:
     pyinstaller packaging/sat-agent.spec --noconfirm --clean
 
 Salida:
-    packaging/dist/sat-agent/sat-agent[.exe]     # binario
-    packaging/dist/sat-agent/*.dll/*.pyd         # dependencias dinámicas
+    Windows/Linux (onedir):
+        packaging/dist/sat-agent/sat-agent[.exe]  # binario + dlls/pyd en carpeta
+    macOS (onefile):
+        packaging/dist/sat-agent                  # un solo binario
     packaging/build/                              # artefactos intermedios
 
 El binario se invoca con:
-    sat-agent.exe --port <N>
+    sat-agent[.exe] --port <N>
 
-Decisiones:
-- `onedir` (no `onefile`): un .exe + dlls en carpeta. Razones:
+Decisiones — `onedir` en Windows/Linux, `onefile` en macOS (`MODO_ONEFILE`):
+- **onedir (Windows/Linux)** — un .exe + dlls en carpeta. Razones:
     1. `onefile` extrae a %TEMP% en cada arranque (1-3s extra de latencia).
     2. Antivirus marcan más frecuentemente los `onefile`.
     3. Patches/updates más fáciles en carpeta (electron-updater reemplaza la
        carpeta completa).
+- **onefile (macOS)** — un solo binario. Razón: firmar el bundle para
+  notarización recorre y firma CADA Mach-O anidado, y cada `codesign --timestamp`
+  pega al servidor de timestamps de Apple (que estrangula a los runners de CI).
+  Con onedir son cientos de archivos → la firma revienta el timeout del job (45
+  min). Con onefile es UN binario → firma en segundos. El hardened runtime carga
+  los dylibs extraídos gracias a `disable-library-validation` en los entitlements
+  (ya presente en desktop/build/entitlements.mac.plist).
 - Playwright SÍ está incluido (sus driver/binding); el navegador Chromium se
   descarga en runtime (ver `sat_descarga/portal/setup.py`).
 - Pesados excluidos: pillow, tkinter, matplotlib, IPython.
@@ -177,35 +186,63 @@ a = Analysis(  # noqa: F821 — PyInstaller inyecta esto
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)  # noqa: F821
 
-exe = EXE(  # noqa: F821
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name="sat-agent",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,         # UPX a veces dispara antivirus; desactivado.
-    # console=False: en Windows producción ya no se abre una ventana negra DOS
-    # paralela al .exe (confunde a usuarios finales — "¿es virus?"). Los logs
-    # se persisten a %LOCALAPPDATA%\TodoConta\logs\agent.log desde __main__.py.
-    # En dev (`uv run uvicorn ...`) este flag no aplica.
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
+# onefile solo en macOS (firma rápida para notarización); onedir en Windows/Linux.
+MODO_ONEFILE = sys.platform == "darwin"
 
-coll = COLLECT(  # noqa: F821
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="sat-agent",
-)
+# Notas comunes a ambos modos:
+# - upx=False: UPX a veces dispara antivirus.
+# - console=False: en Windows producción ya no se abre una ventana negra DOS
+#   paralela al .exe (confunde a usuarios — "¿es virus?"). Los logs se persisten
+#   a %LOCALAPPDATA%\TodoConta\logs\agent.log desde __main__.py. En dev no aplica.
+
+if MODO_ONEFILE:
+    exe = EXE(  # noqa: F821
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        [],
+        name="sat-agent",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+else:
+    exe = EXE(  # noqa: F821
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="sat-agent",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+
+    coll = COLLECT(  # noqa: F821
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,
+        upx_exclude=[],
+        name="sat-agent",
+    )
