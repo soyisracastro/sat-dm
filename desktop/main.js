@@ -37,12 +37,17 @@ const APP_ICON = path.join(__dirname, 'assets', 'icon.png');
 // ---------------------------------------------------------------------------
 // Telemetría de errores (Sentry) — apagada salvo que haya DSN configurado.
 // ---------------------------------------------------------------------------
-// El DSN no es secreto (va embebido en el cliente). Se toma de env SENTRY_DSN, o
-// se hardcodea aquí en el build de release. Sin DSN, todo queda inerte (dev/CI).
-// El mismo DSN se inyecta al agente Python al spawnearlo (ver spawnAgent).
+// El DSN no es secreto (va embebido en el cliente) y un solo proyecto de Sentry
+// cubre el shell y el agente (el mismo DSN se inyecta al agente Python al
+// spawnearlo, ver spawnAgent). Política de activación:
+//   - Release empaquetado → usa el DSN horneado (telemetría siempre activa).
+//   - Dev → APAGADA salvo que exportes SENTRY_DSN a mano (para no spamear el
+//     proyecto en cada `pnpm dev`; env SENTRY_DSN siempre gana).
 // Privacidad: esta app maneja datos fiscales — `scrubEventoSentry` redacta RFCs y
 // rutas con nombre de usuario antes de enviar, y adjunta solo la cola del log.
-const SENTRY_DSN = process.env.SENTRY_DSN || '';
+const SENTRY_DSN_HORNEADO =
+  'https://577a136e71f0ab4f39f71123b8a4d3d6@o4511587133947904.ingest.us.sentry.io/4511587138863104';
+const SENTRY_DSN = process.env.SENTRY_DSN || (app.isPackaged ? SENTRY_DSN_HORNEADO : '');
 const SENTRY_ENVIRONMENT = app.isPackaged ? 'production' : 'development';
 
 const _RFC_RE = /\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{2,3}\b/g;
