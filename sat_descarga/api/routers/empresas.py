@@ -87,6 +87,12 @@ async def empresas_add_fiel(
         )
         return {"ok": True, "rfc": rfc}
     except Exception as e:
+        # Se degrada a 400 para el usuario, pero es un fallo operativo (p. ej. el
+        # WinError 5 de permisos): repórtalo a Sentry, que si no la integración de
+        # FastAPI no lo ve (solo captura excepciones no atrapadas).
+        from ...core.telemetria import capturar_excepcion
+
+        capturar_excepcion(e)
         raise HTTPException(status_code=400, detail=f"No se pudo registrar la empresa: {e}")
     finally:
         for p in (cer_tmp.name, key_tmp.name):

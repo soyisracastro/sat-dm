@@ -4,6 +4,7 @@ import { AuthProvider } from '@/providers/auth-provider';
 import { ServerProvider } from '@/providers/server-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { SonnerProvider } from '@/components/providers/sonner-provider';
+import { Telemetria } from '@/components/providers/telemetria';
 import { AppShell } from '@/components/layout/app-shell';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -29,6 +30,7 @@ export default function RootLayout({
             </AuthProvider>
           </ServerProvider>
           <SonnerProvider />
+          <Telemetria />
         </ThemeProvider>
       </body>
     </html>

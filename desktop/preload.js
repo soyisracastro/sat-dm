@@ -8,6 +8,17 @@
  * (.cer/.key), revelar archivos en el explorador, etc. El renderer NUNCA toca Node.
  */
 
+// Habilita la telemetría de Sentry en el renderer: el SDK del renderer
+// (@sentry/electron/renderer) se comunica con el proceso main por IPC, y ese
+// puente debe montarse aquí en el preload (sandbox + contextIsolation). Si no hay
+// DSN configurado en main, esto queda inerte. No expone nada al window.
+// En try/catch: la telemetría JAMÁS debe romper el preload (sin él, la app no abre).
+try {
+  require('@sentry/electron/preload');
+} catch {
+  /* best-effort: seguimos sin telemetría del renderer */
+}
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 function leerArg(prefijo) {

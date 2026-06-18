@@ -8,6 +8,8 @@
 
 import { useEffect } from 'react';
 
+import { capturarExcepcion } from '@/lib/telemetria';
+
 export default function GlobalError({
   error,
   reset,
@@ -17,6 +19,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error('[global-error-boundary]', error);
+    capturarExcepcion(error, { boundary: 'global', digest: error?.digest });
   }, [error]);
 
   return (
