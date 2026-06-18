@@ -753,10 +753,14 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // El preload lee estos args y expone window.satAgent.{baseUrl,token}.
+      // El preload lee estos args y expone window.satAgent.{baseUrl,token,sentry}.
       additionalArguments: [
         `--sat-agent-url=${agentUrl || ''}`,
         `--sat-agent-token=${agentToken || ''}`,
+        // Solo si el main inicializó Sentry (hay DSN). Si no, el renderer NO debe
+        // inicializar su SDK o lanza "failed to establish connection with the
+        // Electron main process" (típico en `pnpm dev` sin DSN).
+        `--sentry-enabled=${SENTRY_DSN ? '1' : '0'}`,
       ],
     },
   });

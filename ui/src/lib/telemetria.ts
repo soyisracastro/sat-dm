@@ -14,9 +14,13 @@ type SentryRenderer = typeof import('@sentry/electron/renderer');
 let sentry: SentryRenderer | null = null;
 let activo = false;
 
-function esDesktop(): boolean {
+// Solo inicializamos si el proceso main de Electron habilitó Sentry (window.satAgent
+// .sentry === true). En el navegador/dev sin DSN es false → no se inicializa el SDK
+// del renderer (evita el "failed to establish connection with the Electron main
+// process", porque sin Sentry en main no hay con quién conectarse).
+function sentryHabilitado(): boolean {
   if (typeof window === 'undefined') return false;
-  return !!(window as unknown as { satAgent?: { isDesktop?: boolean } }).satAgent?.isDesktop;
+  return (window as unknown as { satAgent?: { sentry?: boolean } }).satAgent?.sentry === true;
 }
 
 const RFC_RE = /\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{2,3}\b/g;
@@ -50,7 +54,7 @@ function scrub(value: unknown): unknown {
 
 /** Inicializa Sentry en el renderer (solo dentro de Electron; idempotente). */
 export async function initTelemetria(): Promise<void> {
-  if (activo || !esDesktop()) return;
+  if (activo || !sentryHabilitado()) return;
   try {
     const mod = await import('@sentry/electron/renderer');
     mod.init({

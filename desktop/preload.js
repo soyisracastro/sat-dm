@@ -8,23 +8,26 @@
  * (.cer/.key), revelar archivos en el explorador, etc. El renderer NUNCA toca Node.
  */
 
-// Habilita la telemetría de Sentry en el renderer: el SDK del renderer
-// (@sentry/electron/renderer) se comunica con el proceso main por IPC, y ese
-// puente debe montarse aquí en el preload (sandbox + contextIsolation). Si no hay
-// DSN configurado en main, esto queda inerte. No expone nada al window.
-// En try/catch: la telemetría JAMÁS debe romper el preload (sin él, la app no abre).
-try {
-  require('@sentry/electron/preload');
-} catch {
-  /* best-effort: seguimos sin telemetría del renderer */
-}
-
 const { contextBridge, ipcRenderer } = require('electron');
 
 function leerArg(prefijo) {
   const arg = process.argv.find((a) => a.startsWith(prefijo));
   if (!arg) return null;
   return arg.slice(prefijo.length) || null;
+}
+
+// ¿El proceso main inicializó Sentry? (lo decide main según haya DSN). Solo
+// entonces montamos el puente IPC del renderer y dejamos que el SDK del renderer
+// se conecte. Si lo montáramos sin Sentry en main, el SDK del renderer lanza
+// "failed to establish connection with the Electron main process" (p. ej. en
+// `pnpm dev` sin DSN). La telemetría JAMÁS debe romper el preload (try/catch).
+const SENTRY_HABILITADO = leerArg('--sentry-enabled=') === '1';
+if (SENTRY_HABILITADO) {
+  try {
+    require('@sentry/electron/preload');
+  } catch {
+    /* best-effort: seguimos sin telemetría del renderer */
+  }
 }
 
 contextBridge.exposeInMainWorld('satAgent', {
@@ -38,6 +41,13 @@ contextBridge.exposeInMainWorld('satAgent', {
   token: leerArg('--sat-agent-token='),
   /** Marca para que el renderer sepa que corre dentro de Electron. */
   isDesktop: true,
+  /**
+   * ¿La telemetría de Sentry está activa en el main? El renderer solo inicializa
+   * su SDK si esto es true (si no, el SDK del renderer no encuentra el main y
+   * tira un error en consola). Activo en el build de release; en dev, solo si se
+   * exportó SENTRY_DSN.
+   */
+  sentry: SENTRY_HABILITADO,
 });
 
 contextBridge.exposeInMainWorld('satDesktop', {
