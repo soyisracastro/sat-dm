@@ -6,6 +6,8 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.2.0] - 2026-06-18
+
 ### Feature
 
 - **Botón "Buscar actualizaciones" en Ajustes** (fila Versión): consulta el
@@ -16,6 +18,32 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   arranque, se re-consulta cada 4 horas. Antes, si ese único check fallaba
   (red lenta, antivirus, GitHub caído) la sesión completa se quedaba sin
   enterarse del update — la causa de que una máquina actualizara y otra no.
+- **Respaldo local de la e.firma**: al registrar una empresa por e.firma, además
+  de la copia de trabajo en `~/.sat-descarga/efirma/`, se guarda una copia visible
+  de los `.cer`/`.key` en `<descargas>/fiel/<RFC>/` (junto a CFDI/constancia/
+  opinión) con un `LÉEME.txt`. La contraseña **nunca** se escribe en disco — sigue
+  solo en el llavero del SO. Best-effort: si la carpeta de descargas no es
+  escribible, no rompe el alta. La nota de privacidad en el alta va como tooltip
+  (?) junto a la contraseña, para no gastar espacio en el modal.
+- **Reporte de errores con Sentry**: captura automática de errores (renderer, main
+  y agente Python) + botón "Reportar un problema" junto a la campana. Apagado salvo
+  que haya DSN configurado; envía solo diagnóstico técnico **scrubbeado** (RFC,
+  rutas con nombre de usuario y credenciales redactadas) — nunca la e.firma, las
+  contraseñas ni datos fiscales.
+
+### Bug fix
+
+- **Corregido el alta de empresa por e.firma en Windows** (`[WinError 5] Acceso
+  denegado: 'efirma'`): la carpeta de certificados era una ruta **relativa** que, en
+  el build empaquetado, caía en el directorio de instalación (solo-lectura por UAC).
+  Ahora se ancla a `~/.sat-descarga/efirma/` (absoluta y siempre escribible); de
+  paso, las rutas guardadas en `empresas.json` quedan absolutas.
+
+### Tooling
+
+- **Notarización de macOS activada** en electron-builder.
+
+- Bump 1.1.1 → 1.2.0 (3 archivos).
 
 ## [1.1.1] - 2026-06-12
 
