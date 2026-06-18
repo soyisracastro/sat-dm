@@ -81,18 +81,34 @@ export function agregarBreadcrumb(crumb: { category?: string; message?: string; 
 }
 
 /**
- * Envía el feedback del usuario (botón "Reportar un problema"), vinculándolo al
- * último evento si lo hay. Devuelve true si se envió, false si la telemetría no
- * está activa (navegador/dev o sin DSN).
+ * Envía el reporte del usuario (botón "Reportar un problema"). Devuelve true si se
+ * envió, false si la telemetría no está activa (navegador/dev sin DSN).
+ *
+ * Manda DOS cosas:
+ *  - `captureMessage` → crea un **Issue** en Sentry, así dispara la alerta de
+ *    "nuevo issue" por correo y aparece en la lista de Issues (donde uno mira).
+ *  - `captureFeedback` → además queda en la bandeja "User Feedback", vinculado al
+ *    issue anterior (vista más rica con el correo de contacto).
+ * Sin esto, un feedback suelto NO aparece en Issues ni dispara alertas de issue.
  */
 export function reportarProblema(input: { mensaje: string; email?: string; nombre?: string }): boolean {
   if (!activo || !sentry) return false;
-  sentry.captureFeedback({
-    message: input.mensaje,
-    email: input.email,
-    name: input.nombre,
-    associatedEventId: sentry.lastEventId(),
+  const eventId = sentry.captureMessage(`Reporte del usuario: ${input.mensaje}`, {
+    level: 'info',
+    tags: { tipo: 'reporte_usuario' },
+    user: input.email ? { email: input.email } : undefined,
+    extra: { mensaje: input.mensaje },
   });
+  try {
+    sentry.captureFeedback({
+      message: input.mensaje,
+      email: input.email,
+      name: input.nombre,
+      associatedEventId: eventId,
+    });
+  } catch {
+    /* el feedback es secundario; el issue ya quedó */
+  }
   return true;
 }
 

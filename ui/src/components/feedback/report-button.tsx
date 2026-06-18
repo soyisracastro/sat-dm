@@ -52,11 +52,18 @@ export function ReportButton() {
     if (!mensaje.trim()) return;
     setEnviando(true);
     try {
-      reportarProblema({ mensaje: mensaje.trim(), email: emailValor || undefined });
-      toast.success('Gracias, recibimos tu reporte.', {
-        description: 'Lo revisaremos con la información técnica del incidente.',
-      });
-      handleOpenChange(false);
+      const enviado = reportarProblema({ mensaje: mensaje.trim(), email: emailValor || undefined });
+      if (enviado) {
+        toast.success('Gracias, recibimos tu reporte.', {
+          description: 'Lo revisaremos con la información técnica del incidente.',
+        });
+        handleOpenChange(false);
+      } else {
+        // Telemetría inactiva (p. ej. dev sin SENTRY_DSN): no mentimos con un éxito.
+        toast.error('No se pudo enviar el reporte', {
+          description: 'El reporte de errores no está activo en esta sesión.',
+        });
+      }
     } finally {
       setEnviando(false);
     }
