@@ -60,6 +60,20 @@ def _browsers_dir() -> Path:
     return Path(cache) / "todoconta" / "playwright-browsers"
 
 
+def _tmp_descarga_dir() -> Path:
+    """Carpeta temporal PROPIA (bajo el cache de TodoConta) para la descarga de
+    Chromium, garantizada escribible.
+
+    Playwright baja el zip al temp del sistema (`os.tmpdir()` de node). En apps en
+    cuarentena / App Translocation / entornos restringidos de macOS ese temp puede
+    dar `EACCES: permission denied` (visto en producción vía Sentry) y la descarga
+    revienta. Apuntando TMPDIR a una carpeta nuestra dentro de ~/Library/Caches/
+    TodoConta evitamos depender del temp del sistema."""
+    d = _browsers_dir().parent / "download-tmp"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # True si PLAYWRIGHT_BROWSERS_PATH venía seteada desde afuera (cache compartido,
 # p. ej. el ms-playwright de dev): ahí desactivamos la GC del install para no
 # borrar revisiones que otros proyectos sí usan.
@@ -318,28 +332,50 @@ def _instalar_chromium() -> None:
         # no borre revisiones que otros proyectos todavía usan.
         env["PLAYWRIGHT_SKIP_BROWSER_GC"] = "1"
 
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 min — Chromium pesa ~170MB
-            env=env,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            "La descarga de Chromium tardó demasiado (>10 min). "
-            "Verifica tu conexión a internet."
-        ) from e
+    # Redirige el temp de la descarga a una carpeta nuestra garantizada escribible
+    # (el temp del sistema puede dar EACCES en apps en cuarentena/restringidas de
+    # macOS). TMPDIR cubre macOS/Linux (node os.tmpdir()); TEMP/TMP cubren Windows.
+    tmp = str(_tmp_descarga_dir())
+    env["TMPDIR"] = tmp
+    env["TEMP"] = tmp
+    env["TMP"] = tmp
 
-    if result.returncode != 0:
-        raise RuntimeError(
-            "La descarga de Chromium falló:\n"
-            f"  stdout: {result.stdout[-500:]}\n"
-            f"  stderr: {result.stderr[-500:]}"
+    # Hasta 2 intentos: la causa más común de fallo es una descarga intermitente.
+    ultimo_detalle: str | None = None
+    for intento in (1, 2):
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 min — Chromium pesa ~170MB
+                env=env,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                "La descarga de Chromium tardó demasiado (>10 min). "
+                "Verifica tu conexión a internet."
+            ) from e
+
+        if result.returncode == 0:
+            logger.info("[portal] Chromium instalado correctamente")
+            return
+
+        ultimo_detalle = (
+            f"stdout: {result.stdout[-500:]}\n  stderr: {result.stderr[-500:]}"
+        )
+        logger.warning(
+            "[portal] Descarga de Chromium falló (intento %d/2): %s",
+            intento,
+            ultimo_detalle,
         )
 
-    logger.info("[portal] Chromium instalado correctamente")
+    raise RuntimeError(
+        "La descarga de Chromium falló tras 2 intentos. Suele ser por una "
+        "conexión intermitente o por ejecutar la app desde una carpeta "
+        "restringida: asegúrate de tener TodoConta en la carpeta Aplicaciones "
+        "y reintenta.\n  " + (ultimo_detalle or "")
+    )
 
 
 def _comando_install_chromium() -> list[str] | None:
