@@ -259,3 +259,60 @@ def test_warmup_no_propaga_errores(monkeypatch):
     monkeypatch.setattr(setup, "asegurar_chromium", truena)
     t = setup.warmup_async()
     t.join(timeout=5)  # no debe matar nada; el error queda en el log/estado
+
+
+# ---------------------------------------------------------------------------
+# _instalar_chromium — TMPDIR propio (anti-EACCES) + reintento
+# ---------------------------------------------------------------------------
+
+
+def test_instalar_redirige_tmpdir_a_carpeta_propia(tmp_path, monkeypatch):
+    """El temp de la descarga apunta a una carpeta nuestra escribible (no al del
+    sistema, que da EACCES en apps en cuarentena de macOS)."""
+    cache = tmp_path / "TodoConta"
+    monkeypatch.setattr(setup, "_browsers_dir", lambda: cache / "playwright-browsers")
+    monkeypatch.setattr(
+        setup, "_comando_install_chromium", lambda: ["node", "cli.js", "install", "chromium"]
+    )
+    capturado = {}
+
+    def fake_run(cmd, **kwargs):
+        capturado["env"] = kwargs["env"]
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    setup._instalar_chromium()
+
+    env = capturado["env"]
+    assert env["TMPDIR"] == env["TEMP"] == env["TMP"]
+    assert env["TMPDIR"].endswith("download-tmp")
+    assert (cache / "download-tmp").is_dir()  # se creó
+
+
+def test_instalar_reintenta_y_da_mensaje_util(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup, "_browsers_dir", lambda: tmp_path / "playwright-browsers")
+    monkeypatch.setattr(setup, "_comando_install_chromium", lambda: ["node", "x"])
+    intentos = []
+
+    def fake_run(cmd, **kwargs):
+        intentos.append(1)
+        return SimpleNamespace(returncode=1, stdout="out", stderr="EACCES")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="Aplicaciones"):
+        setup._instalar_chromium()
+    assert len(intentos) == 2  # un reintento
+
+
+def test_instalar_exito_no_reintenta(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup, "_browsers_dir", lambda: tmp_path / "playwright-browsers")
+    monkeypatch.setattr(setup, "_comando_install_chromium", lambda: ["node", "x"])
+    intentos = []
+
+    def fake_run(cmd, **kwargs):
+        intentos.append(1)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    setup._instalar_chromium()  # no debe lanzar
+    assert len(intentos) == 1
