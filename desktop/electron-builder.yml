@@ -147,10 +147,10 @@ mac:
       to: agent/sat-agent
   target:
     - target: dmg
-      # Solo Apple Silicon: los runners Intel (macos-13) están saturados en CI y
-      # PyInstaller no cross-compila. Ver el comentario de release-macos en
-      # .github/workflows/release.yml. Para reactivar Intel: agregar x64 aquí + el
-      # leg macos-13 en la matriz.
+      # Solo Apple Silicon: los runners Intel están saturados en CI y PyInstaller
+      # no cross-compila. Ver el comentario de release-macos en
+      # .github/workflows/release.yml. Para reactivar Intel: agregar x64 aquí + un
+      # leg con runner Intel moderno (macos-15-intel/macos-26-intel) en la matriz.
       arch: [arm64]
   icon: icon.png       # En macOS basta .png o .icns
   category: public.app-category.business

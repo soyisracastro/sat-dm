@@ -221,12 +221,15 @@ jobs:
   # ---------------------------------------------------------------------
   # macOS — DMG arm64 (Apple Silicon) firmado + notarizado.
   #
-  # SOLO arm64: el x64 (Intel) requiere runner `macos-13` porque PyInstaller no
-  # cross-compila, y esos runners Intel están crónicamente saturados en GitHub
-  # (los releases v1.1.0–v1.2.0 mostraban el job x64 en cola ~24h → cancelado).
-  # La gran mayoría de Macs ya son Apple Silicon, así que dropeamos Intel. Si en
-  # el futuro hace falta x64: re-agregar la entrada `macos-13 / x64` a la matriz
-  # (o un self-hosted Intel) — el `artifactName` ya incluye ${arch}, no chocan.
+  # SOLO arm64: el x64 (Intel) necesita un runner Intel porque PyInstaller no
+  # cross-compila, y esos runners están crónicamente saturados en GitHub (los
+  # releases v1.1.0–v1.2.0 mostraban el job x64 en cola ~24h → cancelado). La gran
+  # mayoría de Macs ya son Apple Silicon, así que dropeamos Intel. `macos-latest`
+  # ES Apple Silicon (= macOS 15 arm64, validado con runner-images), así que el
+  # agente PyInstaller sale arm64 nativo. Si en el futuro hace falta x64: re-agregar
+  # un leg con un runner Intel — los modernos son `macos-15-intel` / `macos-26-intel`
+  # (NO el viejo `macos-13`, que es el más saturado) + `x64` en el arch del target;
+  # el `artifactName` ya incluye ${arch}, no chocan.
   #
   # Firma/notarización: con MAC_CSC_LINK + APPLE_* y `notarize: true` en
   # electron-builder.yml sale firmado y notarizado (el agente va en onefile para
