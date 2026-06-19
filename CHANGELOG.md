@@ -6,6 +6,20 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.2.1] - 2026-06-18
+
+### Tooling
+
+- **Build de macOS arreglado**: el agente Python ahora se empaca en **onefile solo
+  en macOS**, para que la firma de notarización no recorra cientos de binarios
+  anidados (cada `codesign --timestamp` pega al servidor de Apple, que estrangula a
+  los runners de CI). El build de mac de v1.2.0 se cancelaba a los 45 min atorado en
+  `signing`; con onefile es un solo binario a firmar. Windows/Linux siguen en onedir
+  (ahí onefile dispara más antivirus y arranque más lento). `extraResources` pasó a
+  ser por plataforma y el timeout del job de mac subió a 90 min.
+
+- Bump 1.2.0 → 1.2.1 (3 archivos).
+
 ## [1.2.0] - 2026-06-18
 
 ### Feature
