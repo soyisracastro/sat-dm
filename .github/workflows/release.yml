@@ -219,27 +219,28 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------
-  # macOS — un DMG por arquitectura. PyInstaller NO cross-compila, así que
-  # cada runner construye su agente nativo: macos-13 = Intel (x64),
-  # macos-latest (14+) = Apple Silicon (arm64). El `artifactName` del dmg ya
-  # incluye ${arch}, así que no chocan en el draft release.
+  # macOS — DMG arm64 (Apple Silicon) firmado + notarizado.
   #
-  # Firma/notarización: sin los secrets de Apple, electron-builder construye
-  # el DMG SIN firmar (instalable con clic-derecho → Abrir; suficiente para
-  # QA). Al agregar MAC_CSC_LINK + APPLE_* y descomentar `notarize` en
-  # electron-builder.yml, sale firmado y notarizado. Ver docs/firma-codigo.md.
+  # SOLO arm64: el x64 (Intel) requiere runner `macos-13` porque PyInstaller no
+  # cross-compila, y esos runners Intel están crónicamente saturados en GitHub
+  # (los releases v1.1.0–v1.2.0 mostraban el job x64 en cola ~24h → cancelado).
+  # La gran mayoría de Macs ya son Apple Silicon, así que dropeamos Intel. Si en
+  # el futuro hace falta x64: re-agregar la entrada `macos-13 / x64` a la matriz
+  # (o un self-hosted Intel) — el `artifactName` ya incluye ${arch}, no chocan.
   #
-  # NOTA electron-updater: cada arquitectura genera su propio latest-mac.yml
-  # y el último en subir gana — el auto-update de macOS queda pendiente de
-  # unificar ese metadata (no bloquea distribuir los DMG).
+  # Firma/notarización: con MAC_CSC_LINK + APPLE_* y `notarize: true` en
+  # electron-builder.yml sale firmado y notarizado (el agente va en onefile para
+  # que la firma no reviente el timeout — ver packaging/sat-agent.spec). Sin esos
+  # secrets, el DMG sale sin firmar (QA con clic-derecho → Abrir).
+  #
+  # Bonus de ser arm64-único: ya no hay ambigüedad de latest-mac.yml (antes cada
+  # arch subía el suyo y el último ganaba), así el auto-update de macOS es limpio.
   # ---------------------------------------------------------------------
   release-macos:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
-            arch: x64
           - runner: macos-latest
             arch: arm64
     runs-on: ${{ matrix.runner }}
