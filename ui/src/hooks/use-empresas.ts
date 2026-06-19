@@ -51,7 +51,7 @@ interface UseEmpresasState {
  * manejamos metadata. `activar` recarga el health por si cargó la e.firma en sesión.
  */
 export function useEmpresas(): UseEmpresasState {
-  const { apiClient, refreshHealth } = useServer();
+  const { apiClient, isConnected, refreshHealth } = useServer();
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +68,15 @@ export function useEmpresas(): UseEmpresasState {
   }, []);
 
   useEffect(() => {
+    // Espera a que el agente esté arriba antes del primer fetch. En equipos lentos
+    // el binario del agente tarda en aceptar conexiones y el `/empresas` inicial
+    // perdía la carrera de arranque: tronaba con "Failed to fetch" y la lista
+    // quedaba vacía sin reintentar (hasta un refresh manual). Igual que el
+    // auth-provider, nos enganchamos a `isConnected` y (re)cargamos al conectar.
+    if (!isConnected) {
+      setLoading(true);
+      return;
+    }
     let mounted = true;
     setLoading(true);
     apiClient
@@ -87,7 +96,7 @@ export function useEmpresas(): UseEmpresasState {
     return () => {
       mounted = false;
     };
-  }, [apiClient, tick]);
+  }, [apiClient, isConnected, tick]);
 
   const addCiec = useCallback(
     async (rfc: string, ciec: string, nombre = '') => {

@@ -81,6 +81,15 @@ export class ApiError extends Error {
 export class SatApiClient {
   private readonly baseUrl: string;
 
+  /**
+   * ¿El agente respondió alguna vez en esta sesión? Arranca en `false` y pasa a
+   * `true` con la primera respuesta HTTP (cualquier status). Sirve para distinguir
+   * "el agente aún no termina de levantar" (carrera de arranque esperada en equipos
+   * lentos; el health poll reintenta y se recupera solo) de "el agente se cayó /
+   * se perdió la conexión" — solo este último vale reportar a Sentry.
+   */
+  private agenteVistoArriba = false;
+
   constructor(baseUrl?: string) {
     this.baseUrl = (baseUrl ?? API_BASE_URL).replace(/\/+$/, '');
   }
@@ -98,6 +107,7 @@ export class SatApiClient {
   private async request<T>(
     path: string,
     options: RequestInit = {},
+    opts: { reportarFallosDeRed?: boolean } = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const method = options.method ?? 'GET';
@@ -113,10 +123,18 @@ export class SatApiClient {
         },
       });
     } catch (err) {
-      // Fallo de red (agente caído, conexión perdida): siempre vale reportarlo.
-      capturarExcepcion(err, { path, method });
+      // Fallo de red. Solo lo reportamos si el agente YA respondió alguna vez en
+      // esta sesión (= se cayó / se perdió la conexión). Antes de eso es la carrera
+      // de arranque (el binario del agente tarda en aceptar conexiones en equipos
+      // lentos): ruido esperado que el health poll resuelve solo, no un fallo real.
+      if (opts.reportarFallosDeRed !== false && this.agenteVistoArriba) {
+        capturarExcepcion(err, { path, method });
+      }
       throw err;
     }
+
+    // Hubo respuesta HTTP (cualquier status): el agente está arriba.
+    this.agenteVistoArriba = true;
 
     if (!res.ok) {
       let detail: string;
@@ -183,7 +201,10 @@ export class SatApiClient {
   // -----------------------------------------------------------------------
 
   async health(): Promise<HealthResponse> {
-    return this.request<HealthResponse>('/health');
+    // El health es la sonda de liveness: su fallo de red es estado esperado
+    // (lo maneja `useServerHealth` marcando isConnected=false y reintentando),
+    // no un error que valga reportar. Nunca va a Sentry.
+    return this.request<HealthResponse>('/health', {}, { reportarFallosDeRed: false });
   }
 
   // -----------------------------------------------------------------------
