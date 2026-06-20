@@ -74,6 +74,31 @@ export function capturarExcepcion(error: unknown, contexto?: Record<string, unkn
   sentry.captureException(error, contexto ? { extra: contexto } : undefined);
 }
 
+/**
+ * Asocia (o desliga) el usuario autenticado a los eventos de Sentry. La app es
+ * solo para usuarios registrados, así que el `id`/`email` identifican de quién
+ * viene cada reporte — sin exponer nada sensible: la e.firma, las contraseñas y
+ * los datos fiscales se siguen redactando en `beforeSend`. Pasa `null` (o un
+ * usuario vacío) al cerrar sesión para desligar.
+ *
+ * `@sentry/electron` sincroniza el scope del renderer hacia el proceso main, así
+ * que este `setUser` también queda en los eventos del main (p. ej. los errores
+ * del auto-update, que ocurren fuera del renderer).
+ */
+export function identificarUsuario(
+  user: { id?: string | null; email?: string | null } | null,
+): void {
+  if (!activo || !sentry) return;
+  if (!user || (!user.id && !user.email)) {
+    sentry.setUser(null);
+    return;
+  }
+  sentry.setUser({
+    id: user.id ?? undefined,
+    email: user.email ?? undefined,
+  });
+}
+
 /** Deja una miga (breadcrumb) si la telemetría está activa; no-op si no. */
 export function agregarBreadcrumb(crumb: { category?: string; message?: string; level?: 'info' | 'warning' | 'error'; data?: Record<string, unknown> }): void {
   if (!activo || !sentry) return;
