@@ -11,6 +11,7 @@ import {
 } from 'react';
 
 import { useServer } from '@/providers/server-provider';
+import { identificarUsuario } from '@/lib/telemetria';
 import type { LicenseStatus } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const data = await apiClient.authLicense(force);
         setLicense(data);
+        // Identifica al usuario en Sentry (o lo desliga si no hay sesión) para
+        // que los reportes traigan quién es. Idempotente entre re-fetches.
+        identificarUsuario(
+          data.authenticated ? { id: data.user_id, email: data.email } : null,
+        );
         // Disparar autocarga de FIEL en background si el usuario está
         // autenticado. Antes lo hacía el lifespan del agente, pero bloqueaba
         // el startup en Windows (keyring sin prompt UI). Ahora es lazy y no
@@ -98,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setLicense({ authenticated: false });
     setLoading(false);
+    identificarUsuario(null); // desliga al usuario de los próximos reportes
   }, [apiClient]);
 
   const value = useMemo<AuthContextValue>(
