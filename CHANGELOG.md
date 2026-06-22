@@ -6,6 +6,32 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.2.2] - 2026-06-22
+
+### Bug fix
+
+- **Login CIEC ya no crashea por timeout del clic de envío**: el `page.click` del
+  submit esperaba, por default, a que la navegación del POST terminara dentro del
+  propio clic (timeout 30 s). Si el SAT tardaba en responder, el clic reventaba con
+  `TimeoutError` y tumbaba el job en vez de caer en el reintento de captcha. Ahora el
+  clic no bloquea esperando la navegación (`no_wait_after`); la espera del aterrizaje
+  la hace `wait_for_url` con su propio timeout y la lógica de reintentos.
+- **No se reporta a Sentry la carrera de arranque del agente** (falsos positivos al
+  inicio) y se **auto-cura `/empresas`** ante catálogos inconsistentes.
+- **Descarga de Chromium robusta a `TMPDIR` restringido** en macOS (`EACCES`): el
+  portal ya no falla al bajar el navegador cuando el temporal del sistema es de
+  solo-lectura o restringido.
+
+### Tooling
+
+- **Identificación del usuario autenticado en Sentry** (id + email) para correlacionar
+  cada reporte con la cuenta que lo originó.
+- **Build de macOS solo arm64**: se dejaron de construir los binarios x64/Intel (los
+  runners de CI estaban saturados); docs de CI aclaradas (`macos-latest` es arm64,
+  labels de Intel modernos).
+
+- Bump 1.2.1 → 1.2.2 (3 archivos).
+
 ## [1.2.1] - 2026-06-18
 
 ### Tooling
