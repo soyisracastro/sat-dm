@@ -147,7 +147,13 @@ def iniciar_sesion_ciec(page, rfc: str, ciec: str, url_entrada: str, exito,
 
     def enviar(texto: str) -> bool:
         page.fill("input#userCaptcha", texto)
-        page.click("input#submit")
+        # no_wait_after=True: el clic NO debe bloquear esperando la navegación del
+        # submit. Por default Playwright espera "scheduled navigations to finish"
+        # dentro del propio click() (timeout 30 s); si el SAT tarda en responder el
+        # POST, el click revienta con TimeoutError y crashea el job (Sentry
+        # TODOCONTA-DESKTOP-9). La espera del aterrizaje ya la hace wait_for_url de
+        # abajo, con nuestro EXITO_TIMEOUT_MS y la lógica de reintento de captcha.
+        page.click("input#submit", no_wait_after=True)
         try:
             page.wait_for_url(exito, timeout=EXITO_TIMEOUT_MS)
         except PWTimeout:
