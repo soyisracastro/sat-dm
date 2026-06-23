@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/providers/auth-provider';
@@ -48,6 +48,13 @@ export default function SuscripcionPage() {
   const [busyCancel, setBusyCancel] = useState(false);
   const [transfer, setTransfer] = useState<TransferIntentResponse | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
+
+  // Al entrar, fuerza un refresh del license (bypassa el cache de 24h del
+  // agente) para que el precio y la promo mostrados coincidan con lo que
+  // aplicará el checkout. `refresh` es estable, por eso el deps vacío.
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   if (!license?.authenticated) return null;
 
@@ -213,11 +220,15 @@ export default function SuscripcionPage() {
             {promoActive && (
               <Alert>
                 <Icon icon="ph:percent-light" className="size-4" />
-                <AlertTitle>Precio bloqueado de por vida</AlertTitle>
+                <AlertTitle>Aprovecha el 50% — se respeta para siempre</AlertTitle>
                 <AlertDescription>
-                  Conservas {formatPesosEnteros(precio)}/año mientras no canceles.
-                  {license.promo_ends_at &&
-                    ` Tu oferta termina en ${diasRestantes(license.promo_ends_at) ?? 0} días.`}
+                  Suscríbete
+                  {license.promo_ends_at
+                    ? ` en estos ${diasRestantes(license.promo_ends_at) ?? 0} días`
+                    : ' ahora'}{' '}
+                  y conservas {formatPesosEnteros(precio)}/año de por vida mientras no
+                  canceles. Después la promoción termina y el precio vuelve a{' '}
+                  {formatPesosEnteros(regular)}.
                 </AlertDescription>
               </Alert>
             )}

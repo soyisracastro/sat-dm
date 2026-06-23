@@ -44,19 +44,20 @@ export function PromoBanner() {
         <div className="flex items-center gap-2 text-sm">
           <Icon icon="ph:percent-light" className="size-4 shrink-0 text-primary" />
           <span>
-            <strong className="font-medium">50% en tu plan anual, de por vida.</strong>{' '}
+            <strong className="font-medium">Aprovecha el 50% de descuento en tu plan anual.</strong>{' '}
             {regular && promo ? (
               <>
                 <span className="text-muted-foreground line-through">{regular}</span>{' '}
-                <span className="font-medium">{promo}/año</span> mientras no canceles.
+                <span className="font-medium">{promo}/año</span>, y se te respeta para
+                siempre mientras no canceles.
               </>
             ) : (
-              'Asegura el mejor precio de por vida mientras no canceles.'
+              'Se te respeta para siempre mientras no canceles.'
             )}
             {dias !== null && (
-              <span className="ml-1 text-muted-foreground">
+              <span className="ml-1 font-medium text-primary">
                 {dias > 0
-                  ? `Te ${dias === 1 ? 'queda 1 día' : `quedan ${dias} días`}.`
+                  ? `Te ${dias === 1 ? 'queda 1 día' : `quedan ${dias} días`} para aprovecharlo.`
                   : 'Último día.'}
               </span>
             )}
@@ -64,7 +65,7 @@ export function PromoBanner() {
         </div>
         <Button onClick={() => router.push('/suscripcion')} size="sm">
           <Icon icon="ph:lightning-light" className="size-4" />
-          Aprovechar oferta
+          Quiero el 50%
         </Button>
       </div>
     </div>
