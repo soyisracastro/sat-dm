@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 
 import { FounderBanner } from '@/components/auth/founder-banner';
+import { PromoBanner } from '@/components/auth/promo-banner';
 import { Sidebar } from '@/components/layout/sidebar';
 import { StartupSplash } from '@/components/layout/startup-splash';
 import { StatusBar } from '@/components/layout/status-bar';
@@ -47,7 +48,10 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <Titlebar />
+      {/* FounderBanner se auto-oculta (ventana de fundadores cerrada); se
+          conserva por si se reabre. PromoBanner es la campaña activa. */}
       <FounderBanner />
+      <PromoBanner />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-y-auto p-6 md:p-8">{children}</main>

@@ -892,9 +892,24 @@ export class SatApiClient {
     return this.request<LicenseStatus>(`/auth/license${qs}`);
   }
 
-  /** Crea una Stripe Checkout session y devuelve la URL para abrir. */
+  /** Crea una Stripe Checkout session (Fundador) y devuelve la URL para abrir. */
   async authUpgrade(): Promise<{ url: string; session_id?: string }> {
     return this.post<{ url: string; session_id?: string }>('/auth/upgrade', {});
+  }
+
+  /** Checkout de la suscripción anual (tarjeta). El backend elige promo/regular. */
+  async authSubscribe(): Promise<AuthSubscribeResponse> {
+    return this.post<AuthSubscribeResponse>('/auth/subscribe', {});
+  }
+
+  /** Cancela la suscripción al fin del periodo. */
+  async authCancelSubscription(): Promise<CancelSubscriptionResponse> {
+    return this.post<CancelSubscriptionResponse>('/auth/cancel-subscription', {});
+  }
+
+  /** Registra intención de pago por transferencia; devuelve datos bancarios. */
+  async authTransferIntent(): Promise<TransferIntentResponse> {
+    return this.post<TransferIntentResponse>('/auth/transfer-intent', {});
   }
 
   /** Cierra sesión local (borra keyring + cache). */
@@ -993,15 +1008,33 @@ export interface AuthPollResponse {
   user?: { id: string; email: string | null };
 }
 
+export type DesktopPlan = 'founder' | 'premium' | 'trial' | 'free';
+
 export interface LicenseStatus {
   authenticated: boolean;
   user_id?: string;
   email?: string | null;
+
+  // Plan derivado + cuenta regresiva (pueden faltar en fallback offline sin cache).
+  plan?: DesktopPlan;
+  days_remaining?: number | null;
+  expires_at?: string | null;
+  subscription_cancel_at_period_end?: boolean;
+
+  // Promo anual del 50% (bloqueado de por vida).
+  promo_active?: boolean;
+  promo_ends_at?: string | null;
+  promo_price_mxn?: number;
+  regular_price_mxn?: number;
+  promo_days?: number;
+
+  // Fundador.
   is_founder?: boolean;
   founder_acquired_at?: string | null;
   founder_window_open?: boolean;
   founder_window_closes_at?: string;
   founder_price_mxn?: number;
+
   premium_features_unlocked?: boolean;
   ai_credits_balance?: number;
   // Flags del cache local del agente.
@@ -1009,6 +1042,34 @@ export interface LicenseStatus {
   stale?: boolean;
   offline?: boolean;
   reason?: string;
+}
+
+export interface AuthSubscribeResponse {
+  url: string;
+  session_id?: string;
+  promo?: boolean;
+}
+
+export interface CancelSubscriptionResponse {
+  ok: boolean;
+  cancel_at?: string | null;
+  manual?: boolean;
+  message?: string;
+}
+
+export interface DatosBancarios {
+  banco: string;
+  clabe: string;
+  beneficiario: string;
+  referencia: string;
+}
+
+export interface TransferIntentResponse {
+  ok: boolean;
+  amount_mxn: number;
+  promo: boolean;
+  banco: DatosBancarios;
+  message?: string;
 }
 
 

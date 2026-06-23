@@ -223,6 +223,28 @@ def clear_license_cache() -> None:
             pass
 
 
+def _mensaje_usuario(resp: "requests.Response") -> str:
+    """
+    Mensaje en español apto para el usuario final a partir de una respuesta
+    no-200. Si el backend mandó un mensaje amigable (campo `error`) lo usa tal
+    cual; si no (p. ej. una página HTML 404/502 del host), devuelve un texto
+    genérico SIN jerga técnica ni HTML.
+    """
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        msg = data.get("error")
+        if isinstance(msg, str) and msg.strip() and "<" not in msg:
+            return msg
+    if resp.status_code == 404:
+        return "Esta función todavía no está disponible. Inténtalo más tarde."
+    if resp.status_code >= 500:
+        return "Tuvimos un problema de conexión. Inténtalo de nuevo en un momento."
+    return "No se pudo completar la operación. Inténtalo de nuevo."
+
+
 def fetch_license_remote(session: Session) -> dict:
     """Hace GET /api/desktop/license con el Bearer del session."""
     resp = requests.get(
@@ -234,11 +256,8 @@ def fetch_license_remote(session: Session) -> dict:
         return resp.json()
     if resp.status_code == 401:
         raise PermissionError("Bearer inválido o expirado")
-    try:
-        detail = resp.json().get("error", resp.text)
-    except ValueError:
-        detail = resp.text
-    raise RuntimeError(f"fetch_license falló ({resp.status_code}): {detail}")
+    logger.warning("[license] license HTTP %s: %s", resp.status_code, resp.text[:200])
+    raise RuntimeError(_mensaje_usuario(resp))
 
 
 def _fetch_license_con_refresh(session: Session) -> dict:
@@ -348,8 +367,51 @@ def get_license_status(force_refresh: bool = False) -> dict:
 
 def init_checkout(session: Session) -> dict:
     """Llama POST /api/desktop/checkout y devuelve `{url, session_id}`."""
+    return _post_desktop(session, "/api/desktop/checkout", "init_checkout")
+
+
+# ---------------------------------------------------------------------------
+# Suscripción anual de TodoConta Desktop (tarjeta, transferencia, cancelar)
+# ---------------------------------------------------------------------------
+
+
+def init_subscribe_checkout(session: Session) -> dict:
+    """
+    POST /api/desktop/subscribe → `{url, session_id, promo}`.
+
+    Crea la Stripe Checkout session de la suscripción anual. El backend decide
+    el precio (promo $1,495 si el usuario es elegible, si no $2,990).
+    """
+    return _post_desktop(session, "/api/desktop/subscribe", "init_subscribe_checkout")
+
+
+def cancel_subscription(session: Session) -> dict:
+    """
+    POST /api/desktop/cancel-subscription → `{ok, cancel_at, manual}`.
+
+    Cancela al fin del periodo (el usuario conserva acceso hasta `cancel_at`).
+    """
+    return _post_desktop(
+        session, "/api/desktop/cancel-subscription", "cancel_subscription"
+    )
+
+
+def create_transfer_intent(session: Session) -> dict:
+    """
+    POST /api/desktop/transfer-intent → `{ok, amount_mxn, promo, banco, message}`.
+
+    Registra la intención de pago por transferencia y devuelve los datos
+    bancarios para el depósito (activación manual).
+    """
+    return _post_desktop(
+        session, "/api/desktop/transfer-intent", "create_transfer_intent"
+    )
+
+
+def _post_desktop(session: Session, path: str, op: str) -> dict:
+    """POST sin body a un endpoint `/api/desktop/*` con Bearer. 401→PermissionError."""
     resp = requests.post(
-        f"{API_BASE_URL}/api/desktop/checkout",
+        f"{API_BASE_URL}{path}",
         headers={
             "Authorization": f"Bearer {session.access_token}",
             "Content-Type": "application/json",
@@ -360,11 +422,8 @@ def init_checkout(session: Session) -> dict:
         return resp.json()
     if resp.status_code == 401:
         raise PermissionError("Bearer inválido o expirado")
-    try:
-        detail = resp.json().get("error", resp.text)
-    except ValueError:
-        detail = resp.text
-    raise RuntimeError(f"init_checkout falló ({resp.status_code}): {detail}")
+    logger.warning("[license] %s HTTP %s: %s", op, resp.status_code, resp.text[:200])
+    raise RuntimeError(_mensaje_usuario(resp))
 
 
 def _expose_for_tests() -> dict[str, Any]:

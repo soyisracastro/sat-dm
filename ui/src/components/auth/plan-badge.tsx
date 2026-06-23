@@ -1,0 +1,129 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+
+import { useAuth } from '@/providers/auth-provider';
+import { Badge } from '@/components/ui/badge';
+import { Icon } from '@/components/ui/icon';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { FounderBadge } from '@/components/auth/founder-badge';
+import { formatDate } from '@/lib/formatting';
+
+/**
+ * Badge de plan del titlebar. Selecciona la variante según `license.plan`:
+ *
+ * - `founder`  → `<FounderBadge />` (corona ámbar, acceso de por vida).
+ * - `premium`  → badge púrpura con días restantes; tooltip tranquilizador (o
+ *                aviso de cancelación si `cancel_at_period_end`).
+ * - `trial`    → badge azul con días restantes; tooltip sobre el periodo de prueba.
+ * - `free`     → badge "Gratis" con CTA a suscribirse.
+ *
+ * Premium/trial/free son clickeables y llevan a `/suscripcion`. Viven dentro del
+ * contenedor `no-drag` del titlebar.
+ */
+export function PlanBadge() {
+  const { license } = useAuth();
+  const router = useRouter();
+
+  if (!license?.authenticated) return null;
+
+  // Founder tiene prioridad y su propio badge celebratorio.
+  if (license.plan === 'founder' || license.is_founder) {
+    return <FounderBadge />;
+  }
+
+  const dias = license.days_remaining ?? null;
+  const diasLabel = dias === null ? '' : dias === 1 ? '1 día' : `${dias} días`;
+  const ir = () => router.push('/suscripcion');
+
+  if (license.plan === 'premium') {
+    const cancela = license.subscription_cancel_at_period_end;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" onClick={ir} className="appearance-none bg-transparent p-0">
+            <Badge
+              variant="secondary"
+              className="gap-1 bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300"
+              tabIndex={0}
+            >
+              <Icon
+                icon="ph:crown-simple-fill"
+                className="size-3 text-violet-600 dark:text-violet-400"
+              />
+              {diasLabel ? `Premium · ${diasLabel}` : 'Premium'}
+            </Badge>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" className="w-64 rounded-xl p-3.5 text-left">
+          <span className="flex items-center gap-1.5 text-[13.5px] font-extrabold tracking-tight">
+            <Icon icon="ph:crown-simple-fill" className="size-3.5 text-violet-400" />
+            Suscripción activa
+          </span>
+          <span className="mt-1.5 block text-xs leading-relaxed text-background/80">
+            {cancela
+              ? `Tu suscripción termina el ${formatDate(license.expires_at ?? '')} y no se renovará. Puedes reactivarla cuando quieras.`
+              : 'Sigue trabajando tranquilo: tu suscripción sigue vigente.'}
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  if (license.plan === 'trial') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" onClick={ir} className="appearance-none bg-transparent p-0">
+            <Badge
+              variant="secondary"
+              className="gap-1 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+              tabIndex={0}
+            >
+              <Icon
+                icon="ph:hourglass-medium-light"
+                className="size-3 text-blue-600 dark:text-blue-400"
+              />
+              {diasLabel ? `Prueba · ${diasLabel}` : 'Prueba'}
+            </Badge>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" className="w-64 rounded-xl p-3.5 text-left">
+          <span className="block text-[13.5px] font-extrabold tracking-tight">
+            Periodo de prueba
+          </span>
+          <span className="mt-1.5 block text-xs leading-relaxed text-background/80">
+            Puedes usar la app con todas sus funciones. Más adelante algunas
+            podrían requerir suscripción. Toca para ver tu plan.
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  // free
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" onClick={ir} className="appearance-none bg-transparent p-0">
+          <Badge variant="secondary" className="gap-1" tabIndex={0}>
+            Gratis
+          </Badge>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="end" className="w-64 rounded-xl p-3.5 text-left">
+        <span className="block text-[13.5px] font-extrabold tracking-tight">
+          Plan gratuito
+        </span>
+        <span className="mt-1.5 block text-xs leading-relaxed text-background/80">
+          La app sigue funcional. Suscríbete para apoyar el proyecto y asegurar
+          el mejor precio. Toca para ver opciones.
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
