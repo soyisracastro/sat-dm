@@ -1,14 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
 import { iniciales } from '@/lib/empresa-visual';
-import { mensajeDeError } from '@/lib/errores';
 import { useAuth } from '@/providers/auth-provider';
-import { useServer } from '@/providers/server-provider';
 import { Icon } from '@/components/ui/icon';
 import {
   DropdownMenu,
@@ -21,36 +17,21 @@ import {
 /**
  * Pill de cuenta del footer del sidebar: avatar con iniciales (corona si es
  * Fundador) + email. Abre hacia arriba el menú "Mi cuenta" con Ajustes,
- * Suscripción y cuenta, y Cerrar sesión.
+ * Suscripción y cuenta (página interna), y Cerrar sesión.
  */
 export function AccountMenu({ collapsed }: { collapsed: boolean }) {
   const router = useRouter();
   const { license, logout } = useAuth();
-  const { apiClient } = useServer();
-  const [busy, setBusy] = useState(false);
 
   const email = license?.email ?? null;
-  const esFundador = !!license?.is_founder;
-  const plan = esFundador ? 'Fundador' : 'Gratis';
-
-  async function abrirSuscripcion() {
-    if (busy) return;
-    // Fundador: ya tiene el plan — lo mandamos a su cuenta en la web.
-    // Sin plan: abrimos el checkout de upgrade (mismo flujo que el banner).
-    if (esFundador) {
-      window.open('https://app.todoconta.com', '_blank', 'noopener,noreferrer');
-      return;
-    }
-    setBusy(true);
-    try {
-      const { url } = await apiClient.authUpgrade();
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch (e) {
-      toast.error(mensajeDeError(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const esFundador = license?.plan === 'founder' || !!license?.is_founder;
+  const plan = esFundador
+    ? 'Fundador'
+    : license?.plan === 'premium'
+      ? 'Premium'
+      : license?.plan === 'trial'
+        ? 'Prueba'
+        : 'Gratis';
 
   const avatar = (
     <span className="relative flex size-8.5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
@@ -127,11 +108,11 @@ export function AccountMenu({ collapsed }: { collapsed: boolean }) {
           <Icon icon="ph:gear-light" className="size-4 text-muted-foreground" />
           Ajustes
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={abrirSuscripcion} className="gap-2.5 rounded-lg">
-          <Icon
-            icon={busy ? 'ph:circle-notch-light' : 'ph:credit-card-light'}
-            className={cn('size-4 text-muted-foreground', busy && 'animate-spin')}
-          />
+        <DropdownMenuItem
+          onSelect={() => router.push('/suscripcion')}
+          className="gap-2.5 rounded-lg"
+        >
+          <Icon icon="ph:credit-card-light" className="size-4 text-muted-foreground" />
           Suscripción y cuenta
         </DropdownMenuItem>
         <DropdownMenuSeparator />

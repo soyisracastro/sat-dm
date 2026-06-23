@@ -328,6 +328,36 @@ def auth_license(refresh: bool = False):
     return status
 
 
+def _accion_con_refresh(fn):
+    """
+    Ejecuta `fn(session)` (una acción de license_client que pega al backend con
+    Bearer) aplicando el patrón estándar: si el Bearer expiró (PermissionError)
+    intenta `try_refresh_session` ANTES de desloguear; si el refresh tampoco
+    salva, limpia la sesión. Los errores del backend (RuntimeError) → 502.
+    """
+    from .. import license_client as lc
+
+    session = lc.load_session()
+    if session is None:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    try:
+        return fn(session)
+    except PermissionError:
+        nueva = lc.try_refresh_session(session)
+        if nueva is None:
+            lc.clear_session()
+            raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
+        try:
+            return fn(nueva)
+        except PermissionError:
+            lc.clear_session()
+            raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.post("/auth/upgrade")
 def auth_upgrade():
     """
@@ -336,27 +366,39 @@ def auth_upgrade():
     """
     from .. import license_client as lc
 
-    session = lc.load_session()
-    if session is None:
-        raise HTTPException(status_code=401, detail="No autenticado")
-    try:
-        result = lc.init_checkout(session)
-    except PermissionError:
-        # Bearer expirado: refresh ANTES de desloguear (mismo patrón que license).
-        nueva = lc.try_refresh_session(session)
-        if nueva is None:
-            lc.clear_session()
-            raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
-        try:
-            result = lc.init_checkout(nueva)
-        except PermissionError:
-            lc.clear_session()
-            raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
-        except RuntimeError as e:
-            raise HTTPException(status_code=502, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=str(e))
-    return result
+    return _accion_con_refresh(lc.init_checkout)
+
+
+@router.post("/auth/subscribe")
+def auth_subscribe():
+    """
+    Crea la Stripe Checkout session de la suscripción anual de TodoConta Desktop.
+    Devuelve `{url, session_id, promo}`; el renderer abre el URL en el navegador.
+    """
+    from .. import license_client as lc
+
+    return _accion_con_refresh(lc.init_subscribe_checkout)
+
+
+@router.post("/auth/cancel-subscription")
+def auth_cancel_subscription():
+    """
+    Cancela la suscripción al fin del periodo. Devuelve `{ok, cancel_at, manual}`.
+    """
+    from .. import license_client as lc
+
+    return _accion_con_refresh(lc.cancel_subscription)
+
+
+@router.post("/auth/transfer-intent")
+def auth_transfer_intent():
+    """
+    Registra la intención de pago por transferencia y devuelve los datos
+    bancarios. `{ok, amount_mxn, promo, banco, message}`.
+    """
+    from .. import license_client as lc
+
+    return _accion_con_refresh(lc.create_transfer_intent)
 
 
 @router.post("/auth/logout")

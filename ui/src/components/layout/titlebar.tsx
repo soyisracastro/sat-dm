@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { Bell } from '@/components/notifications/bell';
 import { ReportButton } from '@/components/feedback/report-button';
-import { FounderBadge } from '@/components/auth/founder-badge';
+import { PlanBadge } from '@/components/auth/plan-badge';
 import { WindowControls } from '@/components/layout/window-controls';
 
 /**
@@ -65,7 +65,7 @@ export function Titlebar() {
         className="ml-auto flex h-full items-center gap-2"
         style={desktop ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties & { WebkitAppRegion?: string } : undefined}
       >
-        <FounderBadge />
+        <PlanBadge />
         <ReportButton />
         <Bell />
         {conControles && <WindowControls />}

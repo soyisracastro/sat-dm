@@ -87,6 +87,34 @@ export function shortUuid(uuid: string): string {
 }
 
 /**
+ * Días enteros que faltan hasta una fecha ISO (redondeo hacia arriba, mínimo 0).
+ * Devuelve `null` si la fecha es nula o no parseable.
+ *
+ * @example diasRestantes("2026-07-01T00:00:00Z") // 9
+ */
+export function diasRestantes(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  const diff = t - Date.now();
+  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+}
+
+/**
+ * Pesos enteros sin decimales (para precios de planes).
+ *
+ * @example formatPesosEnteros(1495) // "$1,495"
+ */
+export function formatPesosEnteros(amount: number): string {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+/**
  * Format a monetary string from the SAT metadata (which may have leading zeros,
  * trailing spaces, or use commas as decimal separators).
  *
