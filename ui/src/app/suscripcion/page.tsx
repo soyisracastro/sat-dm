@@ -206,7 +206,7 @@ export default function SuscripcionPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex items-end gap-2">
-              <span className="text-3xl font-bold tracking-tight">
+              <span className="text-3xl font-extrabold tracking-tight">
                 {formatPesosEnteros(precio)}
               </span>
               <span className="pb-1 text-sm text-muted-foreground">/ año</span>
