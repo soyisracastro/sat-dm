@@ -92,6 +92,9 @@ ui/.env.*.local
 *~
 .DS_Store
 
+# Design
+design/
+
 # Salida de diagnóstico CIEC / CSF (screenshots/html/reporte, datos sensibles)
 diag_out/
 diag_csf/

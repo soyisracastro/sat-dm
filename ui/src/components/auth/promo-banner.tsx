@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/providers/auth-provider';
@@ -18,11 +19,17 @@ import { diasRestantes, formatPesosEnteros } from '@/lib/formatting';
  *
  * El CTA lleva a la página interna `/suscripcion` (no abre el navegador): ahí el
  * usuario elige tarjeta o transferencia.
+ *
+ * El botón de cerrar oculta el banner solo por esta sesión (estado local, sin
+ * persistencia): reaparece la próxima vez que se abre la app si la promo sigue
+ * activa.
  */
 export function PromoBanner() {
   const { license } = useAuth();
   const router = useRouter();
+  const [dismissed, setDismissed] = useState(false);
 
+  if (dismissed) return null;
   if (!license || !license.authenticated) return null;
   if (!license.promo_active) return null;
   if (license.plan !== 'trial' && license.plan !== 'free') return null;
@@ -40,33 +47,50 @@ export function PromoBanner() {
 
   return (
     <div className="border-b border-primary/20 bg-primary/5">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
-        <div className="flex items-center gap-2 text-sm">
-          <Icon icon="ph:percent-light" className="size-4 shrink-0 text-primary" />
-          <span>
-            <strong className="font-medium">Aprovecha el 50% de descuento en tu plan anual.</strong>{' '}
-            {regular && promo ? (
-              <>
-                <span className="text-muted-foreground line-through">{regular}</span>{' '}
-                <span className="font-medium">{promo}/año</span>, y se te respeta para
-                siempre mientras no canceles.
-              </>
-            ) : (
-              'Se te respeta para siempre mientras no canceles.'
-            )}
-            {dias !== null && (
-              <span className="ml-1 font-medium text-primary">
-                {dias > 0
-                  ? `Te ${dias === 1 ? 'queda 1 día' : `quedan ${dias} días`} para aprovecharlo.`
-                  : 'Último día.'}
-              </span>
-            )}
-          </span>
-        </div>
-        <Button onClick={() => router.push('/suscripcion')} size="sm">
+      <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-primary text-primary-foreground">
+          <Icon icon="ph:percent-light" className="size-3.5" />
+        </span>
+        <p className="min-w-0 flex-1 truncate text-[13px] leading-snug">
+          <strong className="font-bold text-foreground">
+            50% de por vida en tu plan anual.
+          </strong>{' '}
+          {regular && promo ? (
+            <>
+              <strong className="font-semibold text-foreground">{promo}/año</strong>{' '}
+              en lugar de{' '}
+              <span className="text-muted-foreground">{regular}</span>, congelado
+              mientras no canceles.
+            </>
+          ) : (
+            'Precio congelado mientras no canceles.'
+          )}
+          {dias !== null && (
+            <span className="ml-1 font-semibold text-primary">
+              {dias > 0
+                ? `Te ${dias === 1 ? 'queda 1 día' : `quedan ${dias} días`}.`
+                : 'Último día.'}
+            </span>
+          )}
+        </p>
+
+        <Button
+          onClick={() => router.push('/suscripcion')}
+          size="sm"
+          className="shrink-0"
+        >
           <Icon icon="ph:lightning-light" className="size-4" />
           Quiero el 50%
         </Button>
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          aria-label="Ocultar promoción"
+          title="Ocultar"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
+        >
+          <Icon icon="ph:x-light" className="size-4" />
+        </button>
       </div>
     </div>
   );
