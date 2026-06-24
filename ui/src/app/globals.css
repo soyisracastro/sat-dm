@@ -4,14 +4,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Custom fonts */
+/* Custom fonts
+   Inter VARIABLE auto-hospedada en public/fonts/ (eje wght 100–900 + opsz).
+   Antes se cargaba un único woff2 ESTÁTICO de Inter Regular (peso 400) declarado
+   como `font-weight: 100 900`: el navegador asumía que ese archivo cubría todo el
+   rango y NO sintetizaba negritas, así que 600/700/800/900 se veían planos (= 400).
+   Self-host además evita depender de la red en la app empacada (Electron, offline). */
 @font-face {
   font-family: 'Inter';
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2')
-    format('woff2');
+  src: url('/fonts/InterVariable.woff2') format('woff2');
 }
 
 @theme inline {
