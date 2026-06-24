@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -50,11 +51,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { apiClient, isConnected } = useServer();
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  // ID monotónico de la última petición iniciada. Como puede haber varios
+  // fetches en vuelo (startup cache+force, intervalo 6h, refresh manual, o una
+  // reconexión que recrea el apiClient con otro puerto), solo aplicamos la
+  // respuesta del más reciente — así un resultado viejo nunca pisa al nuevo.
+  const latestRequest = useRef(0);
 
   const fetchLicense = useCallback(
     async (force = false) => {
+      const requestId = ++latestRequest.current;
+      const sigueVigente = () => requestId === latestRequest.current;
       try {
         const data = await apiClient.authLicense(force);
+        if (!sigueVigente()) return; // llegó tarde: ya ganó una petición más nueva
         setLicense(data);
         // Identifica al usuario en Sentry (o lo desliga si no hay sesión) para
         // que los reportes traigan quién es. Idempotente entre re-fetches.
@@ -74,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         console.warn('[auth] authLicense falló:', e);
         // Mantenemos el estado previo si lo había; si no, marcamos no-auth.
-        setLicense((prev) => prev ?? { authenticated: false });
+        if (sigueVigente()) setLicense((prev) => prev ?? { authenticated: false });
       } finally {
         setLoading(false);
       }
