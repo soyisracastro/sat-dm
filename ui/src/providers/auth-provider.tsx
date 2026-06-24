@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -38,19 +39,31 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 /**
  * AuthProvider — fuente de verdad del estado de autenticación + licencia.
  *
- * - Carga el estado al montar (cache local del agente; sin red).
- * - Re-fetch automático cada 6h en background (no bloquea).
+ * - Carga el estado al montar con cache (render instantáneo, sin red) y luego
+ *   reconcilia en background con un force-refresh (corrige banners/badges si el
+ *   estado cambió en el servidor: ventana de fundadores cerrada, promo activa,
+ *   suscripción, etc.) sin bloquear ni mostrar spinner.
+ * - Re-fetch automático cada 6h con force (ignora el cache de 24h del agente)
+ *   para que sesiones largas no queden desactualizadas.
  * - Expone `refresh()` para invalidar manualmente y `logout()`.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { apiClient, isConnected } = useServer();
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  // ID monotónico de la última petición iniciada. Como puede haber varios
+  // fetches en vuelo (startup cache+force, intervalo 6h, refresh manual, o una
+  // reconexión que recrea el apiClient con otro puerto), solo aplicamos la
+  // respuesta del más reciente — así un resultado viejo nunca pisa al nuevo.
+  const latestRequest = useRef(0);
 
   const fetchLicense = useCallback(
     async (force = false) => {
+      const requestId = ++latestRequest.current;
+      const sigueVigente = () => requestId === latestRequest.current;
       try {
         const data = await apiClient.authLicense(force);
+        if (!sigueVigente()) return; // llegó tarde: ya ganó una petición más nueva
         setLicense(data);
         // Identifica al usuario en Sentry (o lo desliga si no hay sesión) para
         // que los reportes traigan quién es. Idempotente entre re-fetches.
@@ -70,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         console.warn('[auth] authLicense falló:', e);
         // Mantenemos el estado previo si lo había; si no, marcamos no-auth.
-        setLicense((prev) => prev ?? { authenticated: false });
+        if (sigueVigente()) setLicense((prev) => prev ?? { authenticated: false });
       } finally {
         setLoading(false);
       }
@@ -78,18 +91,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [apiClient],
   );
 
-  // Carga inicial: solo cuando el agente está conectado.
+  // Carga inicial: cache primero (render instantáneo) y luego un force-refresh
+  // en background para reconciliar con el servidor. El force no vuelve a poner
+  // `loading=true` (solo se apaga en el finally), así que el shell no parpadea;
+  // si el estado cambió (p. ej. ventana de fundadores cerrada), los banners se
+  // corrigen solos en cuanto llega la respuesta. Offline-safe: el agente cae a
+  // su cache si no hay red.
   useEffect(() => {
     if (!isConnected) return;
-    fetchLicense(false);
+    void fetchLicense(false).then(() => fetchLicense(true));
   }, [isConnected, fetchLicense]);
 
-  // Re-fetch cada 6h en background (el agente decidirá si pega al backend o
-  // devuelve cache fresh).
+  // Re-fetch cada 6h con force: ignora el cache de 24h del agente para que una
+  // sesión abierta por días refleje cambios del servidor a tiempo.
   useEffect(() => {
     if (!isConnected) return;
     const interval = setInterval(() => {
-      fetchLicense(false);
+      fetchLicense(true);
     }, 6 * 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, [isConnected, fetchLicense]);
