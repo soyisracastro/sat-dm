@@ -38,8 +38,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 /**
  * AuthProvider — fuente de verdad del estado de autenticación + licencia.
  *
- * - Carga el estado al montar (cache local del agente; sin red).
- * - Re-fetch automático cada 6h en background (no bloquea).
+ * - Carga el estado al montar con cache (render instantáneo, sin red) y luego
+ *   reconcilia en background con un force-refresh (corrige banners/badges si el
+ *   estado cambió en el servidor: ventana de fundadores cerrada, promo activa,
+ *   suscripción, etc.) sin bloquear ni mostrar spinner.
+ * - Re-fetch automático cada 6h con force (ignora el cache de 24h del agente)
+ *   para que sesiones largas no queden desactualizadas.
  * - Expone `refresh()` para invalidar manualmente y `logout()`.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -78,18 +82,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [apiClient],
   );
 
-  // Carga inicial: solo cuando el agente está conectado.
+  // Carga inicial: cache primero (render instantáneo) y luego un force-refresh
+  // en background para reconciliar con el servidor. El force no vuelve a poner
+  // `loading=true` (solo se apaga en el finally), así que el shell no parpadea;
+  // si el estado cambió (p. ej. ventana de fundadores cerrada), los banners se
+  // corrigen solos en cuanto llega la respuesta. Offline-safe: el agente cae a
+  // su cache si no hay red.
   useEffect(() => {
     if (!isConnected) return;
-    fetchLicense(false);
+    void fetchLicense(false).then(() => fetchLicense(true));
   }, [isConnected, fetchLicense]);
 
-  // Re-fetch cada 6h en background (el agente decidirá si pega al backend o
-  // devuelve cache fresh).
+  // Re-fetch cada 6h con force: ignora el cache de 24h del agente para que una
+  // sesión abierta por días refleje cambios del servidor a tiempo.
   useEffect(() => {
     if (!isConnected) return;
     const interval = setInterval(() => {
-      fetchLicense(false);
+      fetchLicense(true);
     }, 6 * 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, [isConnected, fetchLicense]);
