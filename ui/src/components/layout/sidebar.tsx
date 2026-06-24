@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { cn } from '@/lib/utils';
 import { AccountMenu } from '@/components/layout/account-menu';
+import { BrandMark } from '@/components/layout/brand-mark';
 import { EmpresaSwitcher } from '@/components/layout/empresa-switcher';
 import { Icon } from '@/components/ui/icon';
 import {
@@ -109,18 +109,10 @@ export function Sidebar() {
           collapsed ? 'justify-center px-0' : 'px-3.5',
         )}
       >
-        <Image
-          src="/todoconta-icon.svg"
-          alt="TodoConta"
-          width={34}
-          height={34}
-          className="shrink-0 rounded-lg shadow-sm"
+        <BrandMark
+          iconOnly={collapsed}
+          className={cn(!collapsed && 'min-w-0 flex-1')}
         />
-        {!collapsed && (
-          <span className="flex-1 truncate text-[17px] font-extrabold tracking-tight text-foreground">
-            TodoConta
-          </span>
-        )}
         {!collapsed && (
           <button
             onClick={toggleCollapsed}
