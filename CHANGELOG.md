@@ -6,6 +6,61 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.3.0] - 2026-06-24
+
+### Feature
+
+- **Suscripción dentro de la app**: banner de promo (50% anual de por vida) y
+  badges de plan (Fundador / premium / prueba / free) en el titlebar, más una
+  página interna `/suscripcion` para pagar con tarjeta (Stripe), por transferencia
+  o cancelar sin salir de la app. El agente expone los endpoints
+  `/auth/{subscribe,cancel-subscription,transfer-intent}` con refresh-on-401 y
+  mensajes de error amigables. El `FounderBanner` se conserva pero se auto-oculta.
+- **Rediseño de la página de suscripción (dos columnas)**: tarjeta principal de
+  plan por estado (oferta de prueba/free · premium activo · Miembro Fundador) con
+  precio + ahorro, lista de incluidos y selector de método tipo radio (tarjeta /
+  transferencia, que carga los datos bancarios al elegir transferencia); rail con
+  cuenta regresiva de la prueba, tarjeta de cuenta y nota de ayuda.
+- **BrandMark reutilizable**: se extrae el lockup de marca (icono + wordmark con
+  el punto `.` en cian, igual que el canónico de todoconta-apps) a un componente
+  compartido; se usa en el sidebar (con `iconOnly` al colapsar) y en el login.
+- **Reconciliación del license al arranque + auto-refresh cada 6 h con force**:
+  antes un cambio en el servidor (cerrar la ventana de fundadores, activar la
+  promo) tardaba hasta 24 h en reflejarse por el cache del agente. Ahora el
+  arranque pinta el cache al instante y reconcilia en background con force, el
+  auto-refresh de 6 h ignora el cache, y `/suscripcion` fuerza refresh al montar
+  para que el precio mostrado coincida con el que cobra el checkout.
+
+### Bug fix
+
+- **Pesos tipográficos correctos en la app empacada**: el `@font-face` declaraba
+  el rango `100 900` pero apuntaba a un único woff2 de Inter Regular (peso 400),
+  así que 600/700/800 se renderizaban como 400. Se auto-hospeda Inter Variable
+  (eje `wght` 100–900) en `public/fonts/`, lo que además quita la dependencia de
+  red en Electron offline. Los primitivos shadcn se suben para coincidir con el
+  design system (Button/Badge/Label → semibold; CardTitle/AlertTitle → bold;
+  DialogTitle → extrabold; PageHeading h1 y precio → extrabold).
+- **License: descartar respuestas obsoletas (request-id guard)**: con varios
+  fetches en vuelo (cache+force del arranque, intervalo de 6 h, refresh manual,
+  reconexión que recrea el `apiClient`) un resultado viejo podía pisar al más
+  reciente. Cada fetch lleva ahora un id monotónico y solo el último aplica su
+  resultado (patrón canónico de React para effects con fetch).
+
+### Copy
+
+- **Copy de promo enfocado**: el `PromoBanner` pasa a una sola fila horizontal
+  (% en cuadro azul con icono blanco + botón de cerrar por sesión) sin recortar
+  los días restantes; el copy del banner y de la página enfatiza «aprovecha el
+  50 %», «te quedan N días para aprovecharlo» y «se te respeta para siempre
+  mientras no canceles».
+
+### Tooling
+
+- **`design/` ignorado**: el boceto de diseño local (Claude Design) queda fuera
+  del repo.
+
+- Bump 1.2.2 → 1.3.0 (3 archivos).
+
 ## [1.2.2] - 2026-06-22
 
 ### Bug fix
