@@ -8,10 +8,10 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import Image from 'next/image';
 
 import { useServer } from '@/providers/server-provider';
 import { useAuth } from '@/providers/auth-provider';
+import { BrandMark } from '@/components/layout/brand-mark';
 import { Icon } from '@/components/ui/icon';
 import { ApiError } from '@/lib/api-client';
 import { mensajeDeError } from '@/lib/errores';
@@ -508,14 +508,7 @@ function DoneStep({ esLogin }: { esLogin: boolean }) {
 function Marca() {
   return (
     <div className="mb-6 flex justify-center">
-      <Image
-        src="/todoconta-icon.svg"
-        alt="TodoConta"
-        width={46}
-        height={46}
-        className="rounded-xl shadow-sm"
-        priority
-      />
+      <BrandMark size={46} wordmarkSize={24} priority iconClassName="rounded-xl shadow-sm" />
     </div>
   );
 }
