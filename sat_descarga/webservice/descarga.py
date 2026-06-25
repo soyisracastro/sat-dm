@@ -201,19 +201,34 @@ def _extraer_zip_del_response(resp_xml: bytes, package_id: str) -> bytes:
             f"No se pudo parsear la respuesta del paquete {package_id}: {e}"
         )
 
+    result_el = root.find(f".//{{{_DES_NS}}}respuestaDescarga")
+    cod = result_el.get("CodEstatus", "") if result_el is not None else ""
+    msg = result_el.get("Mensaje", "") if result_el is not None else ""
+
     paquete_el = root.find(f".//{{{_DES_NS}}}Paquete")
     if paquete_el is None:
-        result_el = root.find(f".//{{{_DES_NS}}}respuestaDescarga")
-        cod = result_el.get("CodEstatus", "") if result_el is not None else ""
-        msg = result_el.get("Mensaje", "") if result_el is not None else ""
         raise RuntimeError(
             f"No se encontró el paquete {package_id}. "
             f"CodEstatus={cod}, Mensaje={msg}\n"
             f"Respuesta:\n{resp_xml[:500].decode(errors='replace')}"
         )
 
-    zip_bytes = base64.b64decode(paquete_el.text)
-    return zip_bytes
+    # El SAT a veces devuelve <Paquete/> vacío (sin Base64) aunque la solicitud
+    # se verificó como terminada: paquete ya consumido, todavía no listo o
+    # incidencia transitoria del WS. En ese caso `paquete_el.text` es None y
+    # base64.b64decode tronaba con un TypeError cripto ("argument should be a
+    # bytes-like object or ASCII string, not 'NoneType'") que se propagaba como
+    # un 500 sin contexto. Lo convertimos en un error accionable.
+    contenido = (paquete_el.text or "").strip()
+    if not contenido:
+        raise RuntimeError(
+            f"El SAT devolvió el paquete {package_id} vacío "
+            f"(CodEstatus={cod or 'N/D'}, Mensaje={msg or 'sin mensaje'}). "
+            "Reintenta la descarga en unos minutos; si el paquete ya se había "
+            "descargado antes, vuelve a solicitarlo."
+        )
+
+    return base64.b64decode(contenido)
 
 
 def _extraer_zip(zip_bytes: bytes, out_dir: Path, package_id: str) -> int:
