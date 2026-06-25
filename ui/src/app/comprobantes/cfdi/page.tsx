@@ -14,6 +14,7 @@ import { CfdiStats } from '@/components/procesador-cfdi/cfdi-stats';
 import { CfdiTable } from '@/components/procesador-cfdi/cfdi-table';
 import { CfdiUploader } from '@/components/procesador-cfdi/cfdi-uploader';
 import { CfdiValidarButton } from '@/components/procesador-cfdi/cfdi-validar-button';
+import { ProcesadorEstado } from '@/components/shared/procesador-estado';
 import { useProcesadorCfdi } from '@/hooks/use-procesador-cfdi';
 
 export default function ProcesadorCfdiPage() {
@@ -28,6 +29,7 @@ export default function ProcesadorCfdiPage() {
     data,
     stats,
     loading,
+    error,
     recargar,
     hidratado,
   } = useProcesadorCfdi();
@@ -53,40 +55,47 @@ export default function ProcesadorCfdiPage() {
         }
       />
 
-      {/* Empty state: buffer vacío → uploader grande, sin filtros ni reportes. */}
-      {bufferVacio && <CfdiUploader onCargado={recargar} />}
+      <ProcesadorEstado
+        stats={stats}
+        error={error}
+        loading={loading}
+        onReintentar={recargar}
+      >
+        {/* Empty state: buffer vacío → uploader grande, sin filtros ni reportes. */}
+        {bufferVacio && <CfdiUploader onCargado={recargar} />}
 
-      {/* Estado normal: hay CFDIs en el buffer. */}
-      {!bufferVacio && stats !== null && (
-        <>
-          {/* Acciones */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <CfdiValidarButton onValidado={recargar} />
-            <CfdiCargarMasButton onCargado={recargar} />
-            <CfdiExportButtons filtros={filtros} />
-            <CfdiClearButton total={stats.total_comprobantes} onBorrado={recargar} />
-          </div>
+        {/* Estado normal: hay CFDIs en el buffer. */}
+        {!bufferVacio && stats !== null && (
+          <>
+            {/* Acciones */}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <CfdiValidarButton onValidado={recargar} />
+              <CfdiCargarMasButton onCargado={recargar} />
+              <CfdiExportButtons filtros={filtros} />
+              <CfdiClearButton total={stats.total_comprobantes} onBorrado={recargar} />
+            </div>
 
-          <CfdiStats stats={stats} />
+            <CfdiStats stats={stats} />
 
-          <CfdiFiltersPanel
-            filtros={filtros}
-            setFiltro={setFiltro}
-            reset={reset}
-            filtrosActivos={filtrosActivos}
-          />
+            <CfdiFiltersPanel
+              filtros={filtros}
+              setFiltro={setFiltro}
+              reset={reset}
+              filtrosActivos={filtrosActivos}
+            />
 
-          <CfdiTable
-            data={data}
-            page={page}
-            pageSize={pageSize}
-            loading={loading}
-            onPage={setPage}
-          />
+            <CfdiTable
+              data={data}
+              page={page}
+              pageSize={pageSize}
+              loading={loading}
+              onPage={setPage}
+            />
 
-          {total > 0 && <CfdiReportes filtros={filtros} />}
-        </>
-      )}
+            {total > 0 && <CfdiReportes filtros={filtros} />}
+          </>
+        )}
+      </ProcesadorEstado>
     </div>
   );
 }

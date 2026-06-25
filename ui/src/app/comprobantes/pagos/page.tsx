@@ -15,6 +15,7 @@ import { PagosIncidenciasPue } from '@/components/procesador-pagos/pagos-inciden
 import { PagosExportButton } from '@/components/procesador-pagos/pagos-export-button';
 import { PagosPPDTable } from '@/components/procesador-pagos/pagos-ppd-table';
 import { PagosStatsCards } from '@/components/procesador-pagos/pagos-stats';
+import { ProcesadorEstado } from '@/components/shared/procesador-estado';
 import { useProcesadorPagos } from '@/hooks/use-procesador-pagos';
 
 export default function ProcesadorPagosPage() {
@@ -29,6 +30,7 @@ export default function ProcesadorPagosPage() {
     data,
     stats,
     loading,
+    error,
     recargar,
     hidratado,
   } = useProcesadorPagos();
@@ -52,6 +54,12 @@ export default function ProcesadorPagosPage() {
         }
       />
 
+      <ProcesadorEstado
+        stats={stats}
+        error={error}
+        loading={loading}
+        onReintentar={recargar}
+      >
       {/* Empty state: usa el mismo CfdiUploader del procesador CFDI. */}
       {bufferVacio && <CfdiUploader onCargado={recargar} />}
 
@@ -97,6 +105,7 @@ export default function ProcesadorPagosPage() {
           <PagosHuerfanosTable filtros={filtros} />
         </>
       )}
+      </ProcesadorEstado>
     </div>
   );
 }

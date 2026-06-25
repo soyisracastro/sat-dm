@@ -117,6 +117,28 @@ export function useProcesadorGenerico<F extends object, D, S>(
     if (hidratado) recargar();
   }, [recargar, hidratado]);
 
+  // Auto-reintento del primer load. Si el agente aún no responde —en Windows el
+  // antivirus suele analizar el binario sin firma la primera vez que se ejecuta
+  // su lógica, y la petición se cae o cuelga— reintenta solo con backoff en vez
+  // de dejar la página en blanco esperando un clic manual. En cuanto hay stats
+  // el contador se resetea y el efecto deja de actuar.
+  const reintentosInicial = useRef(0);
+  useEffect(() => {
+    if (!hidratado) return;
+    if (stats !== null) {
+      reintentosInicial.current = 0;
+      return;
+    }
+    // stats === null: sin error la petición sigue en curso (el spinner cubre
+    // ese caso); solo reintentamos cuando ya falló, hasta un tope.
+    if (!error) return;
+    if (reintentosInicial.current >= 5) return;
+    const intento = (reintentosInicial.current += 1);
+    const delay = Math.min(500 * 2 ** (intento - 1), 5000);
+    const t = setTimeout(() => recargar(), delay);
+    return () => clearTimeout(t);
+  }, [hidratado, stats, error, recargar]);
+
   const setFiltro = useCallback(
     <K extends keyof F>(key: K, value: F[K]) => {
       setFiltrosState((prev) => ({ ...prev, [key]: value } as F));

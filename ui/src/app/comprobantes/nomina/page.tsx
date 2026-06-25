@@ -13,6 +13,7 @@ import { NominaExportButton } from '@/components/procesador-nomina/nomina-export
 import { NominaFiltersPanel } from '@/components/procesador-nomina/nomina-filters';
 import { NominaRecibosTable } from '@/components/procesador-nomina/nomina-recibos-table';
 import { NominaStatsCards } from '@/components/procesador-nomina/nomina-stats';
+import { ProcesadorEstado } from '@/components/shared/procesador-estado';
 import { useProcesadorNomina } from '@/hooks/use-procesador-nomina';
 
 export default function ProcesadorNominaPage() {
@@ -27,6 +28,7 @@ export default function ProcesadorNominaPage() {
     data,
     stats,
     loading,
+    error,
     recargar,
     hidratado,
   } = useProcesadorNomina();
@@ -48,6 +50,12 @@ export default function ProcesadorNominaPage() {
         }
       />
 
+      <ProcesadorEstado
+        stats={stats}
+        error={error}
+        loading={loading}
+        onReintentar={recargar}
+      >
       {/* Empty state: reusa el mismo CfdiUploader del procesador CFDI. */}
       {bufferVacio && <CfdiUploader onCargado={recargar} />}
 
@@ -90,6 +98,7 @@ export default function ProcesadorNominaPage() {
           />
         </>
       )}
+      </ProcesadorEstado>
     </div>
   );
 }
