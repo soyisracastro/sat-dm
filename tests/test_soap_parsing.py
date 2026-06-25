@@ -175,3 +175,19 @@ class TestExtraerZip:
         ).encode()
         with pytest.raises(RuntimeError, match="No se encontr"):
             _extraer_zip_del_response(resp, "pkg-no-existe")
+
+    def test_paquete_vacio_lanza_error_accionable(self):
+        # El SAT a veces devuelve <Paquete/> vacío (text=None) aunque la
+        # solicitud se verificó como terminada. Antes tronaba con un TypeError
+        # cripto de base64; ahora debe ser un RuntimeError con contexto.
+        resp = (
+            f'<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+            f'<s:Body>'
+            f'<RespuestaDescargaMasivaTercerosSalida xmlns="{_DES_NS}">'
+            f'<respuestaDescarga CodEstatus="5000" Mensaje="Solicitud Aceptada"/>'
+            f'<Paquete/>'
+            f'</RespuestaDescargaMasivaTercerosSalida>'
+            f'</s:Body></s:Envelope>'
+        ).encode()
+        with pytest.raises(RuntimeError, match="vac"):
+            _extraer_zip_del_response(resp, "pkg-vacio")
