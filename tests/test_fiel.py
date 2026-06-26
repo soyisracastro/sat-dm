@@ -4,7 +4,54 @@ import base64
 from datetime import datetime, timezone
 
 import pytest
-from sat_descarga.core.fiel import FIEL
+from sat_descarga.core.fiel import FIEL, _rfc_desde_valores
+
+
+class TestRfcDesdeValores:
+    """Extracción del RFC del titular a partir de las cadenas candidatas del cert.
+
+    No requiere un cert real: prueba directo la lógica pura, incluyendo el caso
+    `bytes` (cryptography devuelve bytes para el OID 2.5.4.45 cuando el SAT lo
+    tipa como BIT STRING) que provocaba "No se pudo extraer el RFC".
+    """
+
+    def test_texto_persona_fisica(self):
+        assert _rfc_desde_valores(["XAXX010101000"]) == "XAXX010101000"
+
+    def test_texto_persona_moral(self):
+        assert _rfc_desde_valores(["SAJ0205248A9"]) == "SAJ0205248A9"
+
+    def test_bytes_persona_fisica(self):
+        # La regresión: valor como bytes (BIT STRING) en vez de str.
+        assert _rfc_desde_valores([b"CEAT951015IW5"]) == "CEAT951015IW5"
+
+    def test_formato_sat_rfc_diagonal_curp(self):
+        # "RFC / CURP" → el titular es el primer token, no la CURP.
+        assert (
+            _rfc_desde_valores(["EMPR990101AAA / GAXX000101HDFXXX01"])
+            == "EMPR990101AAA"
+        )
+
+    def test_bytes_con_espacio_inicial_y_separador(self):
+        assert (
+            _rfc_desde_valores([b" CEAT951015IW5 / GAXX000101HDFXXX01"])
+            == "CEAT951015IW5"
+        )
+
+    def test_minusculas_se_normalizan(self):
+        assert _rfc_desde_valores(["ceat951015iw5"]) == "CEAT951015IW5"
+
+    def test_sin_rfc_devuelve_none(self):
+        # El CN (nombre) no debe colarse como RFC.
+        assert _rfc_desde_valores(["PRUEBA EMPRESA SA DE CV"]) is None
+
+    def test_orden_de_candidatos(self):
+        # Toma el primer candidato válido; ignora el nombre previo sin RFC.
+        valores = ["PRUEBA EMPRESA SA DE CV", b"CEAT951015IW5"]
+        assert _rfc_desde_valores(valores) == "CEAT951015IW5"
+
+    def test_lista_vacia_devuelve_none(self):
+        assert _rfc_desde_valores([]) is None
 
 
 class TestFIELLoad:

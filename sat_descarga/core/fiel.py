@@ -7,12 +7,53 @@ mensajes XML usando RSA-SHA1 (xmldsig).
 
 import base64
 import hashlib
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.x509.oid import ExtensionOID
+
+
+# RFC mexicano: 3 (moral) o 4 (física) letras + 6 dígitos de fecha + 3 de homoclave.
+_RFC_RE = re.compile(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}")
+
+
+def _a_texto(valor) -> str:
+    """Normaliza el valor de un atributo X.509 a `str` imprimible.
+
+    `cryptography` devuelve `bytes` para ciertos OIDs no-texto (en especial
+    X500_UNIQUE_IDENTIFIER / 2.5.4.45, que el SAT a veces tipa como BIT STRING,
+    y los OtherName del subjectAltName, que vienen como DER). Decodifica y deja
+    solo caracteres imprimibles para que las operaciones de string no truenen.
+    """
+    if isinstance(valor, bytes):
+        try:
+            valor = valor.decode("utf-8")
+        except UnicodeDecodeError:
+            valor = valor.decode("latin-1", errors="ignore")
+    return "".join(c for c in valor if c.isprintable()).strip()
+
+
+def _rfc_desde_valores(valores) -> str | None:
+    """Extrae el RFC del titular de una lista de cadenas candidatas.
+
+    Maneja el formato del SAT "RFC / CURP" (o, en moral, "RFC_EMPRESA /
+    RFC_REPRESENTANTE": el titular es el primer token) y valida contra el patrón
+    del RFC para no devolver basura (nombre del CN, prefijo de la CURP, etc.).
+    """
+    for crudo in valores:
+        texto = _a_texto(crudo)
+        if not texto:
+            continue
+        # Formato SAT: el RFC del titular va antes del " / ".
+        token = (texto.split(" / ", 1)[0] if " / " in texto else texto).strip().upper()
+        m = _RFC_RE.fullmatch(token) or _RFC_RE.search(token)
+        if m:
+            return m.group(0)
+    return None
 
 
 class FIEL:
@@ -81,34 +122,45 @@ class FIEL:
     @property
     def rfc(self) -> str:
         """
-        RFC extraído del certificado (campo UniqueIdentifier OID 2.5.4.45).
+        RFC del titular extraído del certificado.
 
-        Formato del SAT:
-        - Persona física: "RFC / CURP" → se toma el primer token (RFC tiene 13 chars)
-        - Persona moral:  "RFC_EMPRESA / RFC_REPRESENTANTE" → se toma el primer token (RFC tiene 12 chars)
+        El SAT pone el RFC en el subject (OID 2.5.4.45 UniqueIdentifier; a veces
+        en 2.5.4.5 serialNumber) con formato "RFC / CURP" (persona moral:
+        "RFC_EMPRESA / RFC_REPRESENTANTE"). El titular es el primer token.
 
-        En ambos casos el RFC del titular es el PRIMER valor antes del " / ".
+        OJO: `cryptography` puede devolver el valor de 2.5.4.45 como `bytes`
+        (cuando el cert lo tipa como BIT STRING en vez de texto) — por eso se
+        normaliza con `_a_texto`. Como respaldo se revisa el subjectAltName, el
+        CN y el subject completo. Ver `_candidatos_rfc`.
         """
+        rfc = _rfc_desde_valores(self._candidatos_rfc())
+        if rfc:
+            return rfc
+        raise ValueError(
+            "No se pudo extraer el RFC del certificado. "
+            f"Subject: {self._cert.subject.rfc4514_string()}"
+        )
+
+    def _candidatos_rfc(self):
+        """Genera cadenas candidatas a contener el RFC, en orden de preferencia."""
+        # 1) Subject: UniqueIdentifier (2.5.4.45) y serialNumber (2.5.4.5).
+        for attr in self._cert.subject:
+            if attr.oid.dotted_string in ("2.5.4.45", "2.5.4.5"):
+                yield attr.value
+        # 2) subjectAltName → OtherName (algunos certs del SAT ponen ahí el RFC).
         try:
-            for attr in self._cert.subject:
-                if attr.oid.dotted_string in ("2.5.4.45", "2.5.4.5"):
-                    value = attr.value.strip()
-                    # Separar por " / " (formato SAT: "RFC / CURP" o "RFC1 / RFC2")
-                    if " / " in value:
-                        return value.split(" / ")[0].strip()
-                    # Sin separador, tomar todo
-                    parts = value.split()
-                    return parts[0] if parts else value
-        except Exception:
+            san = self._cert.extensions.get_extension_for_oid(
+                ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+            ).value
+            for on in san.get_values_for_type(x509.OtherName):
+                yield on.value  # bytes DER; _a_texto extrae el texto imprimible
+        except x509.ExtensionNotFound:
             pass
-        # Fallback: buscar en CN
-        try:
-            cn = self._cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
-            if cn:
-                return cn[0].value.split()[0]
-        except Exception:
-            pass
-        raise ValueError("No se pudo extraer el RFC del certificado.")
+        # 3) Respaldo: CN y subject completo.
+        cn = self._cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
+        if cn:
+            yield cn[0].value
+        yield self._cert.subject.rfc4514_string()
 
     @property
     def legal_name(self) -> str | None:
