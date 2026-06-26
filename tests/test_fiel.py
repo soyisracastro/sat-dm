@@ -4,7 +4,97 @@ import base64
 from datetime import datetime, timezone
 
 import pytest
-from sat_descarga.core.fiel import FIEL
+from sat_descarga.core.fiel import (
+    FIEL,
+    _a_texto,
+    _rfc_desde_valores,
+    _valores_oid_en_der,
+    _OID_UNIQUE_ID_DER,
+)
+
+
+def _tlv(tag: int, val: bytes) -> bytes:
+    """Codifica un TLV ASN.1 en formato corto (para construir DER de prueba)."""
+    return bytes([tag, len(val)]) + val
+
+
+class TestValoresOidEnDer:
+    """Fallback DER para certs cuyo subject cryptography no puede parsear.
+
+    Caso real: nombre del titular con Ñ tipado como T61String con bytes UTF-8 →
+    el parser estricto truena al leer el subject, aunque el RFC esté limpio.
+    """
+
+    def test_toma_el_ultimo_que_es_el_titular(self):
+        # En X.509 el issuer (CA del SAT, RFC SAT970701NN3) va antes del subject
+        # (titular). Ambos traen OID 2.5.4.45 → el titular es la última aparición.
+        oid = _OID_UNIQUE_ID_DER
+        der = (
+            b"\x30\x10" + oid + _tlv(0x13, b"SAT970701NN3")      # issuer (PrintableString)
+            + b"\x30\x11" + oid + _tlv(0x13, b"CEAT951015IW5")   # subject
+        )
+        valores = _valores_oid_en_der(der, oid)
+        assert valores == [b"SAT970701NN3", b"CEAT951015IW5"]
+        # La propiedad rfc toma reversed() → el titular gana.
+        assert _rfc_desde_valores(reversed(valores)) == "CEAT951015IW5"
+
+    def test_oid_ausente_devuelve_lista_vacia(self):
+        assert _valores_oid_en_der(b"\x30\x03\x02\x01\x00", _OID_UNIQUE_ID_DER) == []
+
+    def test_nombre_con_n_se_decodifica(self):
+        # El nombre con Ñ viene como T61String (tag 0x14) con el byte 0xD1; debe
+        # recuperarse decodificado, no perderse. (`_a_texto` cae a latin-1.)
+        cn_oid = bytes([0x06, 0x03, 0x55, 0x04, 0x03])
+        nombre_bytes = b"TERESA DE JESUS CEDE\xd1O ALMAZAN"
+        der = cn_oid + _tlv(0x14, nombre_bytes)  # 0x14 = T61String
+        assert _a_texto(_valores_oid_en_der(der, cn_oid)[-1]) == "TERESA DE JESUS CEDEÑO ALMAZAN"
+
+
+class TestRfcDesdeValores:
+    """Extracción del RFC del titular a partir de las cadenas candidatas del cert.
+
+    No requiere un cert real: prueba directo la lógica pura, incluyendo el caso
+    `bytes` (cryptography devuelve bytes para el OID 2.5.4.45 cuando el SAT lo
+    tipa como BIT STRING) que provocaba "No se pudo extraer el RFC".
+    """
+
+    def test_texto_persona_fisica(self):
+        assert _rfc_desde_valores(["XAXX010101000"]) == "XAXX010101000"
+
+    def test_texto_persona_moral(self):
+        assert _rfc_desde_valores(["SAJ0205248A9"]) == "SAJ0205248A9"
+
+    def test_bytes_persona_fisica(self):
+        # La regresión: valor como bytes (BIT STRING) en vez de str.
+        assert _rfc_desde_valores([b"CEAT951015IW5"]) == "CEAT951015IW5"
+
+    def test_formato_sat_rfc_diagonal_curp(self):
+        # "RFC / CURP" → el titular es el primer token, no la CURP.
+        assert (
+            _rfc_desde_valores(["EMPR990101AAA / GAXX000101HDFXXX01"])
+            == "EMPR990101AAA"
+        )
+
+    def test_bytes_con_espacio_inicial_y_separador(self):
+        assert (
+            _rfc_desde_valores([b" CEAT951015IW5 / GAXX000101HDFXXX01"])
+            == "CEAT951015IW5"
+        )
+
+    def test_minusculas_se_normalizan(self):
+        assert _rfc_desde_valores(["ceat951015iw5"]) == "CEAT951015IW5"
+
+    def test_sin_rfc_devuelve_none(self):
+        # El CN (nombre) no debe colarse como RFC.
+        assert _rfc_desde_valores(["PRUEBA EMPRESA SA DE CV"]) is None
+
+    def test_orden_de_candidatos(self):
+        # Toma el primer candidato válido; ignora el nombre previo sin RFC.
+        valores = ["PRUEBA EMPRESA SA DE CV", b"CEAT951015IW5"]
+        assert _rfc_desde_valores(valores) == "CEAT951015IW5"
+
+    def test_lista_vacia_devuelve_none(self):
+        assert _rfc_desde_valores([]) is None
 
 
 class TestFIELLoad:

@@ -167,6 +167,40 @@ class TestEmpresas:
             config_store.set_default("NO_EXISTE")
 
 
+class TestActualizarNombreSiPlaceholder:
+    """Auto-corrección del nombre cuando quedó como placeholder (== RFC).
+
+    Pasa cuando la extracción del nombre del cert falló al dar de alta (p. ej.
+    cert con Ñ); se corrige solo al cargar la e.firma, sin borrar y re-agregar.
+    """
+
+    RFC = "CAUI890921DAA"
+
+    def _alta_con_nombre_placeholder(self):
+        # add_empresa_ciec con nombre vacío deja el RFC como nombre.
+        config_store.add_empresa_ciec(self.RFC, "", "ciec")
+
+    def test_actualiza_cuando_nombre_es_el_rfc(self):
+        self._alta_con_nombre_placeholder()
+        assert config_store.actualizar_nombre_si_placeholder(self.RFC, "Israel Castro") is True
+        emp = config_store.get_empresa(self.RFC)
+        assert emp["nombre"] == "Israel Castro"
+
+    def test_no_pisa_un_nombre_real(self):
+        config_store.add_empresa_ciec(self.RFC, "Nombre Real", "ciec")
+        assert config_store.actualizar_nombre_si_placeholder(self.RFC, "Otro") is False
+        assert config_store.get_empresa(self.RFC)["nombre"] == "Nombre Real"
+
+    def test_ignora_nombre_nuevo_vacio_o_igual_al_rfc(self):
+        self._alta_con_nombre_placeholder()
+        assert config_store.actualizar_nombre_si_placeholder(self.RFC, "") is False
+        assert config_store.actualizar_nombre_si_placeholder(self.RFC, self.RFC) is False
+        assert config_store.get_empresa(self.RFC)["nombre"] == self.RFC
+
+    def test_rfc_inexistente_devuelve_false(self):
+        assert config_store.actualizar_nombre_si_placeholder("XXXX010101XXX", "N") is False
+
+
 # ---------------------------------------------------------------------------
 # Solicitudes
 # ---------------------------------------------------------------------------

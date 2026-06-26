@@ -93,7 +93,10 @@ export function EmpresaAddDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="fiel">
+        {/* min-w-0: el DialogContent es un grid y este Tabs es su grid item;
+            sin esto el item no encoge bajo su min-content y un nombre de archivo
+            largo en el FileField rompe el ancho del modal (el truncate no aplica). */}
+        <Tabs defaultValue="fiel" className="min-w-0">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="fiel">
               <Icon icon="ph:shield-check-light" className="size-4" /> e.firma

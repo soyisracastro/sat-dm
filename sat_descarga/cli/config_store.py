@@ -326,6 +326,32 @@ def update_empresa(rfc: str, patch: dict):
         save_empresas(data)
 
 
+def actualizar_nombre_si_placeholder(rfc: str, nuevo_nombre: str) -> bool:
+    """
+    Actualiza el nombre de la empresa SOLO si el guardado es un placeholder
+    (vacío o igual al RFC) — señal de que la extracción del nombre falló al darla
+    de alta (p. ej. cert con Ñ cuyo subject cryptography no pudo parsear). Si la
+    empresa ya tiene un nombre real, no se toca. Devuelve True si lo cambió.
+
+    Se llama al cargar la e.firma (cuando ya tenemos `fiel.legal_name`), para que
+    el nombre se corrija solo sin pedirle al usuario borrar y volver a agregar.
+    """
+    nuevo = (nuevo_nombre or "").strip()
+    if not nuevo or nuevo == rfc:
+        return False
+    with _catalogo_lock:
+        data = load_empresas()
+        emp = data["empresas"].get(rfc)
+        if emp is None:
+            return False
+        actual = (emp.get("nombre") or "").strip()
+        if actual and actual != rfc:
+            return False  # ya tiene un nombre real; no lo pisamos
+        emp["nombre"] = nuevo
+        save_empresas(data)
+        return True
+
+
 def archive_empresa(rfc: str):
     """
     Soft-delete: marca la empresa como archivada (no la borra). Si era la default,
