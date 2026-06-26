@@ -105,6 +105,16 @@ def _cargar_fiel_empresa(empresa: dict) -> bool:
         "fiel": fiel, "rfc": fiel.rfc, "cer_path": cer,
         "key_path": key, "password": pwd, "es_temp": False,
     })
+    # Si la empresa quedó con el RFC como nombre (la extracción del nombre falló
+    # al darla de alta, p. ej. cert con Ñ), recupéralo ahora que la FIEL está
+    # cargada y tenemos legal_name. Se corrige solo, sin borrar y re-agregar.
+    try:
+        nombre = fiel.legal_name
+        if nombre:
+            from ..cli import config_store
+            config_store.actualizar_nombre_si_placeholder(fiel.rfc, nombre)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("No se pudo actualizar el nombre de %s: %s", fiel.rfc, e)
     return True
 
 
