@@ -56,6 +56,34 @@ def _rfc_desde_valores(valores) -> str | None:
     return None
 
 
+# OID 2.5.4.45 (x500UniqueIdentifier), donde el SAT pone el RFC, codificado en DER.
+_OID_UNIQUE_ID_DER = bytes([0x06, 0x03, 0x55, 0x04, 0x2D])
+# Tags ASN.1 de string que puede usar el SAT para ese campo (Printable, UTF8, IA5,
+# Teletex/T61, Numeric).
+_STR_TAGS = frozenset({0x13, 0x0C, 0x16, 0x14, 0x12})
+
+
+def _valores_oid_en_der(der: bytes, oid_der: bytes) -> list[bytes]:
+    """Valores string que siguen a cada aparición de `oid_der` en el DER crudo.
+
+    Fallback tolerante para certs cuyo subject `cryptography` no puede parsear
+    (p. ej. nombres con Ñ tipados como T61String con bytes UTF-8 inválidos): el
+    parser estricto truena al leer el subject completo aunque el RFC en sí esté
+    limpio. Aquí se busca el OID directo en los bytes y se lee el TLV siguiente.
+    Solo longitud en formato corto (<128 bytes), suficiente para RFC y serial.
+    """
+    out: list[bytes] = []
+    i = der.find(oid_der)
+    while i != -1:
+        j = i + len(oid_der)
+        if j + 1 < len(der) and der[j] in _STR_TAGS:
+            length = der[j + 1]
+            if length < 0x80 and j + 2 + length <= len(der):
+                out.append(der[j + 2 : j + 2 + length])
+        i = der.find(oid_der, i + 1)
+    return out
+
+
 class FIEL:
     """Encapsula la e-firma: certificado + llave privada."""
 
@@ -80,9 +108,12 @@ class FIEL:
         data = Path(path).read_bytes()
         try:
             # Intentar DER primero (formato nativo del SAT)
-            return x509.load_der_x509_certificate(data)
+            cert = x509.load_der_x509_certificate(data)
+            self._cert_der = data
         except Exception:
-            return x509.load_pem_x509_certificate(data)
+            cert = x509.load_pem_x509_certificate(data)
+            self._cert_der = cert.public_bytes(serialization.Encoding.DER)
+        return cert
 
     def _load_private_key(self, path: str, password: str):
         data = Path(path).read_bytes()
@@ -128,18 +159,43 @@ class FIEL:
         en 2.5.4.5 serialNumber) con formato "RFC / CURP" (persona moral:
         "RFC_EMPRESA / RFC_REPRESENTANTE"). El titular es el primer token.
 
-        OJO: `cryptography` puede devolver el valor de 2.5.4.45 como `bytes`
-        (cuando el cert lo tipa como BIT STRING en vez de texto) — por eso se
-        normaliza con `_a_texto`. Como respaldo se revisa el subjectAltName, el
-        CN y el subject completo. Ver `_candidatos_rfc`.
+        Dos cuidados, ambos vistos en certs reales del SAT:
+        - `cryptography` puede devolver el valor de 2.5.4.45 como `bytes` →
+          `_a_texto` lo normaliza.
+        - cuando el nombre del titular trae Ñ/acentos, el SAT lo tipa como
+          T61String con bytes UTF-8 inválidos y el parser estricto de
+          `cryptography` truena al leer TODO el subject (aunque el RFC esté
+          limpio). En ese caso se cae al fallback `_rfc_desde_der`, que lee el
+          OID 2.5.4.45 directo del DER sin parsear el subject.
         """
-        rfc = _rfc_desde_valores(self._candidatos_rfc())
+        try:
+            rfc = _rfc_desde_valores(self._candidatos_rfc())
+            if rfc:
+                return rfc
+        except Exception:
+            # Subject ilegible por cryptography (p. ej. T61String con Ñ).
+            pass
+        rfc = self._rfc_desde_der()
         if rfc:
             return rfc
-        raise ValueError(
-            "No se pudo extraer el RFC del certificado. "
-            f"Subject: {self._cert.subject.rfc4514_string()}"
-        )
+        try:
+            detalle = f" Subject: {self._cert.subject.rfc4514_string()}"
+        except Exception:
+            detalle = ""  # subject no parseable; el mensaje base ya orienta
+        raise ValueError("No se pudo extraer el RFC del certificado." + detalle)
+
+    def _rfc_desde_der(self) -> str | None:
+        """Lee el RFC del titular del DER crudo, evitando el subject estricto.
+
+        El issuer (CA del SAT) también trae un 2.5.4.45 con su propio RFC y va
+        ANTES del subject en el DER; por eso se toma la ÚLTIMA aparición, que es
+        la del titular.
+        """
+        der = getattr(self, "_cert_der", None)
+        if der is None:
+            der = self._cert.public_bytes(serialization.Encoding.DER)
+        valores = _valores_oid_en_der(der, _OID_UNIQUE_ID_DER)
+        return _rfc_desde_valores(reversed(valores))
 
     def _candidatos_rfc(self):
         """Genera cadenas candidatas a contener el RFC, en orden de preferencia."""

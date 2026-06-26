@@ -4,7 +4,41 @@ import base64
 from datetime import datetime, timezone
 
 import pytest
-from sat_descarga.core.fiel import FIEL, _rfc_desde_valores
+from sat_descarga.core.fiel import (
+    FIEL,
+    _rfc_desde_valores,
+    _valores_oid_en_der,
+    _OID_UNIQUE_ID_DER,
+)
+
+
+def _tlv(tag: int, val: bytes) -> bytes:
+    """Codifica un TLV ASN.1 en formato corto (para construir DER de prueba)."""
+    return bytes([tag, len(val)]) + val
+
+
+class TestValoresOidEnDer:
+    """Fallback DER para certs cuyo subject cryptography no puede parsear.
+
+    Caso real: nombre del titular con Ñ tipado como T61String con bytes UTF-8 →
+    el parser estricto truena al leer el subject, aunque el RFC esté limpio.
+    """
+
+    def test_toma_el_ultimo_que_es_el_titular(self):
+        # En X.509 el issuer (CA del SAT, RFC SAT970701NN3) va antes del subject
+        # (titular). Ambos traen OID 2.5.4.45 → el titular es la última aparición.
+        oid = _OID_UNIQUE_ID_DER
+        der = (
+            b"\x30\x10" + oid + _tlv(0x13, b"SAT970701NN3")      # issuer (PrintableString)
+            + b"\x30\x11" + oid + _tlv(0x13, b"CEAT951015IW5")   # subject
+        )
+        valores = _valores_oid_en_der(der, oid)
+        assert valores == [b"SAT970701NN3", b"CEAT951015IW5"]
+        # La propiedad rfc toma reversed() → el titular gana.
+        assert _rfc_desde_valores(reversed(valores)) == "CEAT951015IW5"
+
+    def test_oid_ausente_devuelve_lista_vacia(self):
+        assert _valores_oid_en_der(b"\x30\x03\x02\x01\x00", _OID_UNIQUE_ID_DER) == []
 
 
 class TestRfcDesdeValores:
