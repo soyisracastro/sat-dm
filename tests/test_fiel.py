@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from sat_descarga.core.fiel import (
     FIEL,
+    _a_texto,
     _rfc_desde_valores,
     _valores_oid_en_der,
     _OID_UNIQUE_ID_DER,
@@ -39,6 +40,14 @@ class TestValoresOidEnDer:
 
     def test_oid_ausente_devuelve_lista_vacia(self):
         assert _valores_oid_en_der(b"\x30\x03\x02\x01\x00", _OID_UNIQUE_ID_DER) == []
+
+    def test_nombre_con_n_se_decodifica(self):
+        # El nombre con Ñ viene como T61String (tag 0x14) con el byte 0xD1; debe
+        # recuperarse decodificado, no perderse. (`_a_texto` cae a latin-1.)
+        cn_oid = bytes([0x06, 0x03, 0x55, 0x04, 0x03])
+        nombre_bytes = b"TERESA DE JESUS CEDE\xd1O ALMAZAN"
+        der = cn_oid + _tlv(0x14, nombre_bytes)  # 0x14 = T61String
+        assert _a_texto(_valores_oid_en_der(der, cn_oid)[-1]) == "TERESA DE JESUS CEDEÑO ALMAZAN"
 
 
 class TestRfcDesdeValores:

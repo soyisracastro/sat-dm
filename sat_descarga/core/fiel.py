@@ -58,6 +58,11 @@ def _rfc_desde_valores(valores) -> str | None:
 
 # OID 2.5.4.45 (x500UniqueIdentifier), donde el SAT pone el RFC, codificado en DER.
 _OID_UNIQUE_ID_DER = bytes([0x06, 0x03, 0x55, 0x04, 0x2D])
+# OID 2.5.4.3 (commonName), donde el SAT pone el nombre/razón social del titular.
+_OID_COMMON_NAME_DER = bytes([0x06, 0x03, 0x55, 0x04, 0x03])
+# OID 1.2.840.113549.1.1.1 (rsaEncryption): marca el inicio de la llave pública.
+# Acota el escaneo del subject para no leer falsos positivos en la llave/firma.
+_OID_RSA_ENCRYPTION_DER = bytes([0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01])
 # Tags ASN.1 de string que puede usar el SAT para ese campo (Printable, UTF8, IA5,
 # Teletex/T61, Numeric).
 _STR_TAGS = frozenset({0x13, 0x0C, 0x16, 0x14, 0x12})
@@ -223,6 +228,11 @@ class FIEL:
         """
         Razón social (PM) o nombre completo (PF) del titular. El SAT lo pone en
         el CN del subject del certificado. None si no se puede extraer.
+
+        Igual que el RFC: si el subject es ilegible para cryptography (nombre con
+        Ñ/acentos tipado como T61String), se cae al fallback `_nombre_desde_der`,
+        que lee el CN del DER crudo. Justo esos nombres son los que importan
+        recuperar (sin él, la empresa se quedaría con el RFC como nombre).
         """
         try:
             cn = self._cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
@@ -230,7 +240,24 @@ class FIEL:
                 return cn[0].value.strip()
         except Exception:
             pass
-        return None
+        return self._nombre_desde_der()
+
+    def _nombre_desde_der(self) -> str | None:
+        """Lee el nombre del titular (CN) del DER crudo, evitando el subject estricto.
+
+        Acota el escaneo a la parte previa a la llave pública (rsaEncryption) para
+        no confundirse con bytes de la llave/firma, y toma el ÚLTIMO commonName
+        (el issuer/CA va antes que el subject).
+        """
+        der = getattr(self, "_cert_der", None)
+        if der is None:
+            der = self._cert.public_bytes(serialization.Encoding.DER)
+        fin = der.find(_OID_RSA_ENCRYPTION_DER)
+        region = der[:fin] if fin != -1 else der
+        valores = _valores_oid_en_der(region, _OID_COMMON_NAME_DER)
+        if not valores:
+            return None
+        return _a_texto(valores[-1]) or None
 
     @property
     def not_valid_after(self) -> datetime:
