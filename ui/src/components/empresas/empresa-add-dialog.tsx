@@ -93,7 +93,10 @@ export function EmpresaAddDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="fiel">
+        {/* min-w-0: el DialogContent es un grid y este Tabs es su grid item;
+            sin esto el item no encoge bajo su min-content y un nombre de archivo
+            largo en el FileField rompe el ancho del modal (el truncate no aplica). */}
+        <Tabs defaultValue="fiel" className="min-w-0">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="fiel">
               <Icon icon="ph:shield-check-light" className="size-4" /> e.firma
@@ -257,33 +260,28 @@ function FileField({
         type="button"
         onClick={() => ref.current?.click()}
         className={cn(
-          'block w-full rounded-lg border bg-card p-1.5 pl-2 text-left transition-colors',
+          'flex w-full items-center gap-2.5 rounded-lg border bg-card p-1.5 pl-2 text-left transition-colors',
           file ? 'border-success' : 'border-input hover:border-primary',
         )}
       >
-        {/* El flex va en este span interno, no en el <button>: Chromium no deja
-            encoger los hijos cuando el contenedor flex es un <button>, así que
-            el `truncate` del nombre no aplicaba y el modal desbordaba. */}
-        <span className="flex w-full min-w-0 items-center gap-2.5">
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-semibold text-secondary-foreground">
-            <Icon icon="ph:upload-light" className="size-3.5" />
-            Seleccionar
-          </span>
-          <span
-            className={cn(
-              'min-w-0 flex-1 truncate text-xs',
-              file ? 'font-medium text-foreground' : 'text-muted-foreground',
-            )}
-          >
-            {file ? file.name : 'Ningún archivo seleccionado'}
-          </span>
-          {file && (
-            <Icon
-              icon="ph:check-circle-light"
-              className="mr-1 size-4 shrink-0 text-success"
-            />
-          )}
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1.5 text-xs font-semibold text-secondary-foreground">
+          <Icon icon="ph:upload-light" className="size-3.5" />
+          Seleccionar
         </span>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate text-xs',
+            file ? 'font-medium text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {file ? file.name : 'Ningún archivo seleccionado'}
+        </span>
+        {file && (
+          <Icon
+            icon="ph:check-circle-light"
+            className="mr-1 size-4 shrink-0 text-success"
+          />
+        )}
         <input
           ref={ref}
           type="file"
