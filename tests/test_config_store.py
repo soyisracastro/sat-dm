@@ -290,3 +290,50 @@ class TestCatalogoConcurrente:
         config_store.add_empresa_ciec("CAUI890921DAA", "Test", "ciec")
         residuos = list((tmp_path / ".sat-descarga").glob("*.tmp"))
         assert residuos == []
+
+
+# ---------------------------------------------------------------------------
+# Resiliencia a corrupción de empresas.json (TODOCONTA-DESKTOP-N / -H)
+# ---------------------------------------------------------------------------
+
+class TestCatalogoCorrupto:
+    """Tras un apagado abrupto en Windows, empresas.json quedaba lleno de NUL y
+    `load_empresas` reventaba con JSONDecodeError en CADA request (la app quedaba
+    inservible). Ahora se aísla el corrupto y el catálogo se reinicia."""
+
+    def test_empresas_lleno_de_nul_no_revienta(self, tmp_path):
+        config_store.add_empresa_ciec("CAUI890921DAA", "Test", "ciec")
+        path = tmp_path / ".sat-descarga" / "empresas.json"
+        path.write_bytes(b"\x00" * 128)  # firma exacta del crash de Windows
+
+        # No debe lanzar: reinicia el catálogo en vez de tumbar /empresas.
+        assert config_store.list_empresas() == []
+        assert config_store.load_empresas() == {"empresas": {}, "default_rfc": None}
+
+    def test_empresas_corrupto_se_aisla(self, tmp_path):
+        config_store.add_empresa_ciec("CAUI890921DAA", "Test", "ciec")
+        path = tmp_path / ".sat-descarga" / "empresas.json"
+        path.write_bytes(b"\x00" * 128)
+
+        config_store.load_empresas()
+        assert not path.exists(), "el corrupto no debe quedar en su lugar"
+        assert path.with_suffix(".json.corrupto").exists(), "debe quedar la cuarentena"
+
+    def test_cuarentena_no_pisa_previa(self, tmp_path):
+        d = tmp_path / ".sat-descarga"
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / "empresas.json"
+        path.write_bytes(b"basura no-json")
+        config_store.load_empresas()
+        path.write_bytes(b"otra basura")
+        config_store.load_empresas()
+        assert (d / "empresas.json.corrupto").exists()
+        assert (d / "empresas.json.corrupto1").exists()
+
+    def test_escritura_es_durable_y_valida(self, tmp_path):
+        """Tras un alta, empresas.json es JSON válido y legible (el fsync va
+        antes del rename, así que no hay ventana de archivo a medias)."""
+        config_store.add_empresa_ciec("CAUI890921DAA", "Test", "ciec")
+        path = tmp_path / ".sat-descarga" / "empresas.json"
+        cargado = json.loads(path.read_text(encoding="utf-8"))
+        assert "CAUI890921DAA" in cargado["empresas"]
