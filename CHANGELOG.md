@@ -6,6 +6,45 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.4.0] - 2026-06-30
+
+### Feature
+
+- **Autocorrección del nombre de la empresa al cargar la e.firma**: al dar de
+  alta o recargar una FIEL, el nombre del contribuyente se toma del certificado,
+  recuperando el CN del DER cuando el subject es ilegible. Así el catálogo deja de
+  mostrar el RFC como nombre provisional o un nombre truncado.
+
+### Bug fix
+
+- **`empresas.json` a prueba de corrupción**: tras un apagado abrupto en Windows
+  el catálogo quedaba lleno de bytes NUL (`\x00`) y reventaba **cada** llamada a
+  `/empresas` y `/empresas/fiel` con un 500 — la app quedaba inservible. La
+  escritura ahora hace `fsync` antes del rename atómico (raíz del problema) y la
+  lectura tolera corrupción: aísla el archivo dañado en `.corrupto` y reinicia el
+  catálogo en vez de tumbar cada request.
+- **Lectura del RFC y nombre desde certificados problemáticos**: se extrae el RFC
+  directo del DER cuando `cryptography` no puede parsear el subject (certs con
+  Ñ/acentos tipados como T61String) o cuando el OID viene como `bytes`; se recupera
+  el nombre (CN) del mismo DER cuando el subject es ilegible.
+- **`<Paquete/>` vacío del SAT sin tronar**: cuando el Web Service devuelve un
+  paquete vacío ya no revienta con el `TypeError` de `b64decode(None)`; ahora lanza
+  un error accionable que invita a reintentar.
+- **Estado de carga + auto-reintento al abrir los procesadores**: la pantalla de
+  procesadores muestra su estado de carga y reintenta sola en vez de quedarse en
+  blanco.
+- **Truncado del nombre de archivo en el alta por e.firma**: el `FileField` y el
+  grid item truncan correctamente los nombres largos (el truncado real era
+  `min-w-0` en el grid item, no el span interno).
+
+### Tooling
+
+- **Errores de usuario fuera de Sentry**: la contraseña de la `.key` incorrecta y
+  demás validaciones del alta por e.firma devuelven 400 sin reportarse a Sentry,
+  que estaba inundándose de eventos que no son bugs.
+
+- Bump 1.3.0 → 1.4.0 (3 archivos).
+
 ## [1.3.0] - 2026-06-24
 
 ### Feature
