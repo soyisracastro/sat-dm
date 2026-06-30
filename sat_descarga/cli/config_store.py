@@ -48,11 +48,56 @@ def get_config_dir() -> Path:
 
 
 def _write_json_atomico(path: Path, data: dict):
-    """Escritura atómica: a `.tmp` y luego `os.replace` (rename atómico en POSIX),
-    así un lector concurrente nunca ve un archivo a medias."""
+    """Escritura atómica y DURABLE: a `.tmp`, se fuerza el flush a disco con
+    `fsync` y luego `os.replace` (rename atómico en POSIX y NTFS), así un lector
+    concurrente nunca ve un archivo a medias.
+
+    El `fsync` no es opcional: sin él, en Windows un apagado abrupto persiste la
+    metadata del rename pero deja los datos del archivo todavía en caché del SO,
+    y al reiniciar queda un archivo del tamaño correcto pero LLENO DE CEROS
+    (`\\x00…`). Eso es justo lo que tumbaba cada GET /empresas con un
+    JSONDecodeError. Con el fsync los bytes ya están en disco antes del rename."""
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    payload = json.dumps(data, indent=2, ensure_ascii=False)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(payload)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+def _cuarentena(path: Path) -> None:
+    """Aísla un archivo JSON corrupto (renombrándolo a `.corrupto`) para forense,
+    sin pisar una cuarentena previa. Best-effort: si no se puede mover, solo loguea."""
+    try:
+        destino = path.with_suffix(path.suffix + ".corrupto")
+        n = 1
+        while destino.exists():
+            destino = path.with_suffix(path.suffix + f".corrupto{n}")
+            n += 1
+        os.replace(path, destino)
+        logger.error(
+            "[config_store] %s estaba corrupto; aislado en %s", path.name, destino.name,
+        )
+    except OSError:
+        logger.error(
+            "[config_store] %s corrupto e inamovible", path.name, exc_info=True,
+        )
+
+
+def _load_json_resiliente(path: Path, fallback):
+    """Lee JSON tolerando corrupción. Si el archivo no existe o no se puede
+    parsear (p. ej. quedó lleno de NUL tras un apagado abrupto en Windows),
+    aísla el archivo dañado y devuelve `fallback()` en vez de tumbar cada request
+    con un 500. `fallback` es un callable que produce el valor por defecto fresco."""
+    if not path.exists():
+        return fallback()
+    try:
+        raw = path.read_text(encoding="utf-8")
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        _cuarentena(path)
+        return fallback()
 
 
 # ---------------------------------------------------------------------------
@@ -65,10 +110,14 @@ def _empresas_path() -> Path:
 
 def load_empresas() -> dict:
     with _catalogo_lock:
-        path = _empresas_path()
-        if not path.exists():
-            return {"empresas": {}, "default_rfc": None}
-        return json.loads(path.read_text())
+        # Tolerante a corrupción: si empresas.json quedó ilegible (típico tras un
+        # apagado abrupto en Windows → archivo lleno de NUL), se aísla y se
+        # reinicia el catálogo en vez de reventar /empresas y /empresas/fiel en
+        # cada llamada. El archivo corrupto ya no tiene datos recuperables; con
+        # el fsync de _write_json_atomico esto deja de pasar hacia adelante.
+        return _load_json_resiliente(
+            _empresas_path(), lambda: {"empresas": {}, "default_rfc": None},
+        )
 
 
 def save_empresas(data: dict):
@@ -615,7 +664,7 @@ def registrar_descarga(
         "estado": estado,
     }
     with _catalogo_lock:
-        data = json.loads(path.read_text()) if path.exists() else {"descargas": []}
+        data = _load_json_resiliente(path, lambda: {"descargas": []})
         data["descargas"].append(registro)
         _write_json_atomico(path, data)
     return registro
@@ -624,9 +673,7 @@ def registrar_descarga(
 def list_descargas(rfc: str) -> list[dict]:
     """Descargas de una empresa, más recientes primero."""
     path = _historial_path(rfc)
-    if not path.exists():
-        return []
-    data = json.loads(path.read_text())
+    data = _load_json_resiliente(path, lambda: {"descargas": []})
     return list(reversed(data.get("descargas", [])))
 
 
@@ -655,10 +702,7 @@ def _settings_path() -> Path:
 
 
 def _load_settings() -> dict:
-    path = _settings_path()
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text())
+    return _load_json_resiliente(_settings_path(), dict)
 
 
 def _save_settings(data: dict):

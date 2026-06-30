@@ -86,10 +86,16 @@ async def empresas_add_fiel(
             nombre, cer_tmp.name, key_tmp.name, password, rfc_esperado=rfc_esperado,
         )
         return {"ok": True, "rfc": rfc}
+    except ValueError as e:
+        # Error de VALIDACIÓN / usuario: contraseña de la .key incorrecta, RFC del
+        # cert que no coincide, par cert↔llave inválido, etc. (config_store/FIEL
+        # solo lanzan ValueError en estos casos). NO es un bug: es 400 esperado y
+        # NO debe reportarse a Sentry (estaba inundándolo con la contraseña mal).
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # Se degrada a 400 para el usuario, pero es un fallo operativo (p. ej. el
-        # WinError 5 de permisos): repórtalo a Sentry, que si no la integración de
-        # FastAPI no lo ve (solo captura excepciones no atrapadas).
+        # Fallo OPERATIVO inesperado (p. ej. el WinError 5 de permisos): sí
+        # repórtalo a Sentry, que si no la integración de FastAPI no lo ve (solo
+        # captura excepciones no atrapadas).
         from ...core.telemetria import capturar_excepcion
 
         capturar_excepcion(e)
