@@ -82,11 +82,11 @@ win:
   # especificamos el nombre del archivo.
   icon: icon.ico
   # Nombre que aparece en la pestaña "Publisher" del .exe y SmartScreen.
-  # ⚠️ Al recibir el certificado IV: cambiar este valor al CN EXACTO del cert
-  # (con IV es el nombre de la persona, p. ej. "Israel Castro", NO "TodoConta")
-  # — electron-updater valida la firma de cada update contra este nombre; si
-  # no coincide, el auto-update rechaza el instalador firmado.
-  publisherName: TodoConta
+  # = CN EXACTO del certificado IV de SSL.com (persona física; emitido 2026-06-30).
+  # electron-updater valida la firma de cada update contra este nombre; si no
+  # coincide, el auto-update rechaza el instalador firmado. NO cambiar sin
+  # reemitir el certificado (rompería la cadena de auto-update).
+  publisherName: Israel Castro Urieta
   # ---------------------------------------------------------------------
   # Firma de código — SSL.com eSigner (IV Code Signing; decisión 2026-06-11,
   # ver docs/firma-codigo.md). El hook firma cada binario (TodoConta.exe,
@@ -101,13 +101,14 @@ win:
     # por archivo y cada firma consume cuota de eSigner (Tier 1 = 240/año).
     signingHashAlgorithms: ['sha256']
     sign: ./scripts/esigner-sign.js
-
-# Cuando la firma esté activa: el build de release DEBE fallar si no puede
-# firmar (evita publicar un instalador sin firma por un secret mal puesto).
-# NO activarlo aún: el hook se salta sin credenciales (dev/QA local) y con
-# esto prendido esos builds fallarían. La protección equivalente en CI la da
-# el step "Verificar firmas" de release.yml cuando los secrets existen.
-# forceCodeSigning: true
+  # Con la firma ACTIVA (cert IV emitido 2026-06-30 + los 4 secrets ES_* en CI),
+  # el release de Windows DEBE fallar si algún binario no se puede firmar — evita
+  # volver a publicar un instalador sin firma en silencio (eso rompió el
+  # auto-update en v1.2.1). Scoped a `win:` a propósito: NO toca el DMG de macOS,
+  # que hoy sale sin firmar para QA mientras no estén los secrets de Apple. Ojo:
+  # un build local de Windows SIN los ES_* ahora fallará aquí — para un paquete
+  # firmado local, exporta ES_*/CODE_SIGN_TOOL_PATH; para QA sin firma usa `pnpm dev`.
+  forceCodeSigning: true
 
 nsis:
   # Wizard tradicional (Siguiente → Siguiente → Instalar), NO oneClick.
