@@ -177,6 +177,14 @@ class SignupRequest(BaseModel):
     nombre: str = ""
 
 
+class OauthStartRequest(BaseModel):
+    provider: str = "google"
+
+
+class OauthCallbackRequest(BaseModel):
+    code: str
+
+
 @router.post("/auth/init")
 def auth_init():
     """
@@ -307,6 +315,62 @@ def auth_signup(req: SignupRequest):
     if session is not None:
         return {**_guardar_sesion(session), "requiere_confirmacion": False}
     return {"ok": True, "requiere_confirmacion": True}
+
+
+# --- OAuth (Google) con PKCE, vía deep link `todoconta://auth-callback` ------
+#
+# El agente es el broker: /start arma la URL de /authorize (el renderer la abre
+# en el navegador del SO) y guarda el code_verifier; cuando Supabase regresa el
+# `auth_code` por el deep link, /callback lo canjea por la sesión. El desktop es
+# mono-usuario con un solo login a la vez, así que el verifier en vuelo cabe en
+# una variable de módulo (no persistente: si el agente reinicia a media
+# autenticación, el usuario reintenta).
+
+_OAUTH_REDIRECT = "todoconta://auth-callback"
+_pkce_verifier = None
+
+
+@router.post("/auth/oauth/start")
+def auth_oauth_start(req: OauthStartRequest):
+    """
+    Inicia el OAuth con Google (PKCE). Devuelve la URL de `/authorize` que el
+    renderer abre en el navegador del SO y guarda el code_verifier hasta el
+    callback.
+    """
+    global _pkce_verifier
+    from .. import supabase_auth as sa
+
+    try:
+        url, verifier = sa.oauth_authorize_url(_OAUTH_REDIRECT, provider=req.provider)
+    except sa.SupabaseAuthError as e:
+        raise _http_de_auth_error(e)
+    _pkce_verifier = verifier
+    return {"url": url}
+
+
+@router.post("/auth/oauth/callback")
+def auth_oauth_callback(req: OauthCallbackRequest):
+    """
+    Canjea el `auth_code` del deep link por la sesión y la guarda en el keyring.
+    Una cuenta @gmail existente (creada por OTP) se vincula automáticamente al
+    mismo usuario en Supabase (mismo email verificado) — sin lógica aquí.
+    """
+    global _pkce_verifier
+    from .. import supabase_auth as sa
+
+    verifier = _pkce_verifier
+    if not verifier:
+        raise HTTPException(
+            status_code=400,
+            detail="El acceso con Google expiró. Vuelve a intentarlo.",
+        )
+    try:
+        session = sa.oauth_exchange(req.code.strip(), verifier)
+    except sa.SupabaseAuthError as e:
+        raise _http_de_auth_error(e)
+    finally:
+        _pkce_verifier = None
+    return _guardar_sesion(session)
 
 
 @router.get("/auth/license")
