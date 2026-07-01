@@ -23,9 +23,13 @@ templates de email de Supabase (Magic Link y Confirm signup) deben incluir
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import os
+import secrets
 from typing import Optional
+from urllib.parse import urlencode
 
 import requests
 
@@ -78,6 +82,12 @@ _MENSAJES = {
     ),
     "refresh_token_not_found": "La sesión expiró. Vuelve a iniciar sesión.",
     "signup_disabled": "El registro está deshabilitado por el momento.",
+    # Flujo OAuth (Google) con PKCE: el code/verifier no cuadran o el flow expiró.
+    "bad_code_verifier": "No pudimos completar el acceso con Google. Intenta de nuevo.",
+    "bad_oauth_state": "No pudimos completar el acceso con Google. Intenta de nuevo.",
+    "flow_state_not_found": "El acceso con Google expiró. Vuelve a intentarlo.",
+    "flow_state_expired": "El acceso con Google expiró. Vuelve a intentarlo.",
+    "provider_disabled": "El acceso con Google no está disponible por el momento.",
 }
 
 
@@ -193,5 +203,64 @@ def refresh(refresh_token: str) -> Session:
     data = _post(
         "/token", {"refresh_token": refresh_token},
         params={"grant_type": "refresh_token"},
+    )
+    return _session_de_payload(data)
+
+
+# ---------------------------------------------------------------------------
+# OAuth (Google) con PKCE — flujo del desktop vía deep link `todoconta://`
+# ---------------------------------------------------------------------------
+#
+# El agente es el broker: genera el par verifier/challenge, abre `/authorize`
+# en el navegador del SO y, cuando Supabase regresa el `auth_code` por el deep
+# link, lo canjea por la sesión (POST /token?grant_type=pkce). El token nunca
+# toca el renderer; se guarda en el keyring igual que el flujo OTP. La
+# vinculación de una cuenta @gmail existente (creada por OTP) la hace Supabase
+# automáticamente por mismo email verificado — aquí no hay lógica de linking.
+
+_PROVIDERS_PERMITIDOS = {"google"}
+
+
+def _code_verifier() -> str:
+    """Genera un code_verifier PKCE (base64url sin padding, ~43 chars)."""
+    return base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode("ascii")
+
+
+def _code_challenge(verifier: str) -> str:
+    """Deriva el code_challenge S256 del verifier (base64url sin padding)."""
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def oauth_authorize_url(redirect_to: str, provider: str = "google") -> tuple[str, str]:
+    """
+    Arma la URL de `/authorize` para iniciar el OAuth con PKCE y devuelve
+    `(url, code_verifier)`. El verifier debe guardarse hasta el callback para
+    canjear el `auth_code`. Levanta SupabaseAuthError si el provider no está
+    soportado.
+    """
+    if provider not in _PROVIDERS_PERMITIDOS:
+        raise SupabaseAuthError(
+            "El acceso con Google no está disponible por el momento.",
+            status=400,
+            error_code="provider_disabled",
+        )
+    verifier = _code_verifier()
+    params = {
+        "provider": provider,
+        "redirect_to": redirect_to,
+        "code_challenge": _code_challenge(verifier),
+        "code_challenge_method": "s256",
+    }
+    url = f"{SUPABASE_URL}/auth/v1/authorize?{urlencode(params)}"
+    return url, verifier
+
+
+def oauth_exchange(auth_code: str, code_verifier: str) -> Session:
+    """Canjea el `auth_code` del deep link por una sesión (PKCE)."""
+    data = _post(
+        "/token",
+        {"auth_code": auth_code, "code_verifier": code_verifier},
+        params={"grant_type": "pkce"},
     )
     return _session_de_payload(data)

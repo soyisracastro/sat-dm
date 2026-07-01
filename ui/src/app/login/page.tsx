@@ -44,6 +44,26 @@ function mensajeAuth(e: unknown): string {
   return mensajeDeError(e);
 }
 
+/** Payload del deep link `todoconta://<action>?code=…` que reenvía el preload. */
+interface ProtocolPayload {
+  action?: string;
+  code?: string | null;
+  error?: string | null;
+}
+
+/** Bridge de Electron (preload). En navegador todo es undefined. */
+interface DesktopBridge {
+  satAgent?: { isDesktop?: boolean };
+  satDesktop?: {
+    onProtocolActivated?: (cb: (p: ProtocolPayload) => void) => () => void;
+  };
+}
+
+function desktopBridge(): DesktopBridge {
+  if (typeof window === 'undefined') return {};
+  return window as unknown as DesktopBridge;
+}
+
 export default function LoginPage() {
   const { apiClient } = useServer();
   const { refresh } = useAuth();
@@ -65,6 +85,12 @@ export default function LoginPage() {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // OAuth Google (solo desktop): el flujo va por el navegador del SO y vuelve
+  // por el deep link `todoconta://auth-callback`. `googleEsperando` cubre el
+  // hueco entre abrir el navegador y recibir el code.
+  const [esDesktop, setEsDesktop] = useState(false);
+  const [googleEsperando, setGoogleEsperando] = useState(false);
 
   const esLogin = vista === 'login';
   const esPwd = metodo === 'password';
@@ -91,6 +117,56 @@ export default function LoginPage() {
     }, 900);
     return () => clearTimeout(t);
   }, [paso, refresh]);
+
+  // Canjea el auth_code de Google por la sesión (la guarda el agente) y entra.
+  const manejarCodigoGoogle = useCallback(
+    async (code: string) => {
+      setError(null);
+      setGoogleEsperando(true);
+      try {
+        await apiClient.authOauthCallback(code);
+        setGoogleEsperando(false);
+        setPaso('done');
+      } catch (err) {
+        setGoogleEsperando(false);
+        setError(mensajeAuth(err));
+      }
+    },
+    [apiClient],
+  );
+
+  // Detecta desktop y se suscribe al deep link de Google. Ramifica por
+  // `action` para no tocar el device-code legado (`activated`).
+  useEffect(() => {
+    const b = desktopBridge();
+    setEsDesktop(!!b.satAgent?.isDesktop);
+    const suscribir = b.satDesktop?.onProtocolActivated;
+    if (!suscribir) return;
+    return suscribir((p) => {
+      if (p?.action !== 'auth-callback') return;
+      if (p.code) {
+        void manejarCodigoGoogle(p.code);
+      } else {
+        // El usuario canceló o Google devolvió error.
+        setGoogleEsperando(false);
+        setError('No se pudo continuar con Google. Intenta de nuevo.');
+      }
+    });
+  }, [manejarCodigoGoogle]);
+
+  // Arranca el OAuth: pide la URL al agente y la abre en el navegador del SO
+  // (window.open pasa por setWindowOpenHandler → shell.openExternal).
+  const iniciarGoogle = useCallback(async () => {
+    setError(null);
+    setGoogleEsperando(true);
+    try {
+      const { url } = await apiClient.authOauthStart('google');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setGoogleEsperando(false);
+      setError(mensajeAuth(err));
+    }
+  }, [apiClient]);
 
   const submit = useCallback(
     async (e: FormEvent) => {
@@ -273,19 +349,56 @@ export default function LoginPage() {
 
             <Divider>{esLogin ? 'o continúa con' : 'o regístrate con'}</Divider>
 
-            {/* OAuth Google: visible pero deshabilitado — la vinculación real
-                se implementa después. El span wrapper lleva el title porque
-                un botón disabled no siempre dispara el tooltip nativo. */}
-            <span title="Próximamente" className="block">
-              <button
-                type="button"
-                disabled
-                className="flex h-11.5 w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-lg border border-input bg-card text-[15px] font-semibold text-foreground opacity-50 dark:bg-secondary"
-              >
-                <GoogleG />
-                Google
-              </button>
-            </span>
+            {/* OAuth Google. En desktop el flujo va por el navegador del SO y
+                vuelve por el deep link `todoconta://auth-callback`; en
+                navegador (sin Electron) no aplica el deep link → queda
+                "Próximamente". Una cuenta @gmail creada por OTP se vincula sola
+                en Supabase (mismo email verificado). */}
+            {esDesktop ? (
+              <>
+                <button
+                  type="button"
+                  onClick={iniciarGoogle}
+                  disabled={googleEsperando}
+                  className="flex h-11.5 w-full items-center justify-center gap-2.5 rounded-lg border border-input bg-card text-[15px] font-semibold text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60 dark:bg-secondary dark:hover:bg-secondary/80"
+                >
+                  {googleEsperando ? (
+                    <>
+                      <Icon icon="ph:circle-notch-light" className="size-4.5 animate-spin" />
+                      Conectando con Google…
+                    </>
+                  ) : (
+                    <>
+                      <GoogleG />
+                      Google
+                    </>
+                  )}
+                </button>
+                {googleEsperando && (
+                  <p className="mt-2 text-center text-[13px] text-muted-foreground">
+                    Continúa en la ventana de tu navegador.{' '}
+                    <button
+                      type="button"
+                      className="font-medium text-primary hover:underline"
+                      onClick={() => setGoogleEsperando(false)}
+                    >
+                      Cancelar
+                    </button>
+                  </p>
+                )}
+              </>
+            ) : (
+              <span title="Próximamente" className="block">
+                <button
+                  type="button"
+                  disabled
+                  className="flex h-11.5 w-full cursor-not-allowed items-center justify-center gap-2.5 rounded-lg border border-input bg-card text-[15px] font-semibold text-foreground opacity-50 dark:bg-secondary"
+                >
+                  <GoogleG />
+                  Google
+                </button>
+              </span>
+            )}
 
             <div className="mt-7 text-center">
               <p className="text-sm text-muted-foreground">

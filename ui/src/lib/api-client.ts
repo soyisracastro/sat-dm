@@ -886,6 +886,20 @@ export class SatApiClient {
     return this.post<AuthSessionResponse>('/auth/signup', { email, password, nombre });
   }
 
+  /**
+   * Inicia el OAuth con Google (PKCE). Devuelve la URL de Supabase que el
+   * renderer abre en el navegador del SO; al volver, Supabase entrega el
+   * `auth_code` por el deep link `todoconta://auth-callback`.
+   */
+  async authOauthStart(provider: 'google' = 'google'): Promise<{ url: string }> {
+    return this.post<{ url: string }>('/auth/oauth/start', { provider });
+  }
+
+  /** Canjea el auth_code del deep link por la sesión (la guarda en el agente). */
+  async authOauthCallback(code: string): Promise<AuthSessionResponse> {
+    return this.post<AuthSessionResponse>('/auth/oauth/callback', { code });
+  }
+
   /** Estado de licencia del usuario actual (cached 24h). */
   async authLicense(refresh = false): Promise<LicenseStatus> {
     const qs = refresh ? '?refresh=true' : '';

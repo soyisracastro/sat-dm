@@ -189,18 +189,28 @@ if (!gotInstanceLock) {
 // exista. Se enviará al renderer cuando esté lista.
 let pendingProtocolUrl = null;
 
-/** Extrae el device_code de una URL `todoconta://activated?code=XXX`. */
+/**
+ * Extrae el code de una URL `todoconta://<action>?code=XXX`.
+ *   - `activated`     → device-code flow legado.
+ *   - `auth-callback` → OAuth con Google (PKCE): el `code` es el auth_code que
+ *     el agente canjea por la sesión. Si el usuario cancela, Supabase regresa
+ *     `?error=...` en vez de `code`.
+ */
 function parseProtocolUrl(url) {
   if (!url || typeof url !== 'string') return null;
   if (!url.startsWith('todoconta://')) return null;
   try {
     const u = new URL(url);
-    const action = u.host || u.pathname.replace(/^\/+/, '');  // "activated"
+    const action = u.host || u.pathname.replace(/^\/+/, '');  // "activated" | "auth-callback"
     const code = u.searchParams.get('code');
-    // Defensa en profundidad: el code del device-flow es corto y alfanumérico;
-    // nada con otra pinta cruza al renderer.
+    // Defensa en profundidad: el code (device-flow o auth_code PKCE) es corto y
+    // url-safe; nada con otra pinta cruza al renderer.
     if (code && !/^[A-Za-z0-9_-]{1,256}$/.test(code)) return null;
-    return { action, code };
+    // OAuth fallido (p. ej. el usuario canceló en Google): solo dejamos pasar
+    // un código de error corto y conocido, no el texto crudo de Supabase.
+    let error = u.searchParams.get('error');
+    if (error && !/^[A-Za-z0-9_-]{1,64}$/.test(error)) error = 'oauth_error';
+    return { action, code, error: error || null };
   } catch {
     return null;
   }
