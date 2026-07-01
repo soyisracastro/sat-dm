@@ -6,6 +6,29 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.5.0] - 2026-07-01
+
+### Feature
+
+- **Inicio de sesión con Google (OAuth PKCE) en el desktop**: la pantalla de
+  acceso ahora ofrece "Continuar con Google" además del correo. El flujo corre por
+  un broker PKCE en el agente local y regresa a la app por el deep link
+  `todoconta://auth-callback`; si ya existe una cuenta con ese correo, se vincula
+  con la identidad de Google en vez de duplicarla.
+
+### Tooling
+
+- **Firma de código activada en Windows (SSL.com eSigner)**: el instalador NSIS,
+  `TodoConta.exe` y el agente `sat-agent.exe` ahora se firman con el certificado
+  IV de SSL.com. Elimina el aviso de "editor desconocido" de SmartScreen y reduce
+  el escaneo en frío de Windows Defender (que congelaba el arranque y la primera
+  navegación ~1-2 min). `publisherName` quedó fijado al CN del certificado y
+  `forceCodeSigning` evita volver a publicar un instalador sin firma en silencio;
+  esto además repara la cadena de auto-update de `electron-updater`, que valida
+  cada actualización contra la firma del publisher.
+
+- Bump 1.4.0 → 1.5.0 (3 archivos).
+
 ## [1.4.0] - 2026-06-30
 
 ### Feature
