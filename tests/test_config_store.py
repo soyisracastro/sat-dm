@@ -337,3 +337,133 @@ class TestCatalogoCorrupto:
         path = tmp_path / ".sat-descarga" / "empresas.json"
         cargado = json.loads(path.read_text(encoding="utf-8"))
         assert "CAUI890921DAA" in cargado["empresas"]
+
+
+# ---------------------------------------------------------------------------
+# Encoding legacy (TODOCONTA-DESKTOP-V)
+# ---------------------------------------------------------------------------
+
+NOMBRE_ACENTOS = "CONSTRUCCIÓN Y DISEÑO SA DE CV"
+
+
+class TestEncodingLegacy:
+    """Hasta v1.3.0, en Windows los JSON se escribían con `write_text()` sin
+    `encoding=` → code page ANSI (cp1252). Un nombre con acentos NO es UTF-8
+    válido, y v1.4.0/v1.5.0 lo trataba como corrupción: cuarentena + catálogo
+    vacío (el usuario "perdía" sus empresas al actualizar). Ahora se rescata
+    con el encoding correcto y se migra a UTF-8."""
+
+    def _catalogo_legacy(self) -> dict:
+        return {
+            "empresas": {
+                "CAUI890921DAA": {"nombre": NOMBRE_ACENTOS, "metodos": ["fiel"]},
+            },
+            "default_rfc": "CAUI890921DAA",
+        }
+
+    def _escribir_cp1252(self, path, data):
+        payload = json.dumps(data, indent=2, ensure_ascii=False)
+        path.write_bytes(payload.encode("cp1252"))
+
+    def test_catalogo_cp1252_se_rescata_y_migra(self, tmp_path):
+        d = tmp_path / ".sat-descarga"
+        d.mkdir(parents=True, exist_ok=True)
+        self._escribir_cp1252(d / "empresas.json", self._catalogo_legacy())
+
+        cargado = config_store.load_empresas()
+        assert cargado["empresas"]["CAUI890921DAA"]["nombre"] == NOMBRE_ACENTOS
+        # No hubo cuarentena y el archivo quedó migrado a UTF-8 en disco.
+        assert not (d / "empresas.json.corrupto").exists()
+        en_disco = json.loads((d / "empresas.json").read_text(encoding="utf-8"))
+        assert en_disco["empresas"]["CAUI890921DAA"]["nombre"] == NOMBRE_ACENTOS
+
+    def test_rescate_de_cuarentena_previa(self, tmp_path):
+        """v1.4.0/v1.5.0 ya puso el catálogo en cuarentena: al cargar sin
+        empresas.json, se restaura desde el .corrupto y este se archiva."""
+        d = tmp_path / ".sat-descarga"
+        d.mkdir(parents=True, exist_ok=True)
+        self._escribir_cp1252(d / "empresas.json.corrupto", self._catalogo_legacy())
+
+        cargado = config_store.load_empresas()
+        assert cargado["empresas"]["CAUI890921DAA"]["nombre"] == NOMBRE_ACENTOS
+        assert (d / "empresas.json").exists(), "el catálogo restaurado debe persistirse"
+        assert (d / "empresas.json.corrupto.rescatado").exists()
+        assert not (d / "empresas.json.corrupto").exists()
+
+    def test_rescate_no_pisa_catalogo_existente(self, tmp_path):
+        """Si el usuario ya re-registró empresas tras la cuarentena (hay un
+        empresas.json vigente), el .corrupto viejo NO debe pisarlo."""
+        d = tmp_path / ".sat-descarga"
+        d.mkdir(parents=True, exist_ok=True)
+        self._escribir_cp1252(d / "empresas.json.corrupto", self._catalogo_legacy())
+        (d / "empresas.json").write_text(json.dumps({
+            "empresas": {"XAXX010101000": {"nombre": "Re-registrada", "metodos": ["ciec"]}},
+            "default_rfc": "XAXX010101000",
+        }), encoding="utf-8")
+
+        cargado = config_store.load_empresas()
+        assert list(cargado["empresas"]) == ["XAXX010101000"]
+        assert (d / "empresas.json.corrupto").exists(), "la cuarentena queda para forense"
+
+    def test_rescate_aplica_antes_del_primer_alta(self, tmp_path):
+        """Si el rescate sigue pendiente cuando el usuario da de alta una
+        empresa, primero se restaura el catálogo y el alta se agrega encima
+        (recupera todo + lo nuevo)."""
+        d = tmp_path / ".sat-descarga"
+        d.mkdir(parents=True, exist_ok=True)
+        self._escribir_cp1252(d / "empresas.json.corrupto", self._catalogo_legacy())
+        config_store.add_empresa_ciec("XAXX010101000", "Nueva", "ciec")
+
+        cargado = config_store.load_empresas()
+        assert set(cargado["empresas"]) == {"CAUI890921DAA", "XAXX010101000"}
+
+    def test_cuarentena_nul_no_es_rescatable(self, tmp_path):
+        """La corrupción real (NUL tras apagado abrupto) sigue en cuarentena y
+        no dispara falsos rescates."""
+        d = tmp_path / ".sat-descarga"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "empresas.json").write_bytes(b"\x00" * 128)
+
+        assert config_store.load_empresas() == {"empresas": {}, "default_rfc": None}
+        assert (d / "empresas.json.corrupto").exists()
+        # Segunda carga: no hay empresas.json, el .corrupto NUL no parsea → vacío.
+        assert config_store.load_empresas() == {"empresas": {}, "default_rfc": None}
+
+    def test_solicitudes_cp1252_se_migran(self, tmp_path):
+        d = tmp_path / ".sat-descarga" / "solicitudes"
+        d.mkdir(parents=True, exist_ok=True)
+        data = {"solicitudes": [{
+            "id_solicitud": "abc-123", "fecha_inicio": "2026-01-01",
+            "fecha_fin": "2026-01-31", "tipo": "emitidos", "estado": "terminada",
+            "mensaje": "Petición atendida con éxito",
+        }]}
+        payload = json.dumps(data, indent=2, ensure_ascii=False)
+        (d / "CAUI890921DAA.json").write_bytes(payload.encode("cp1252"))
+
+        sols = config_store.list_solicitudes("CAUI890921DAA")
+        assert sols[0]["mensaje"] == "Petición atendida con éxito"
+        en_disco = json.loads((d / "CAUI890921DAA.json").read_text(encoding="utf-8"))
+        assert en_disco["solicitudes"][0]["mensaje"] == "Petición atendida con éxito"
+
+    def test_settings_cp1252_se_rescatan(self, tmp_path):
+        d = tmp_path / ".sat-descarga"
+        d.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps({"descargas_dir": "C:\\Users\\José\\Documents\\TodoConta"},
+                             ensure_ascii=False)
+        (d / "settings.json").write_bytes(payload.encode("cp1252"))
+
+        assert config_store.get_descargas_dir() == "C:\\Users\\José\\Documents\\TodoConta"
+        assert not (d / "settings.json.corrupto").exists()
+
+    def test_historial_cp1252_se_rescata(self, tmp_path):
+        d = tmp_path / ".sat-descarga" / "historial"
+        d.mkdir(parents=True, exist_ok=True)
+        data = {"descargas": [{"timestamp": "2026-06-01T10:00:00", "canal": "ciec",
+                               "tipo": "cfdi", "descripcion": "Recibidos de MUÑOZ"}]}
+        payload = json.dumps(data, indent=2, ensure_ascii=False)
+        (d / "CAUI890921DAA.json").write_bytes(payload.encode("cp1252"))
+
+        descargas = config_store.list_descargas("CAUI890921DAA")
+        assert descargas[0]["descripcion"] == "Recibidos de MUÑOZ"
+        todas = config_store.list_todas_descargas()
+        assert todas[0]["descripcion"] == "Recibidos de MUÑOZ"

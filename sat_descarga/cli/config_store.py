@@ -9,6 +9,7 @@ Este módulo NO tiene I/O de terminal; es reutilizable por CLI y GUI.
 """
 
 import json
+import locale
 import logging
 import os
 import shutil
@@ -85,19 +86,71 @@ def _cuarentena(path: Path) -> None:
         )
 
 
+def _decodificaciones_legacy() -> list[str]:
+    """Encodings con los que pudo haberse escrito un JSON de versiones viejas,
+    en orden de preferencia. Hasta v1.3.0 la escritura era `write_text()` SIN
+    `encoding=`: en Windows eso usa el code page ANSI del sistema (cp1252 en
+    español), así que un nombre con acentos/Ñ quedó en disco como bytes que NO
+    son UTF-8 válido — el archivo está intacto, solo hay que leerlo con el
+    encoding correcto. `latin-1` va al final como red de seguridad (decodifica
+    cualquier byte; si el contenido no es JSON, el parseo lo rechaza igual)."""
+    orden = ["utf-8", locale.getpreferredencoding(False), "cp1252", "latin-1"]
+    vistos: set[str] = set()
+    unicos = []
+    for enc in orden:
+        clave = (enc or "").lower()
+        if clave and clave not in vistos:
+            vistos.add(clave)
+            unicos.append(enc)
+    return unicos
+
+
+def _parsear_json_multi_encoding(raw: bytes):
+    """Intenta parsear `raw` como JSON probando los encodings legacy en orden.
+    Devuelve `(data, encoding_usado)`, o `(None, None)` si ningún encoding
+    produce JSON parseable (corrupción real, p. ej. archivo lleno de NUL)."""
+    for enc in _decodificaciones_legacy():
+        try:
+            return json.loads(raw.decode(enc)), enc
+        except (UnicodeDecodeError, json.JSONDecodeError, LookupError):
+            continue
+    return None, None
+
+
 def _load_json_resiliente(path: Path, fallback):
-    """Lee JSON tolerando corrupción. Si el archivo no existe o no se puede
-    parsear (p. ej. quedó lleno de NUL tras un apagado abrupto en Windows),
-    aísla el archivo dañado y devuelve `fallback()` en vez de tumbar cada request
-    con un 500. `fallback` es un callable que produce el valor por defecto fresco."""
+    """Lee JSON tolerando encodings legacy y corrupción real.
+
+    Los archivos escritos por ≤v1.3.0 en Windows quedaron en el encoding ANSI
+    (cp1252): con acentos en el contenido NO son UTF-8 válido pero están
+    intactos — se rescatan probando los encodings legacy y se migran a UTF-8 en
+    disco (v1.4.0/v1.5.0 los trataba como corruptos y reseteaba el catálogo:
+    TODOCONTA-DESKTOP-V). Solo si ningún encoding produce JSON parseable
+    (p. ej. lleno de NUL tras un apagado abrupto) se aísla el archivo dañado y
+    se devuelve `fallback()` en vez de tumbar cada request con un 500."""
     if not path.exists():
         return fallback()
     try:
-        raw = path.read_text(encoding="utf-8")
-        return json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        raw = path.read_bytes()
+    except OSError:
         _cuarentena(path)
         return fallback()
+    data, usado = _parsear_json_multi_encoding(raw)
+    if usado is None:
+        _cuarentena(path)
+        return fallback()
+    if usado.lower() not in ("utf-8", "utf8"):
+        # Migración one-shot: reescribir en UTF-8 para que la próxima lectura
+        # sea directa. warning (no error) para no generar eventos en Sentry.
+        logger.warning(
+            "[config_store] %s estaba en %s; migrado a UTF-8", path.name, usado,
+        )
+        try:
+            _write_json_atomico(path, data)
+        except OSError:
+            logger.warning(
+                "[config_store] no se pudo migrar %s a UTF-8", path.name, exc_info=True,
+            )
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -108,15 +161,62 @@ def _empresas_path() -> Path:
     return get_config_dir() / "empresas.json"
 
 
+def _rescatar_cuarentena_empresas() -> Optional[dict]:
+    """Recupera un catálogo que v1.4.0/v1.5.0 puso en cuarentena por error.
+
+    Esas versiones leían empresas.json con UTF-8 estricto y trataban un archivo
+    en encoding ANSI (escrito por ≤v1.3.0 en Windows) como corrupción: lo
+    renombraban a `.corrupto` y arrancaban con el catálogo vacío. Si hoy NO hay
+    empresas.json pero sí una cuarentena parseable, se restaura (migrada a
+    UTF-8) y la cuarentena se archiva como `.rescatado` para no reintentar.
+    Devuelve el catálogo restaurado o None si no había nada rescatable."""
+    candidatos = sorted(
+        get_config_dir().glob("empresas.json.corrupto*"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for cand in candidatos:
+        if cand.name.endswith(".rescatado"):
+            continue
+        try:
+            data, usado = _parsear_json_multi_encoding(cand.read_bytes())
+        except OSError:
+            continue
+        if not isinstance(data, dict) or "empresas" not in data:
+            continue
+        _write_json_atomico(_empresas_path(), data)
+        try:
+            cand.rename(cand.with_name(cand.name + ".rescatado"))
+        except OSError:
+            logger.warning(
+                "[config_store] no se pudo archivar %s tras el rescate", cand.name,
+            )
+        logger.warning(
+            "[config_store] catálogo de empresas recuperado de %s (encoding %s)",
+            cand.name, usado,
+        )
+        return data
+    return None
+
+
 def load_empresas() -> dict:
     with _catalogo_lock:
-        # Tolerante a corrupción: si empresas.json quedó ilegible (típico tras un
-        # apagado abrupto en Windows → archivo lleno de NUL), se aísla y se
-        # reinicia el catálogo en vez de reventar /empresas y /empresas/fiel en
-        # cada llamada. El archivo corrupto ya no tiene datos recuperables; con
-        # el fsync de _write_json_atomico esto deja de pasar hacia adelante.
+        path = _empresas_path()
+        # Si no hay catálogo pero quedó una cuarentena de v1.4.0/v1.5.0 (falso
+        # positivo de corrupción por encoding ANSI), se restaura de ahí. Solo
+        # aplica cuando empresas.json NO existe: si el usuario ya re-registró
+        # empresas (o vació el catálogo a propósito), no se toca.
+        if not path.exists():
+            rescatado = _rescatar_cuarentena_empresas()
+            if rescatado is not None:
+                return rescatado
+        # Tolerante a corrupción REAL: si empresas.json quedó ilegible en todos
+        # los encodings (típico tras un apagado abrupto en Windows → archivo
+        # lleno de NUL), se aísla y se reinicia el catálogo en vez de reventar
+        # /empresas en cada llamada. Con el fsync de _write_json_atomico esto
+        # deja de pasar hacia adelante.
         return _load_json_resiliente(
-            _empresas_path(), lambda: {"empresas": {}, "default_rfc": None},
+            path, lambda: {"empresas": {}, "default_rfc": None},
         )
 
 
@@ -503,31 +603,42 @@ def _solicitudes_path(rfc: str) -> Path:
 
 
 def _load_solicitudes(rfc: str) -> dict:
-    """Lee el catálogo de solicitudes de la empresa. Si el JSON quedó corrupto
-    (p. ej. write race anterior, antes de que esto fuera atómico), recupera el
-    primer objeto válido con raw_decode y reescribe el archivo limpio."""
+    """Lee el catálogo de solicitudes de la empresa, tolerando encodings legacy
+    (≤v1.3.0 escribía sin `encoding=` → ANSI en Windows; se migra a UTF-8). Si
+    el JSON quedó corrupto (p. ej. write race anterior, antes de que esto fuera
+    atómico), recupera el primer objeto válido con raw_decode y reescribe el
+    archivo limpio."""
     path = _solicitudes_path(rfc)
     if not path.exists():
         return {"solicitudes": []}
-    raw = path.read_text()
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        logger.warning(
-            "[config_store] solicitudes/%s.json corrupto; recuperando primer objeto…",
-            rfc,
-        )
-        try:
-            obj, _end = json.JSONDecoder().raw_decode(raw)
-        except json.JSONDecodeError:
-            logger.error(
-                "[config_store] No se pudo recuperar; reseteando catálogo de %s", rfc,
+    raw_bytes = path.read_bytes()
+    data, usado = _parsear_json_multi_encoding(raw_bytes)
+    if usado is not None:
+        if usado.lower() not in ("utf-8", "utf8"):
+            logger.warning(
+                "[config_store] solicitudes/%s.json estaba en %s; migrado a UTF-8",
+                rfc, usado,
             )
-            obj = {"solicitudes": []}
-        if not isinstance(obj, dict) or "solicitudes" not in obj:
-            obj = {"solicitudes": obj if isinstance(obj, list) else []}
-        _save_solicitudes(rfc, obj)
-        return obj
+            _save_solicitudes(rfc, data)
+        return data
+    # JSON inválido en todos los encodings: típicamente el write race legacy
+    # (dos objetos concatenados). Recuperar el primer objeto válido.
+    raw = raw_bytes.decode("utf-8", errors="replace")
+    logger.warning(
+        "[config_store] solicitudes/%s.json corrupto; recuperando primer objeto…",
+        rfc,
+    )
+    try:
+        obj, _end = json.JSONDecoder().raw_decode(raw)
+    except json.JSONDecodeError:
+        logger.error(
+            "[config_store] No se pudo recuperar; reseteando catálogo de %s", rfc,
+        )
+        obj = {"solicitudes": []}
+    if not isinstance(obj, dict) or "solicitudes" not in obj:
+        obj = {"solicitudes": obj if isinstance(obj, list) else []}
+    _save_solicitudes(rfc, obj)
+    return obj
 
 
 def _save_solicitudes(rfc: str, data: dict):
@@ -684,8 +795,10 @@ def list_todas_descargas() -> list[dict]:
     for path in _historial_dir().glob("*.json"):
         rfc = path.stem
         try:
-            data = json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
+            data, _usado = _parsear_json_multi_encoding(path.read_bytes())
+        except OSError:
+            continue
+        if not isinstance(data, dict):
             continue
         for d in data.get("descargas", []):
             resultado.append({**d, "rfc": rfc, "nombre": nombres.get(rfc, rfc)})

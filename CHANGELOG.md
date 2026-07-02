@@ -6,6 +6,20 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Bug fix
+
+- **Ya no se pierde el catálogo de empresas al actualizar desde ≤v1.3.0 en
+  Windows** (TODOCONTA-DESKTOP-V): esas versiones escribían los JSON de
+  `~/.sat-descarga/` sin `encoding=` (code page ANSI, cp1252), y v1.4.0/v1.5.0
+  los leía con UTF-8 estricto — un nombre de empresa con acentos o Ñ (lo normal
+  en una razón social) se trataba como corrupción: cuarentena a
+  `empresas.json.corrupto` y catálogo vacío. Ahora la lectura prueba los
+  encodings legacy (UTF-8 → locale → cp1252 → latin-1), migra el archivo a
+  UTF-8 en disco y, si encuentra una cuarentena de v1.4.0/v1.5.0 sin catálogo
+  vigente, **la restaura automáticamente** (queda archivada como `.rescatado`).
+  Aplica a empresas, solicitudes, historial y settings; la corrupción real
+  (archivo lleno de NUL tras un apagado abrupto) sigue yendo a cuarentena.
+
 ### Feature
 
 - **Atajos de teclado + buscador de páginas (⌘K / Ctrl+K)**: la app ya se puede
