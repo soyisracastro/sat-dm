@@ -176,4 +176,13 @@
   [data-radix-popper-content-wrapper] * {
     -webkit-app-region: no-drag;
   }
+  /* Los Dialog no usan popper wrapper y su overlay cubre TODA la ventana,
+   * incluida la franja drag de la Titlebar: sin no-drag, el click para
+   * cerrar un diálogo (p. ej. el command palette) a esa altura arrastra la
+   * ventana en vez de cerrarlo. */
+  [data-slot='dialog-overlay'],
+  [data-slot='dialog-content'],
+  [data-slot='dialog-content'] * {
+    -webkit-app-region: no-drag;
+  }
 }

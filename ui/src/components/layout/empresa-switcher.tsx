@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
-import { colorEmpresa, tipoPersona } from '@/lib/empresa-visual';
 import { mensajeDeError } from '@/lib/errores';
 import { useEmpresas } from '@/hooks/use-empresas';
 import type { Empresa } from '@/lib/types';
+import { EmpresaBadge } from '@/components/empresas/empresa-badge';
 import { Icon } from '@/components/ui/icon';
 import {
   DropdownMenu,
@@ -18,27 +18,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-/** Cuadro PF/PM con el color determinista de la empresa. */
-function EmpresaBadge({
-  rfc,
-  size = 'md',
-}: {
-  rfc: string;
-  size?: 'sm' | 'md';
-}) {
-  return (
-    <span
-      className={cn(
-        'flex shrink-0 items-center justify-center rounded-md font-mono font-bold text-white',
-        size === 'md' ? 'size-8 text-[11px]' : 'size-6.5 rounded text-[10px]',
-      )}
-      style={{ background: colorEmpresa(rfc) }}
-    >
-      {tipoPersona(rfc)}
-    </span>
-  );
-}
 
 /**
  * Selector de empresa activa del sidebar: badge PF/PM + nombre truncado + RFC.

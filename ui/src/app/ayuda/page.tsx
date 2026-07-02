@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { cn } from '@/lib/utils';
+import { ATAJOS, esMac, formatearAtajo } from '@/lib/atajos';
 import { PageHeading } from '@/components/layout/page-heading';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -103,6 +104,14 @@ function ContactRow({ icon, label, value }: { icon: string; label: string; value
 export default function AyudaPage() {
   const [query, setQuery] = useState('');
   const [abierta, setAbierta] = useState<string | null>('Primeros pasos-0');
+  // Símbolo de los atajos (⌘ vs Ctrl); post-mount para no romper hidratación.
+  const [mac, setMac] = useState(false);
+
+  useEffect(() => {
+    setMac(esMac());
+  }, []);
+
+  const gruposAtajos = [...new Set(ATAJOS.map((a) => a.grupo))];
 
   const q = query.trim().toLowerCase();
   const grupos = FAQ_GROUPS.map((g) => ({
@@ -242,6 +251,37 @@ export default function AyudaPage() {
                       className="size-3.75 shrink-0 text-muted-foreground/60 group-hover:text-primary"
                     />
                   </a>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <div className="mb-2.5 flex items-center gap-2 text-[15px] font-bold">
+                <Icon icon="ph:keyboard-light" className="size-4.5 text-muted-foreground" />
+                Atajos de teclado
+              </div>
+              <div className="space-y-3">
+                {gruposAtajos.map((grupo) => (
+                  <div key={grupo}>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                      {grupo}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {ATAJOS.filter((a) => a.grupo === grupo).map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between gap-3 text-[13.5px]"
+                        >
+                          <span className="text-muted-foreground">{a.descripcion}</span>
+                          <kbd className="shrink-0 rounded border bg-muted px-1.5 py-px font-sans text-[10.5px] text-muted-foreground">
+                            {formatearAtajo(a, mac)}
+                          </kbd>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </CardContent>

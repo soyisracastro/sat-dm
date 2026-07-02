@@ -6,6 +6,7 @@ import { Bell } from '@/components/notifications/bell';
 import { ReportButton } from '@/components/feedback/report-button';
 import { PlanBadge } from '@/components/auth/plan-badge';
 import { WindowControls } from '@/components/layout/window-controls';
+import { detectarPlataforma } from '@/lib/atajos';
 
 /**
  * Franja superior de la ventana. En Electron es una región arrastrable
@@ -19,23 +20,6 @@ import { WindowControls } from '@/components/layout/window-controls';
  * La campana y el badge van en su propio contenedor `no-drag` (la regla global
  * de globals.css cubre los popovers flotantes).
  */
-function detectar(): { desktop: boolean; mac: boolean; win: boolean } {
-  if (typeof window === 'undefined') return { desktop: false, mac: false, win: false };
-  const w = window as unknown as {
-    satAgent?: { isDesktop?: boolean };
-    satDesktop?: { platform?: string };
-  };
-  const desktop = !!w.satAgent?.isDesktop;
-  // El preload expone la plataforma real; user-agent solo como fallback
-  // (preloads viejos / navegador dev).
-  const platform = w.satDesktop?.platform;
-  if (platform) {
-    return { desktop, mac: platform === 'darwin', win: platform === 'win32' };
-  }
-  const ua = navigator.platform || navigator.userAgent || '';
-  return { desktop, mac: /Mac/i.test(ua), win: /Win/i.test(ua) };
-}
-
 export function Titlebar() {
   const [{ desktop, mac, win }, set] = useState({
     desktop: false,
@@ -44,7 +28,7 @@ export function Titlebar() {
   });
 
   useEffect(() => {
-    set(detectar());
+    set(detectarPlataforma());
   }, []);
 
   const conControles = desktop && win;
