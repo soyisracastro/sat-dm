@@ -146,6 +146,11 @@ export function CommandPalette({
                     >
                       <Icon icon={item.icon} className="size-4.5 shrink-0 text-muted-foreground" />
                       {item.label}
+                      {item.href === '/descarga/rapida' && (
+                        <CommandShortcut>
+                          {formatearAtajo({ tecla: 'D', shift: true }, mac)}
+                        </CommandShortcut>
+                      )}
                     </CommandItem>
                   ))}
                   {NAV_SECUNDARIO.map((item) => (
@@ -159,6 +164,11 @@ export function CommandPalette({
                       {item.href === '/ajustes' && (
                         <CommandShortcut>{formatearAtajo({ tecla: ',' }, mac)}</CommandShortcut>
                       )}
+                      {item.href === '/ayuda' && (
+                        <CommandShortcut>
+                          {formatearAtajo({ tecla: 'F1', mod: false }, mac)}
+                        </CommandShortcut>
+                      )}
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -170,6 +180,14 @@ export function CommandPalette({
                     <Icon icon="ph:buildings-light" className="size-4.5 shrink-0 text-muted-foreground" />
                     Cambiar de empresa…
                     <CommandShortcut>{formatearAtajo({ tecla: 'E' }, mac)}</CommandShortcut>
+                  </CommandItem>
+                  <CommandItem
+                    value="Agregar empresa"
+                    onSelect={() => navegar('/empresas?alta=1')}
+                  >
+                    <Icon icon="ph:plus-light" className="size-4.5 shrink-0 text-muted-foreground" />
+                    Agregar empresa…
+                    <CommandShortcut>{formatearAtajo({ tecla: 'N' }, mac)}</CommandShortcut>
                   </CommandItem>
                   <CommandItem
                     value="Cambiar tema claro oscuro"

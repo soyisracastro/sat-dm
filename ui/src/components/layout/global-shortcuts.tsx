@@ -55,6 +55,10 @@ export function GlobalShortcuts() {
     },
     { tecla: ',', accion: () => router.push('/ajustes') },
     { tecla: 'b', accion: () => window.dispatchEvent(new Event(EVENTO_SIDEBAR_TOGGLE)) },
+    { tecla: 'd', shift: true, accion: () => router.push('/descarga/rapida') },
+    // ⌘N: el query param lo lee /empresas para abrir el alta (y lo limpia).
+    { tecla: 'n', accion: () => router.push('/empresas?alta=1') },
+    { tecla: 'f1', mod: false, accion: () => router.push('/ayuda') },
     // ⌘1..⌘7 por posición en NAV_ITEMS (ver nota de orden en lib/navegacion.ts).
     ...NAV_ITEMS.flatMap((item, i): AtajoGlobal[] => [
       { tecla: `Digit${i + 1}`, esCode: true, accion: () => router.push(item.href) },

@@ -5,8 +5,10 @@ import { useEffect, useRef } from 'react';
 import { detectarPlataforma } from '@/lib/atajos';
 
 /**
- * Un atajo capturable. Todos llevan el modificador de la plataforma
- * (⌘ en mac, Ctrl en win/linux); no hay atajos sin modificador en v1.
+ * Un atajo capturable. Por default lleva el modificador de la plataforma
+ * (⌘ en mac, Ctrl en win/linux); `mod: false` es para teclas de función
+ * (F1) que no producen texto — nunca usar `mod: false` con teclas
+ * imprimibles o se dispararían al escribir en un input.
  */
 export interface AtajoGlobal {
   /**
@@ -17,6 +19,7 @@ export interface AtajoGlobal {
   tecla: string;
   esCode?: boolean;
   shift?: boolean;
+  mod?: boolean;
   accion: () => void;
 }
 
@@ -48,14 +51,16 @@ export function useAtajosGlobales(atajos: AtajoGlobal[]): void {
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.isComposing || e.repeat) return;
-      const mod = mac ? e.metaKey : e.ctrlKey;
-      if (!mod || e.altKey) return;
-      if (mac ? e.ctrlKey : e.metaKey) return;
+      const conMod = mac ? e.metaKey : e.ctrlKey;
 
       const tecla = e.key.toLowerCase();
       const atajo = atajosRef.current.find((a) => {
         if (!!a.shift !== e.shiftKey) return false;
-        return a.esCode ? a.tecla === e.code : a.tecla === tecla;
+        if (!(a.esCode ? a.tecla === e.code : a.tecla === tecla)) return false;
+        // Sin modificador (F1): ningún modificador presionado.
+        if (a.mod === false) return !e.metaKey && !e.ctrlKey && !e.altKey;
+        // Con modificador: el de la plataforma, sin Alt (AltGr) ni el cruzado.
+        return conMod && !e.altKey && !(mac ? e.ctrlKey : e.metaKey);
       });
       if (!atajo) return;
 

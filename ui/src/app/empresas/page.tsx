@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { useEmpresas } from '@/hooks/use-empresas';
 import { PageHeading } from '@/components/layout/page-heading';
@@ -30,7 +31,18 @@ import { mensajeDeError } from '@/lib/errores';
 
 type Confirmacion = 'archive' | 'unarchive' | 'delete';
 
+// `useSearchParams` (lo usa EmpresasContenido para el alta por ⌘N) requiere
+// un <Suspense> envolvente bajo export estático — misma convención que
+// /empresas/detalle.
 export default function EmpresasPage() {
+  return (
+    <Suspense fallback={null}>
+      <EmpresasContenido />
+    </Suspense>
+  );
+}
+
+function EmpresasContenido() {
   const {
     empresas,
     loading,
@@ -46,6 +58,19 @@ export default function EmpresasPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [accionError, setAccionError] = useState<string | null>(null);
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ⌘N (GlobalShortcuts) y "Agregar empresa…" del palette llegan como
+  // /empresas?alta=1: abre el alta y limpia el query para que back/reload
+  // no lo re-dispare.
+  useEffect(() => {
+    if (searchParams.get('alta') === '1') {
+      setAddOpen(true);
+      router.replace('/empresas');
+    }
+  }, [searchParams, router]);
 
   async function withBusy(rfc: string, fn: () => Promise<void>) {
     setBusy(rfc);

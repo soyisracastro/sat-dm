@@ -12,11 +12,12 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   recorrer sin mouse. Un command palette busca páginas y acciones (con hints de
   cada atajo y footer de navegación); `⌘E / Ctrl+E` abre el cambio de empresa
   activa directo, `⇧⌘L / Ctrl+Shift+L` alterna claro/oscuro, `⌘1..⌘7 / Ctrl+1..7`
-  saltan a las páginas del menú en su orden, `⌘, / Ctrl+,` abre Ajustes y
-  `⌘B / Ctrl+B` colapsa el menú lateral. El sidebar ganó un ítem "Buscar" y la
-  página de Ayuda una card con la referencia completa de atajos. Nota: los
-  atajos numéricos siguen el ORDEN del sidebar; si se reordenan páginas, el
-  número cambia con ellas.
+  saltan a las páginas del menú en su orden, `⌘, / Ctrl+,` abre Ajustes,
+  `⌘B / Ctrl+B` colapsa el menú lateral, `⌘N / Ctrl+N` abre el alta de empresa,
+  `⇧⌘D / Ctrl+Shift+D` va a Descarga rápida y `F1` abre la Ayuda. El sidebar
+  ganó un ítem "Buscar" y la página de Ayuda una card con la referencia
+  completa de atajos. Nota: los atajos numéricos siguen el ORDEN del sidebar;
+  si se reordenan páginas, el número cambia con ellas.
 
 ## [1.5.0] - 2026-07-01
 

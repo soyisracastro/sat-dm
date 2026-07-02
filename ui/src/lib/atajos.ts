@@ -43,18 +43,25 @@ export function esMac(): boolean {
 /** Un atajo de la tabla de referencia (solo presentación, no captura). */
 export interface Atajo {
   id: string;
-  /** Tecla legible: 'K', 'E', '1…7', ','. */
+  /** Tecla legible: 'K', 'E', '1…7', ',', 'F1'. */
   tecla: string;
   shift?: boolean;
+  /** false = sin modificador (teclas de función como F1). */
+  mod?: boolean;
   descripcion: string;
-  grupo: 'Navegación' | 'Vista';
+  grupo: 'Navegación' | 'Acciones' | 'Vista';
 }
 
 /**
- * Formatea un atajo para mostrarlo: mac '⇧⌘L', win/linux 'Ctrl+Shift+L'.
- * Como `esMac()` depende de window, llamar post-mount (patrón de /ajustes).
+ * Formatea un atajo para mostrarlo: mac '⇧⌘L', win/linux 'Ctrl+Shift+L';
+ * sin modificador queda la tecla sola ('F1'). Como `esMac()` depende de
+ * window, llamar post-mount (patrón de /ajustes).
  */
-export function formatearAtajo(atajo: Pick<Atajo, 'tecla' | 'shift'>, mac: boolean): string {
+export function formatearAtajo(
+  atajo: Pick<Atajo, 'tecla' | 'shift' | 'mod'>,
+  mac: boolean,
+): string {
+  if (atajo.mod === false) return `${atajo.shift ? (mac ? '⇧' : 'Shift+') : ''}${atajo.tecla}`;
   if (mac) return `${atajo.shift ? '⇧' : ''}⌘${atajo.tecla}`;
   return `Ctrl+${atajo.shift ? 'Shift+' : ''}${atajo.tecla}`;
 }
@@ -65,7 +72,10 @@ export const ATAJOS: readonly Atajo[] = [
   { id: 'palette', tecla: 'K', descripcion: 'Buscar página o acción', grupo: 'Navegación' },
   { id: 'empresas', tecla: 'E', descripcion: 'Cambiar de empresa activa', grupo: 'Navegación' },
   { id: 'paginas', tecla: '1…7', descripcion: 'Ir a la página N del menú (en su orden)', grupo: 'Navegación' },
+  { id: 'descarga-rapida', tecla: 'D', shift: true, descripcion: 'Ir a Descarga rápida', grupo: 'Navegación' },
   { id: 'ajustes', tecla: ',', descripcion: 'Abrir Ajustes', grupo: 'Navegación' },
+  { id: 'ayuda', tecla: 'F1', mod: false, descripcion: 'Abrir Ayuda', grupo: 'Navegación' },
+  { id: 'alta-empresa', tecla: 'N', descripcion: 'Agregar empresa', grupo: 'Acciones' },
   { id: 'tema', tecla: 'L', shift: true, descripcion: 'Alternar tema claro/oscuro', grupo: 'Vista' },
   { id: 'sidebar', tecla: 'B', descripcion: 'Colapsar o expandir el menú lateral', grupo: 'Vista' },
 ] as const;
