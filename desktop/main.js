@@ -90,6 +90,12 @@ function _colaDelLog(maxBytes = 50 * 1024) {
 }
 
 function scrubEventoSentry(event, hint) {
+  // Rechazo de firma del auto-updater: esperado en instalaciones previas a la
+  // firma de código (se atiende con un aviso de reinstalación manual, ver
+  // manejarErrorUpdater). Ya lo atrapamos para que no sea unhandledRejection;
+  // este guard es defensa en profundidad por si electron-updater lo emite por
+  // otra vía. No es un bug accionable → no se reporta.
+  if (esErrorDeFirmaDeUpdate(hint && hint.originalException)) return null;
   const limpio = _scrub(event);
   const cola = _colaDelLog();
   if (cola) {
@@ -329,6 +335,7 @@ const updaterState = {
   version: null, // versión nueva detectada (si hay)
   progreso: null, // % de descarga (0-100)
   mensaje: null, // detalle del error (si estado === 'error')
+  requiereReinstalar: false, // true si el error exige reinstalar a mano (firma)
 };
 // true mientras el check en curso lo pidió el usuario desde Ajustes: el dialog
 // nativo de "update listo" se omite y la UI muestra el botón de reiniciar.
@@ -339,6 +346,80 @@ function setUpdaterState(patch) {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('updates-changed', { ...updaterState });
   }
+}
+
+// Página pública de descarga (para la reinstalación manual descrita abajo).
+const URL_DESCARGA = 'https://todoconta.com/descargar';
+
+// ¿El error del updater es un rechazo de FIRMA del instalador?
+// Pasa en instalaciones previas a la firma de código (v1.4.0 y anteriores, cuyo
+// app-update.yml tiene grabado publisherName "TodoConta"): al descargar un update
+// firmado con el nuevo certificado IV (CN "Israel Castro Urieta") electron-updater
+// lo rechaza por mismatch de publisher ("...is not signed by the application
+// owner"), o falla al verificar la firma con Get-AuthenticodeSignature. No hay
+// arreglo por auto-update: el usuario debe reinstalar a mano por única vez. Se
+// detecta para (1) no dejar que el rechazo se vuelva unhandledRejection → Sentry
+// y (2) mostrar un mensaje accionable en lugar de un error genérico.
+function esErrorDeFirmaDeUpdate(err) {
+  const msg = (err && err.message) || (typeof err === 'string' ? err : '');
+  return /not signed by the application owner|is not signed|Get-AuthenticodeSignature/i.test(msg);
+}
+
+// El dialog de "reinstala a mano" se muestra UNA vez por sesión (el re-check es
+// cada 4h; no queremos repetirlo).
+let avisoReinstalarMostrado = false;
+
+// Handler unificado de errores del updater (check, descarga automática y manual).
+function manejarErrorUpdater(err) {
+  busquedaManual = false;
+  if (esErrorDeFirmaDeUpdate(err)) {
+    log.warn('[updater] update rechazado por firma (instalación previa a la firma de código):', err && err.message);
+    setUpdaterState({
+      estado: 'error',
+      requiereReinstalar: true,
+      mensaje: `No se pudo actualizar automáticamente esta instalación. Descarga la última versión desde ${URL_DESCARGA} e instálala encima (tus datos y empresas se conservan).`,
+    });
+    mostrarAvisoReinstalar();
+    return;
+  }
+  log.warn('[updater] error (silencioso):', err && err.message);
+  setUpdaterState({
+    estado: 'error',
+    requiereReinstalar: false,
+    mensaje: (err && err.message) || 'Error desconocido',
+  });
+}
+
+function mostrarAvisoReinstalar() {
+  if (avisoReinstalarMostrado) return;
+  avisoReinstalarMostrado = true;
+  const parent = BrowserWindow.getAllWindows()[0] || null;
+  dialog
+    .showMessageBox(parent, {
+      type: 'info',
+      buttons: ['Ir a la descarga', 'Más tarde'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Actualización manual requerida',
+      message: 'Hay una versión nueva de TodoConta, pero esta instalación necesita actualizarse a mano por única vez.',
+      detail: `Descarga la última versión desde ${URL_DESCARGA} e instálala encima. Tus datos y empresas se conservan.`,
+      noLink: true,
+    })
+    .then((choice) => {
+      if (choice.response === 0) shell.openExternal(URL_DESCARGA);
+    })
+    .catch(() => {});
+}
+
+// Con autoDownload=true, la descarga arranca sola tras `update-available` y su
+// promesa vive en `result.downloadPromise`. Si no la enganchamos, un rechazo
+// (p. ej. la verificación de firma) se vuelve unhandledRejection → Sentry. La
+// atrapamos y la enrutamos al handler unificado.
+function engancharDescarga(result) {
+  if (result && result.downloadPromise) {
+    result.downloadPromise.catch((err) => manejarErrorUpdater(err));
+  }
+  return result;
 }
 
 function setupAutoUpdaterListeners() {
@@ -357,9 +438,7 @@ function setupAutoUpdaterListeners() {
     setUpdaterState({ estado: 'al-dia', version: null, progreso: null });
   });
   autoUpdater.on('error', (err) => {
-    log.warn('[updater] error (silencioso):', err && err.message);
-    busquedaManual = false;
-    setUpdaterState({ estado: 'error', mensaje: (err && err.message) || 'Error desconocido' });
+    manejarErrorUpdater(err);
   });
   autoUpdater.on('download-progress', (p) => {
     log.info(`[updater] descargando ${Math.round(p.percent)}%`);
@@ -394,9 +473,10 @@ function setupAutoUpdaterListeners() {
 }
 
 function checkForUpdatesSilencioso() {
-  autoUpdater.checkForUpdates().catch((err) => {
-    log.warn('[updater] checkForUpdates falló (silencioso):', err && err.message);
-  });
+  autoUpdater
+    .checkForUpdates()
+    .then(engancharDescarga)
+    .catch((err) => manejarErrorUpdater(err));
 }
 
 function scheduleUpdateCheck() {
@@ -916,11 +996,10 @@ ipcMain.handle('updates-check', () => {
   // No encimar checks: si ya está buscando/descargando, devolver el estado actual.
   if (updaterState.estado !== 'buscando' && updaterState.estado !== 'descargando') {
     busquedaManual = true;
-    autoUpdater.checkForUpdates().catch((err) => {
-      log.warn('[updater] check manual falló:', err && err.message);
-      busquedaManual = false;
-      setUpdaterState({ estado: 'error', mensaje: (err && err.message) || 'Error desconocido' });
-    });
+    autoUpdater
+      .checkForUpdates()
+      .then(engancharDescarga)
+      .catch((err) => manejarErrorUpdater(err));
   }
   return { ...updaterState, disponible: true };
 });
