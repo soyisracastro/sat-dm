@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { cn } from '@/lib/utils';
+import {
+  EVENTO_PALETTE_OPEN,
+  EVENTO_SIDEBAR_TOGGLE,
+  esMac,
+  formatearAtajo,
+} from '@/lib/atajos';
+import { NAV_ITEMS } from '@/lib/navegacion';
 import { AccountMenu } from '@/components/layout/account-menu';
 import { BrandMark } from '@/components/layout/brand-mark';
 import { EmpresaSwitcher } from '@/components/layout/empresa-switcher';
@@ -14,17 +21,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-
-// Nav plano (Ajustes vive en el menú de cuenta; Ayuda en el footer).
-const NAV_ITEMS = [
-  { href: '/', label: 'Inicio', icon: 'ph:squares-four-light' },
-  { href: '/empresas', label: 'Empresas', icon: 'ph:buildings-light' },
-  { href: '/descarga', label: 'Descargar CFDIs', icon: 'ph:download-simple-light' },
-  { href: '/comprobantes', label: 'Comprobantes', icon: 'ph:files-light' },
-  { href: '/listas-negras', label: 'Listas negras', icon: 'ph:shield-check-light' },
-  { href: '/organizador', label: 'Organizador', icon: 'ph:folders-light' },
-  { href: '/historial', label: 'Historial', icon: 'ph:clock-counter-clockwise-light' },
-] as const;
 
 const COLLAPSED_KEY = 'tc:sidebar-collapsed';
 
@@ -73,6 +69,39 @@ function NavItem({
   );
 }
 
+/** Abre el command palette (⌘K); muestra el atajo como kbd cuando hay espacio. */
+function BuscarItem({ collapsed, mac }: { collapsed: boolean; mac: boolean }) {
+  const boton = (
+    <button
+      onClick={() => window.dispatchEvent(new Event(EVENTO_PALETTE_OPEN))}
+      className={cn(
+        'flex items-center gap-3 rounded-lg text-[13.5px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+        collapsed ? 'size-11 justify-center' : 'w-full px-3 py-2',
+      )}
+    >
+      <Icon icon="ph:magnifying-glass-light" className="size-4.75 shrink-0" />
+      {!collapsed && (
+        <>
+          <span className="truncate">Buscar</span>
+          <kbd className="ml-auto rounded border bg-muted px-1.5 py-px font-sans text-[10.5px] text-muted-foreground">
+            {formatearAtajo({ tecla: 'K' }, mac)}
+          </kbd>
+        </>
+      )}
+    </button>
+  );
+
+  if (!collapsed) return boton;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{boton}</TooltipTrigger>
+      <TooltipContent side="right">
+        Buscar · {formatearAtajo({ tecla: 'K' }, mac)}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * Sidebar v2: marca + selector de empresa + nav plano + footer (Ayuda y
  * cuenta). Colapsable a modo solo-iconos; el estado persiste en localStorage.
@@ -81,11 +110,14 @@ function NavItem({
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  // Símbolo del atajo (⌘K vs Ctrl+K); post-mount, depende de window.
+  const [mac, setMac] = useState(false);
 
   // localStorage solo post-mount (export estático: el primer render del
   // servidor y del cliente deben coincidir).
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1');
+    setMac(esMac());
   }, []);
 
   function toggleCollapsed() {
@@ -94,6 +126,13 @@ export function Sidebar() {
       return !c;
     });
   }
+
+  // ⌘B (GlobalShortcuts) colapsa/expande por evento window.
+  useEffect(() => {
+    const onToggle = () => toggleCollapsed();
+    window.addEventListener(EVENTO_SIDEBAR_TOGGLE, onToggle);
+    return () => window.removeEventListener(EVENTO_SIDEBAR_TOGGLE, onToggle);
+  }, []);
 
   return (
     <aside
@@ -140,6 +179,11 @@ export function Sidebar() {
       {/* Selector de empresa */}
       <div className={cn('pb-3', collapsed ? 'flex justify-center px-0' : 'px-3')}>
         <EmpresaSwitcher collapsed={collapsed} />
+      </div>
+
+      {/* Buscar (⌘K): descubribilidad del command palette. */}
+      <div className={cn('pb-1', collapsed ? 'flex justify-center px-2.5' : 'px-3')}>
+        <BuscarItem collapsed={collapsed} mac={mac} />
       </div>
 
       {/* Navegación */}

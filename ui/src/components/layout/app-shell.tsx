@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import { FounderBanner } from '@/components/auth/founder-banner';
 import { PromoBanner } from '@/components/auth/promo-banner';
+import { GlobalShortcuts } from '@/components/layout/global-shortcuts';
 import { Sidebar } from '@/components/layout/sidebar';
 import { StartupSplash } from '@/components/layout/startup-splash';
 import { StatusBar } from '@/components/layout/status-bar';
@@ -57,6 +58,8 @@ export function AppShell({ children }: AppShellProps) {
         <main className="flex-1 overflow-y-auto p-6 md:p-8">{children}</main>
       </div>
       <StatusBar />
+      {/* Atajos de teclado + command palette: solo con sesión iniciada. */}
+      <GlobalShortcuts />
     </div>
   );
 }
