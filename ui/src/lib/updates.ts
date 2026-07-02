@@ -14,6 +14,8 @@ export interface UpdatesState {
   mensaje?: string | null;
   /** false = updater inoperante (dev sin empaquetar): ocultar el botón. */
   disponible?: boolean;
+  /** true = el update fue rechazado por firma; requiere reinstalación manual. */
+  requiereReinstalar?: boolean;
 }
 
 export interface UpdatesBridge {

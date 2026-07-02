@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/ui/icon';
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from '@/lib/notify/prefs';
-import { getUpdatesBridge, type UpdatesState } from '@/lib/updates';
+import { useUpdates } from '@/hooks/use-updates';
 
 const TEMAS = [
   { value: 'light', label: 'Claro' },
@@ -58,26 +58,7 @@ function AjCard({
  * lista, el botón cambia a "Reiniciar ahora".
  */
 function VersionRow({ version }: { version: string | undefined }) {
-  const [updates, setUpdates] = useState<UpdatesState | null>(null);
-  const bridge = typeof window !== 'undefined' ? getUpdatesBridge() : null;
-
-  useEffect(() => {
-    if (!bridge) return;
-    let dispose: (() => void) | undefined;
-    bridge
-      .getState()
-      .then((s) => {
-        setUpdates(s);
-        dispose = bridge.onChanged((nuevo) =>
-          setUpdates((prev) => ({ ...prev, ...nuevo })),
-        );
-      })
-      .catch(() => {});
-    return () => dispose?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const conUpdater = !!bridge && updates?.disponible === true;
+  const { updates, conUpdater, ocupado, check, install } = useUpdates();
 
   const sub = !conUpdater
     ? undefined
@@ -93,8 +74,6 @@ function VersionRow({ version }: { version: string | undefined }) {
               ? 'No se pudo buscar actualizaciones. Revisa tu conexión e intenta de nuevo.'
               : undefined;
 
-  const ocupado = updates?.estado === 'buscando' || updates?.estado === 'descargando';
-
   return (
     <AjRow
       label="Versión"
@@ -106,7 +85,7 @@ function VersionRow({ version }: { version: string | undefined }) {
           </span>
           {conUpdater &&
             (updates?.estado === 'lista' ? (
-              <Button size="sm" onClick={() => bridge?.install()}>
+              <Button size="sm" onClick={() => install()}>
                 Reiniciar ahora
               </Button>
             ) : (
@@ -114,7 +93,7 @@ function VersionRow({ version }: { version: string | undefined }) {
                 variant="outline"
                 size="sm"
                 disabled={ocupado}
-                onClick={() => bridge?.check().then(setUpdates).catch(() => {})}
+                onClick={() => check()}
               >
                 {ocupado ? (
                   <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
