@@ -1,7 +1,7 @@
 {
   "name": "todoconta-desktop",
   "productName": "TodoConta",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "description": "TodoConta Desktop — Administración de CFDIs y herramientas fiscales",
   "main": "main.js",
