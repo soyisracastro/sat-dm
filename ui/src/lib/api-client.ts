@@ -58,6 +58,15 @@ import type {
   ProcesadorValidarListasNegrasResponse,
   ProcesadorListasNegrasStats,
   EmisoresListasNegrasResponse,
+  CalculadoraNombre,
+  CalculadoraRequestMap,
+  CalculadoraResultadoMap,
+  CalculoResponse,
+  CalculadorasEstadoResponse,
+  CalculadoraEstadoResponse,
+  CalculadoraGuardado,
+  CalculadoraGuardadoRequest,
+  IndicadoresCalculadoras,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -995,6 +1004,64 @@ export class SatApiClient {
     return this.request<EmisoresListasNegrasResponse>(
       `/procesador/cfdi/listas-negras/por-emisor?${qs}`,
     );
+  }
+
+  // -----------------------------------------------------------------------
+  // Calculadoras fiscales y laborales
+  // -----------------------------------------------------------------------
+
+  /**
+   * Calcula una calculadora. Si el body lleva `rfc`, el agente auto-guarda
+   * el estado (inputs + resultado) para esa empresa en el mismo round-trip.
+   */
+  async calculadoraCalcular<N extends CalculadoraNombre>(
+    nombre: N,
+    body: CalculadoraRequestMap[N],
+  ): Promise<CalculoResponse<CalculadoraResultadoMap[N]>> {
+    return this.post<CalculoResponse<CalculadoraResultadoMap[N]>>(
+      `/calculadoras/${nombre}`,
+      body as unknown as Record<string, unknown>,
+    );
+  }
+
+  /** Estado completo de la empresa: último estado por calculadora + guardados. */
+  async calculadoraEstado(rfc: string): Promise<CalculadorasEstadoResponse> {
+    return this.request<CalculadorasEstadoResponse>(
+      `/calculadoras/estado/${encodeURIComponent(rfc)}`,
+    );
+  }
+
+  /** Último estado (inputs + resultado) de una calculadora, o null si no hay. */
+  async calculadoraEstadoDe(
+    rfc: string,
+    calculadora: CalculadoraNombre,
+  ): Promise<CalculadoraEstadoResponse> {
+    return this.request<CalculadoraEstadoResponse>(
+      `/calculadoras/estado/${encodeURIComponent(rfc)}/${calculadora}`,
+    );
+  }
+
+  /** Guarda un snapshot con nombre (botón "Guardar cálculo"). */
+  async calculadoraGuardar(
+    rfc: string,
+    body: CalculadoraGuardadoRequest,
+  ): Promise<{ ok: boolean; guardado: CalculadoraGuardado }> {
+    return this.post<{ ok: boolean; guardado: CalculadoraGuardado }>(
+      `/calculadoras/guardados/${encodeURIComponent(rfc)}`,
+      body as unknown as Record<string, unknown>,
+    );
+  }
+
+  /** Elimina un cálculo guardado por id. */
+  async calculadoraEliminarGuardado(rfc: string, id: string): Promise<{ ok: boolean }> {
+    return this.del<{ ok: boolean }>(
+      `/calculadoras/guardados/${encodeURIComponent(rfc)}/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** Indicadores del ejercicio (UMA, SMG, ISN por estado, clases de riesgo, ...). */
+  async calculadoraIndicadores(anio: number): Promise<IndicadoresCalculadoras> {
+    return this.request<IndicadoresCalculadoras>(`/calculadoras/indicadores/${anio}`);
   }
 }
 
