@@ -6,6 +6,8 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.6.0] - 2026-07-02
+
 ### Bug fix
 
 - **Ya no se pierde el catálogo de empresas al actualizar desde ≤v1.3.0 en
@@ -20,6 +22,14 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   Aplica a empresas, solicitudes, historial y settings; la corrupción real
   (archivo lleno de NUL tras un apagado abrupto) sigue yendo a cuarentena.
 
+- **El auto-updater ya no truena en silencio en instalaciones sin firma**
+  (TODOCONTA-DESKTOP-8/-A): las instalaciones de v1.4.0 y anteriores (con
+  `publisherName` "TodoConta" grabado) rechazan los updates firmados con el
+  certificado nuevo, y ese rechazo se perdía como `unhandledRejection` rumbo a
+  Sentry. Ahora se atrapa en ambos checks (silencioso y manual) y muestra un
+  diálogo accionable una vez por sesión: "Ir a la descarga" →
+  todoconta.com/descargar para reinstalar a mano.
+
 ### Feature
 
 - **Atajos de teclado + buscador de páginas (⌘K / Ctrl+K)**: la app ya se puede
@@ -32,6 +42,17 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   ganó un ítem "Buscar" y la página de Ayuda una card con la referencia
   completa de atajos. Nota: los atajos numéricos siguen el ORDEN del sidebar;
   si se reordenan páginas, el número cambia con ellas.
+
+- **Versión y actualizaciones en el status bar**: un chip siempre visible
+  muestra la versión actual y permite buscar actualizaciones sin ir a Ajustes.
+  La descarga automática arranca solo al detectar versión nueva (el chip
+  muestra el %); cuando está lista, el chip se pinta en ámbar y confirma antes
+  de reiniciar para no interrumpir descargas largas. En instalaciones viejas
+  sin firma, el chip ámbar lleva a todoconta.com/descargar para reinstalar.
+
+### Tooling
+
+- Bump 1.5.0 → 1.6.0 (3 archivos).
 
 ## [1.5.0] - 2026-07-01
 
