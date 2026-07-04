@@ -5,6 +5,7 @@ import {
   CalculadoraShell,
   SinResultado,
 } from '@/components/calculadoras/calculadora-shell';
+import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
 import { ResumenCards } from '@/components/calculadoras/resumen-cards';
 import { Input } from '@/components/ui/input';
@@ -61,6 +62,13 @@ export default function SbcPage() {
       titulo="Salario Base de Cotización"
       descripcion="Factor de integración con prestaciones mínimas de ley (o superiores) y SBC diario y mensual para cotizar en el IMSS."
       calculando={calc.calculando}
+      acciones={
+        <ExportButtons
+          calculadora="sbc"
+          inputs={calc.inputs as unknown as Record<string, unknown>}
+          habilitado={calc.resultado !== null}
+        />
+      }
       formulario={
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

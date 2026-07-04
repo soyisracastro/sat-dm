@@ -5,6 +5,7 @@ import {
   CalculadoraShell,
   SinResultado,
 } from '@/components/calculadoras/calculadora-shell';
+import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
 import { ResumenCards } from '@/components/calculadoras/resumen-cards';
 import { Label } from '@/components/ui/label';
@@ -58,6 +59,13 @@ export default function IsrPage() {
       titulo="ISR de sueldos"
       descripcion="Retención de ISR del período (Art. 96 LISR) con subsidio para el empleo. Los asimilados a salarios no reciben subsidio."
       calculando={calc.calculando}
+      acciones={
+        <ExportButtons
+          calculadora="isr"
+          inputs={calc.inputs as unknown as Record<string, unknown>}
+          habilitado={calc.resultado !== null}
+        />
+      }
       formulario={
         <div className="space-y-4">
           <div className="space-y-2">

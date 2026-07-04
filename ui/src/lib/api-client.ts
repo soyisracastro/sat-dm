@@ -1063,6 +1063,27 @@ export class SatApiClient {
   async calculadoraIndicadores(anio: number): Promise<IndicadoresCalculadoras> {
     return this.request<IndicadoresCalculadoras>(`/calculadoras/indicadores/${anio}`);
   }
+
+  /**
+   * Exporta un cálculo (recalcula server-side desde los inputs).
+   * Premium: el gating vive en la UI (`license.premium_features_unlocked`).
+   */
+  async calculadoraExportar(
+    formato: 'xlsx' | 'pdf' | 'recibos-ptu',
+    calculadora: CalculadoraNombre,
+    inputs: Record<string, unknown>,
+  ): Promise<Blob> {
+    const r = await fetch(this.url(`/calculadoras/exportar/${formato}`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.tokenHeaders() },
+      body: JSON.stringify({ calculadora, inputs }),
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Error al exportar: ${r.status} ${text}`);
+    }
+    return await r.blob();
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import {
   CalculadoraShell,
   SinResultado,
 } from '@/components/calculadoras/calculadora-shell';
+import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { ComparacionMetodos } from '@/components/calculadoras/comparacion-metodos';
 import { DesglosePasos } from '@/components/calculadoras/desglose-pasos';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
@@ -52,6 +53,13 @@ export default function AguinaldoPage() {
       titulo="Aguinaldo"
       descripcion="Aguinaldo proporcional del ejercicio 2026 con la parte exenta (30 UMA) y el ISR por Ley (Art. 96) o por Reglamento (Art. 174)."
       calculando={calc.calculando}
+      acciones={
+        <ExportButtons
+          calculadora="aguinaldo"
+          inputs={calc.inputs as unknown as Record<string, unknown>}
+          habilitado={calc.resultado !== null}
+        />
+      }
       formulario={
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

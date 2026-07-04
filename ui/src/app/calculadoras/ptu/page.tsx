@@ -5,6 +5,7 @@ import {
   CalculadoraShell,
   SinResultado,
 } from '@/components/calculadoras/calculadora-shell';
+import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
 import { ResumenCards } from '@/components/calculadoras/resumen-cards';
 import { Badge } from '@/components/ui/badge';
@@ -136,6 +137,14 @@ export default function PtuPage() {
       descripcion="Reparto de utilidades (Art. 123 constitucional y 117-131 LFT): bolsas por días y por salarios, tope de tres meses / promedio de tres años, exención de 15 UMA y comparación del ISR por Art. 96 vs Art. 174."
       unaColumna
       calculando={calc.calculando}
+      acciones={
+        <ExportButtons
+          calculadora="ptu"
+          inputs={calc.inputs as unknown as Record<string, unknown>}
+          habilitado={calc.resultado !== null}
+          conRecibos
+        />
+      }
       formulario={
         <div className="space-y-6">
           {/* Datos de la empresa */}

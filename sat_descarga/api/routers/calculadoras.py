@@ -184,6 +184,128 @@ def _responder(calculadora: str, req: CalculoBase, resultado: dict, anio: int) -
 
 
 # ---------------------------------------------------------------------------
+# Ejecutores (compartidos por los endpoints de cálculo y por el export)
+# ---------------------------------------------------------------------------
+
+
+def _run_aguinaldo(req: AguinaldoRequest) -> dict:
+    return calcular_aguinaldo(
+        AguinaldoInput(
+            salario=req.salario,
+            tipo_salario=req.tipo_salario,
+            fecha_ingreso=req.fecha_ingreso,
+            dias_aguinaldo=req.dias_aguinaldo,
+            fecha_calculo=req.fecha_calculo,
+            ingreso_ordinario_mensual=req.ingreso_ordinario_mensual,
+            metodo_isr=req.metodo_isr,
+            anio=req.anio,
+        )
+    )
+
+
+def _run_sbc(req: SBCRequest) -> dict:
+    return calcular_sbc(
+        SBCInput(
+            salario=req.salario,
+            tipo_salario=req.tipo_salario,
+            antiguedad_anios=req.antiguedad_anios,
+            dias_aguinaldo=req.dias_aguinaldo,
+            prima_vacacional=req.prima_vacacional,
+            anio=req.anio,
+        )
+    )
+
+
+def _run_isr(req: ISRRequest) -> dict:
+    return calcular_isr_periodo(
+        req.ingreso_gravado, req.anio, req.periodicidad, req.es_asimilado, req.mes
+    )
+
+
+def _run_finiquito(req: FiniquitoRequest) -> dict:
+    return calcular_finiquito(
+        FiniquitoInput(
+            salario=req.salario,
+            tipo_salario=req.tipo_salario,
+            fecha_ingreso=req.fecha_ingreso,
+            fecha_baja=req.fecha_baja,
+            dias_aguinaldo=req.dias_aguinaldo,
+            prima_vacacional=req.prima_vacacional,
+            anio=req.anio,
+        )
+    )
+
+
+def _run_liquidacion(req: LiquidacionRequest) -> dict:
+    return calcular_liquidacion(
+        LiquidacionInput(
+            salario=req.salario,
+            tipo_salario=req.tipo_salario,
+            fecha_ingreso=req.fecha_ingreso,
+            fecha_baja=req.fecha_baja,
+            tipo_terminacion=req.tipo_terminacion,
+            es_zona_fronteriza=req.es_zona_fronteriza,
+            dias_aguinaldo=req.dias_aguinaldo,
+            prima_vacacional=req.prima_vacacional,
+            ultimo_sueldo_mensual=req.ultimo_sueldo_mensual,
+            anio=req.anio,
+        )
+    )
+
+
+def _run_carga_patronal(req: CargaPatronalRequest) -> dict:
+    return calcular_carga_patronal(
+        CargaPatronalInput(
+            salario=req.salario,
+            tipo_salario=req.tipo_salario,
+            antiguedad_anios=req.antiguedad_anios,
+            clase_riesgo=req.clase_riesgo,
+            prima_riesgo_trabajo=req.prima_riesgo_trabajo,
+            codigo_estado=req.codigo_estado,
+            tasa_impuesto_estatal=req.tasa_impuesto_estatal,
+            incluir_aguinaldo_mensual=req.incluir_aguinaldo_mensual,
+            incluir_vacaciones_mensual=req.incluir_vacaciones_mensual,
+            prestaciones_adicionales=[p.model_dump() for p in req.prestaciones_adicionales],
+            anio=req.anio,
+        )
+    )
+
+
+def _run_ptu(req: "PTURequest") -> dict:
+    return calcular_ptu(
+        EmpresaPTU(
+            utilidad_fiscal=req.utilidad_fiscal,
+            ejercicio=req.ejercicio,
+            nombre=req.nombre,
+            rfc=req.rfc_empresa or (req.rfc or ""),
+            ptu_no_cobrada=req.ptu_no_cobrada,
+            tipo_persona=req.tipo_persona,
+            fecha_pago=req.fecha_pago,
+            criterio_exencion=req.criterio_exencion,
+        ),
+        [
+            TrabajadorPTU(
+                nombre=t.nombre,
+                salario_diario=t.salario_diario,
+                dias_trabajados=t.dias_trabajados,
+                percepcion_anual=t.percepcion_anual,
+                rfc=t.rfc,
+                curp=t.curp,
+                nss=t.nss,
+                fecha_inicio=t.fecha_inicio,
+                es_confianza=t.es_confianza,
+                ptu_anio_1=t.ptu_anio_1,
+                ptu_anio_2=t.ptu_anio_2,
+                ptu_anio_3=t.ptu_anio_3,
+                ingreso_mensual_ordinario=t.ingreso_mensual_ordinario,
+                isr_mensual_ordinario=t.isr_mensual_ordinario,
+            )
+            for t in req.trabajadores
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Endpoints de cálculo
 # ---------------------------------------------------------------------------
 
@@ -191,18 +313,7 @@ def _responder(calculadora: str, req: CalculoBase, resultado: dict, anio: int) -
 @router.post("/calculadoras/aguinaldo")
 def calcular_aguinaldo_endpoint(req: AguinaldoRequest):
     try:
-        resultado = calcular_aguinaldo(
-            AguinaldoInput(
-                salario=req.salario,
-                tipo_salario=req.tipo_salario,
-                fecha_ingreso=req.fecha_ingreso,
-                dias_aguinaldo=req.dias_aguinaldo,
-                fecha_calculo=req.fecha_calculo,
-                ingreso_ordinario_mensual=req.ingreso_ordinario_mensual,
-                metodo_isr=req.metodo_isr,
-                anio=req.anio,
-            )
-        )
+        resultado = _run_aguinaldo(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _responder("aguinaldo", req, resultado, req.anio)
@@ -211,16 +322,7 @@ def calcular_aguinaldo_endpoint(req: AguinaldoRequest):
 @router.post("/calculadoras/sbc")
 def calcular_sbc_endpoint(req: SBCRequest):
     try:
-        resultado = calcular_sbc(
-            SBCInput(
-                salario=req.salario,
-                tipo_salario=req.tipo_salario,
-                antiguedad_anios=req.antiguedad_anios,
-                dias_aguinaldo=req.dias_aguinaldo,
-                prima_vacacional=req.prima_vacacional,
-                anio=req.anio,
-            )
-        )
+        resultado = _run_sbc(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _responder("sbc", req, resultado, req.anio)
@@ -229,9 +331,7 @@ def calcular_sbc_endpoint(req: SBCRequest):
 @router.post("/calculadoras/isr")
 def calcular_isr_endpoint(req: ISRRequest):
     try:
-        resultado = calcular_isr_periodo(
-            req.ingreso_gravado, req.anio, req.periodicidad, req.es_asimilado, req.mes
-        )
+        resultado = _run_isr(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _responder("isr", req, resultado, req.anio)
@@ -244,17 +344,7 @@ def calcular_finiquito_endpoint(req: FiniquitoRequest):
             status_code=400, detail="La fecha de baja debe ser posterior a la de ingreso."
         )
     try:
-        resultado = calcular_finiquito(
-            FiniquitoInput(
-                salario=req.salario,
-                tipo_salario=req.tipo_salario,
-                fecha_ingreso=req.fecha_ingreso,
-                fecha_baja=req.fecha_baja,
-                dias_aguinaldo=req.dias_aguinaldo,
-                prima_vacacional=req.prima_vacacional,
-                anio=req.anio,
-            )
-        )
+        resultado = _run_finiquito(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _responder("finiquito", req, resultado, req.anio)
@@ -267,20 +357,7 @@ def calcular_liquidacion_endpoint(req: LiquidacionRequest):
             status_code=400, detail="La fecha de baja debe ser posterior a la de ingreso."
         )
     try:
-        resultado = calcular_liquidacion(
-            LiquidacionInput(
-                salario=req.salario,
-                tipo_salario=req.tipo_salario,
-                fecha_ingreso=req.fecha_ingreso,
-                fecha_baja=req.fecha_baja,
-                tipo_terminacion=req.tipo_terminacion,
-                es_zona_fronteriza=req.es_zona_fronteriza,
-                dias_aguinaldo=req.dias_aguinaldo,
-                prima_vacacional=req.prima_vacacional,
-                ultimo_sueldo_mensual=req.ultimo_sueldo_mensual,
-                anio=req.anio,
-            )
-        )
+        resultado = _run_liquidacion(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _responder("liquidacion", req, resultado, req.anio)
@@ -289,21 +366,7 @@ def calcular_liquidacion_endpoint(req: LiquidacionRequest):
 @router.post("/calculadoras/carga-patronal")
 def calcular_carga_patronal_endpoint(req: CargaPatronalRequest):
     try:
-        resultado = calcular_carga_patronal(
-            CargaPatronalInput(
-                salario=req.salario,
-                tipo_salario=req.tipo_salario,
-                antiguedad_anios=req.antiguedad_anios,
-                clase_riesgo=req.clase_riesgo,
-                prima_riesgo_trabajo=req.prima_riesgo_trabajo,
-                codigo_estado=req.codigo_estado,
-                tasa_impuesto_estatal=req.tasa_impuesto_estatal,
-                incluir_aguinaldo_mensual=req.incluir_aguinaldo_mensual,
-                incluir_vacaciones_mensual=req.incluir_vacaciones_mensual,
-                prestaciones_adicionales=[p.model_dump() for p in req.prestaciones_adicionales],
-                anio=req.anio,
-            )
-        )
+        resultado = _run_carga_patronal(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _responder("carga-patronal", req, resultado, req.anio)
@@ -312,37 +375,7 @@ def calcular_carga_patronal_endpoint(req: CargaPatronalRequest):
 @router.post("/calculadoras/ptu")
 def calcular_ptu_endpoint(req: PTURequest):
     try:
-        resultado = calcular_ptu(
-            EmpresaPTU(
-                utilidad_fiscal=req.utilidad_fiscal,
-                ejercicio=req.ejercicio,
-                nombre=req.nombre,
-                rfc=req.rfc_empresa or (req.rfc or ""),
-                ptu_no_cobrada=req.ptu_no_cobrada,
-                tipo_persona=req.tipo_persona,
-                fecha_pago=req.fecha_pago,
-                criterio_exencion=req.criterio_exencion,
-            ),
-            [
-                TrabajadorPTU(
-                    nombre=t.nombre,
-                    salario_diario=t.salario_diario,
-                    dias_trabajados=t.dias_trabajados,
-                    percepcion_anual=t.percepcion_anual,
-                    rfc=t.rfc,
-                    curp=t.curp,
-                    nss=t.nss,
-                    fecha_inicio=t.fecha_inicio,
-                    es_confianza=t.es_confianza,
-                    ptu_anio_1=t.ptu_anio_1,
-                    ptu_anio_2=t.ptu_anio_2,
-                    ptu_anio_3=t.ptu_anio_3,
-                    ingreso_mensual_ordinario=t.ingreso_mensual_ordinario,
-                    isr_mensual_ordinario=t.isr_mensual_ordinario,
-                )
-                for t in req.trabajadores
-            ],
-        )
+        resultado = _run_ptu(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -456,3 +489,78 @@ def eliminar_guardado_endpoint(rfc: str, guardado_id: str):
     if not eliminado:
         raise HTTPException(status_code=404, detail="Cálculo guardado no encontrado.")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Export (Excel / PDF / recibos PTU) — premium; el gating vive en el frontend
+# ---------------------------------------------------------------------------
+
+# (modelo de request, ejecutor, año a reportar en el documento)
+_EXPORTABLES: dict = {
+    "aguinaldo": (AguinaldoRequest, _run_aguinaldo, lambda req, res: req.anio),
+    "sbc": (SBCRequest, _run_sbc, lambda req, res: req.anio),
+    "isr": (ISRRequest, _run_isr, lambda req, res: req.anio),
+    "finiquito": (FiniquitoRequest, _run_finiquito, lambda req, res: req.anio),
+    "liquidacion": (LiquidacionRequest, _run_liquidacion, lambda req, res: req.anio),
+    "carga-patronal": (CargaPatronalRequest, _run_carga_patronal, lambda req, res: req.anio),
+    "ptu": (PTURequest, _run_ptu, lambda req, res: res["config"]["anio_pago"]),
+}
+
+_MEDIA_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_MEDIA_PDF = "application/pdf"
+
+
+class ExportarRequest(BaseModel):
+    calculadora: str
+    inputs: dict
+
+
+@router.post("/calculadoras/exportar/{formato}")
+def exportar_endpoint(formato: str, req: ExportarRequest):
+    """Recalcula server-side desde los inputs (fuente única) y rinde el archivo.
+
+    Formatos: ``xlsx``, ``pdf`` y ``recibos-ptu`` (PDF multi-página, solo PTU).
+    """
+    from fastapi.responses import StreamingResponse
+    from pydantic import ValidationError
+
+    from ...calculadoras import exportar as exportar_mod
+
+    if formato not in ("xlsx", "pdf", "recibos-ptu"):
+        raise HTTPException(status_code=404, detail=f"Formato no soportado: {formato!r}.")
+    if req.calculadora not in _EXPORTABLES:
+        raise HTTPException(
+            status_code=400, detail=f"Calculadora desconocida: {req.calculadora!r}."
+        )
+    if formato == "recibos-ptu" and req.calculadora != "ptu":
+        raise HTTPException(status_code=400, detail="Los recibos solo aplican a PTU.")
+
+    modelo_cls, run, anio_de = _EXPORTABLES[req.calculadora]
+    try:
+        modelo = modelo_cls(**req.inputs)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    try:
+        resultado = run(modelo)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if formato == "recibos-ptu":
+        data = exportar_mod.recibos_ptu_pdf(resultado)
+        media, filename = _MEDIA_PDF, "recibos-ptu.pdf"
+    else:
+        doc = exportar_mod.construir_documento(
+            req.calculadora, resultado, anio_de(modelo, resultado)
+        )
+        if formato == "xlsx":
+            data = exportar_mod.a_xlsx(doc)
+            media, filename = _MEDIA_XLSX, f"{req.calculadora}.xlsx"
+        else:
+            data = exportar_mod.a_pdf(doc)
+            media, filename = _MEDIA_PDF, f"{req.calculadora}.pdf"
+
+    return StreamingResponse(
+        iter([data]),
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
