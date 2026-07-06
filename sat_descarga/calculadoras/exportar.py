@@ -333,8 +333,8 @@ def _doc_ptu(res: dict) -> dict:
                 ("PTU generada (10%)", _m(emp["ptu_generada"])),
                 ("PTU no cobrada de ejercicios anteriores", _m(emp["ptu_no_cobrada"])),
                 ("PTU a repartir", _m(emp["ptu_a_repartir"])),
-                ("Bolsa por días trabajados (50%)", _m(emp["bolsa_dias"])),
-                ("Bolsa por salarios (50%)", _m(emp["bolsa_salarios"])),
+                ("Mitad repartible por días trabajados", _m(emp["bolsa_dias"])),
+                ("Mitad repartible por salarios devengados", _m(emp["bolsa_salarios"])),
             ],
         },
         {

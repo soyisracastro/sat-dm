@@ -523,9 +523,10 @@ export default function PtuPage() {
               Fecha límite de pago: {formatDate(resultado.config.fecha_limite_pago)} ·
               exención por trabajador{' '}
               {formatCurrency(resultado.config.exencion_por_trabajador)} (
-              {resultado.config.criterio_exencion}) · bolsa por días{' '}
-              {formatCurrency(resultado.empresa.bolsa_dias)} · bolsa por salarios{' '}
-              {formatCurrency(resultado.empresa.bolsa_salarios)}
+              {resultado.config.criterio_exencion}). La PTU se reparte en dos partes
+              iguales (Art. 123 LFT): {formatCurrency(resultado.empresa.bolsa_dias)} por
+              días trabajados y {formatCurrency(resultado.empresa.bolsa_salarios)} por
+              salarios devengados.
             </p>
 
             <div className="rounded-xl border bg-card p-4 shadow-sm">
