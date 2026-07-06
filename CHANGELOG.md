@@ -6,6 +6,21 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Bug fix
+
+- **Opinión 32-D con e.firma: el login ya no reporta éxito sin haber aterrizado**
+  (TODOCONTA-DESKTOP-Z/-X/-Y/-W/-10/-11, corrida real jul 2026): el predicado de
+  aterrizaje comparaba por substring y la página de login de loginda lleva un
+  `target=` codificado que contiene el hostname de ptsc32d literal — disparaba
+  "Login exitoso" en el propio login y luego esperaba un PDF imposible. Ahora se
+  compara el host parseado. Además, el click del submit e.firma ya no revienta
+  por navegación lenta (`no_wait_after=True`, mismo patrón que el submit CIEC de
+  TODOCONTA-DESKTOP-9): la firma client-side + POST podían tardar más que el
+  timeout del click, y el fallback esperaba 30 s un botón que ya había navegado.
+  El diagnóstico de captura del PDF ahora sale como UN solo evento (antes creaba
+  3-4 issues de Sentry por fallo) e incluye la danza OAuth (authz/callback) para
+  rastrear en qué salto se atora el visor del SAT.
+
 ## [1.6.0] - 2026-07-02
 
 ### Bug fix

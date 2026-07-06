@@ -27,6 +27,7 @@ import datetime
 import logging
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from .login import iniciar_sesion_ciec, iniciar_sesion_fiel
 
@@ -49,17 +50,23 @@ def _es_landing_opinion(url: str) -> bool:
     Entrada y landing comparten host (`ptsc32d.clouda.sat.gob.mx`), así que un
     predicado de solo-host dispararía en la navegación de ENTRADA (antes del login).
     Se distinguen:
-      - entrada:  `.../?/reporteOpinion32DContribuyente`  (lleva `?/`)
+      - entrada:  `.../?/reporteOpinion32DContribuyente`  (query `/...`)
       - callback: `.../oauth2/callback`                   (transitorio)
-      - landing:  `.../#/reporteOpinion32DContribuyente`  (lleva `#/`)
-    Aceptamos cualquier URL de ptsc32d que NO sea la entrada (`?/`) ni el callback
-    (`/oauth`); el PDF que se rinde después confirma el éxito real.
+      - landing:  `.../#/reporteOpinion32DContribuyente`  (hash route)
+    OJO: se compara el HOST parseado, no un substring de la URL completa: la página
+    de login de loginda lleva un `target=` codificado que contiene el hostname de
+    ptsc32d literal (y `/oauth` como `%2Foauth`), así que un substring dispara un
+    falso "login exitoso" EN el propio login (visto en corrida real, jul 2026:
+    Sentry TODOCONTA-DESKTOP-Z).
     """
-    u = (url or "").lower()
+    try:
+        p = urlparse((url or "").lower())
+    except ValueError:
+        return False
     return (
-        "ptsc32d.clouda.sat.gob.mx" in u
-        and "?/" not in u
-        and "/oauth" not in u
+        p.hostname == "ptsc32d.clouda.sat.gob.mx"
+        and not p.query.startswith("/")
+        and "/oauth" not in p.path
     )
 
 
@@ -152,9 +159,7 @@ class OpinionClient:
                                 dest, dest.stat().st_size)
                     return dest
 
-                logger.error(
-                    "[32D] No se capturó el PDF del reporte. URL: %s", page.url)
-                self._diagnostico(page, capturado)
+                logger.error("%s", self._diagnostico(page, capturado))
                 return None
             finally:
                 browser.close()
@@ -174,9 +179,13 @@ class OpinionClient:
                 return
             ct = (resp.headers.get("content-type") or "").lower()
             url = resp.url.lower()
-            # Registrar candidatos (post-login) para diagnóstico.
-            if "pdf" in ct or url.endswith(".pdf") or "reporte" in url or "opinion" in url:
-                if len(candidatos) < 20:
+            # Registrar candidatos para diagnóstico: además del PDF/reporte, la danza
+            # OAuth (authz/callback/login) para reconstruir el flujo si el visor no
+            # rinde el PDF (la corrida real de jul 2026 se atoró rebotando en authz).
+            if ("pdf" in ct or url.endswith(".pdf") or "reporte" in url
+                    or "opinion" in url or "/oauth" in url or "/authz" in url
+                    or "/nidp/" in url):
+                if len(candidatos) < 40:
                     candidatos.append(f"{resp.status} {ct or '?'} {resp.url}")
             if not ("pdf" in ct or url.endswith(".pdf")):
                 return
@@ -242,17 +251,21 @@ class OpinionClient:
                     continue
         return None
 
-    def _diagnostico(self, page, capturado: dict) -> None:
-        """Loggea pistas para afinar la captura si la corrida real falla."""
+    def _diagnostico(self, page, capturado: dict) -> str:
+        """Arma el reporte de pistas para afinar la captura si la corrida real falla.
+
+        Devuelve UN solo string multilínea (un solo logger.error ⇒ un solo issue en
+        Sentry; loggear línea por línea creaba 3-4 issues por fallo)."""
+        lineas = [f"[32D] No se capturó el PDF del reporte. URL: {page.url}"]
+        lineas.append(f"frames: {[f.url for f in page.frames]}")
         cands = capturado.get("_candidatos") or []
-        logger.error("[32D] frames: %s", [f.url for f in page.frames])
         if cands:
-            logger.error("[32D] respuestas candidatas (status content-type url):")
-            for c in cands:
-                logger.error("  - %s", c)
+            lineas.append("respuestas candidatas (status content-type url):")
+            lineas.extend(f"  - {c}" for c in cands)
         src = self._buscar_src_pdf(page)
         if src:
-            logger.error("[32D] src del visor detectado (no http o sin %%PDF-): %s", src)
+            lineas.append(f"src del visor detectado (no http o sin %PDF-): {src}")
+        return "\n".join(lineas)
 
 
 # ---------------------------------------------------------------------------
