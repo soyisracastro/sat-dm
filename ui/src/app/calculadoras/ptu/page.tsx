@@ -118,8 +118,8 @@ function CeldaNumero({
   );
 }
 
-/** Encabezado de columna con icono de info y tooltip explicativo. */
-function HeadInfo({ children, tooltip }: { children: ReactNode; tooltip: string }) {
+/** Texto (opcional) con icono de info y tooltip explicativo. */
+function HeadInfo({ children, tooltip }: { children?: ReactNode; tooltip: string }) {
   return (
     <span className="inline-flex items-center gap-1">
       {children}
@@ -224,7 +224,16 @@ export default function PtuPage() {
             <h2 className="text-sm font-bold">Datos de la empresa</h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Ejercicio</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Ejercicio</Label>
+                  <HeadInfo
+                    tooltip={`Persona ${tipoDerivado === 'Moral' ? 'moral' : 'física'}${
+                      sinEmpresa
+                        ? ' (sin empresa activa; se asume moral)'
+                        : ' — según el RFC de la empresa activa'
+                    } · fecha límite legal de pago: ${formatDate(fechaLimite)}.`}
+                  />
+                </div>
                 <Select
                   value={String(inputs.ejercicio)}
                   onValueChange={(v) => setInput('ejercicio', parseInt(v, 10))}
@@ -291,13 +300,6 @@ export default function PtuPage() {
                 />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Persona {tipoDerivado === 'Moral' ? 'moral' : 'física'}
-              {sinEmpresa
-                ? ' (sin empresa activa; se asume moral)'
-                : ' — según el RFC de la empresa activa'}
-              {' · '}fecha límite legal de pago: {formatDate(fechaLimite)}.
-            </p>
           </div>
 
           {/* Trabajadores */}
