@@ -169,23 +169,7 @@ export default function PtuPage() {
           {/* Datos de la empresa */}
           <div className="space-y-3">
             <h2 className="text-sm font-bold">Datos de la empresa</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="utilidad">Utilidad fiscal del ejercicio</Label>
-                <MonedaInput
-                  id="utilidad"
-                  value={inputs.utilidad_fiscal > 0 ? inputs.utilidad_fiscal : null}
-                  onChange={(v) => setInput('utilidad_fiscal', v ?? 0)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ptu-no-cobrada">PTU no cobrada del año anterior</Label>
-                <MonedaInput
-                  id="ptu-no-cobrada"
-                  value={inputs.ptu_no_cobrada > 0 ? inputs.ptu_no_cobrada : null}
-                  onChange={(v) => setInput('ptu_no_cobrada', v ?? 0)}
-                />
-              </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Ejercicio</Label>
                 <Select
@@ -222,6 +206,22 @@ export default function PtuPage() {
                   La exención es de 15 días: el SAT la calcula con UMA; PRODECON sostiene
                   que procede con salario mínimo (más favorable al trabajador).
                 </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="utilidad">Utilidad fiscal del ejercicio</Label>
+                <MonedaInput
+                  id="utilidad"
+                  value={inputs.utilidad_fiscal > 0 ? inputs.utilidad_fiscal : null}
+                  onChange={(v) => setInput('utilidad_fiscal', v ?? 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ptu-no-cobrada">PTU no cobrada del año anterior</Label>
+                <MonedaInput
+                  id="ptu-no-cobrada"
+                  value={inputs.ptu_no_cobrada > 0 ? inputs.ptu_no_cobrada : null}
+                  onChange={(v) => setInput('ptu_no_cobrada', v ?? 0)}
+                />
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
