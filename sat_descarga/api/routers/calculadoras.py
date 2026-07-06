@@ -11,6 +11,7 @@ Las calculadoras son de libre acceso — el gating premium (export) es del
 frontend; el agente local no valida licencia (patrón existente).
 """
 
+import re
 from dataclasses import asdict
 from datetime import date
 from typing import Literal, Optional
@@ -565,6 +566,21 @@ _MEDIA_PDF = "application/pdf"
 class ExportarRequest(BaseModel):
     calculadora: str
     inputs: dict
+    rfc: Optional[str] = None  # empresa activa; entra al nombre del archivo
+
+
+def _nombre_archivo(rfc: Optional[str], concepto: str, anio: Optional[int], ext: str) -> str:
+    """Nomenclatura de archivos exportados: ``{RFC}_{concepto}_{año}.{ext}``.
+
+    El RFC identifica de qué empresa es el archivo sin tener que renombrarlo a
+    mano; partes ausentes se omiten. (Pendiente: aplicar la misma convención a
+    los exports de los procesadores.)
+    """
+    rfc_limpio = (rfc or "").strip().upper()
+    if not re.fullmatch(r"[A-ZÑ&0-9]{12,13}", rfc_limpio):
+        rfc_limpio = ""
+    partes = [p for p in (rfc_limpio, concepto, str(anio) if anio else "") if p]
+    return "_".join(partes) + f".{ext}"
 
 
 @router.post("/calculadoras/exportar/{formato}")
@@ -597,19 +613,24 @@ def exportar_endpoint(formato: str, req: ExportarRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Año para el nombre: en PTU el ejercicio a repartir; en el resto, el del cálculo.
+    anio_nombre = modelo.ejercicio if req.calculadora == "ptu" else modelo.anio
+
     if formato == "recibos-ptu":
         data = exportar_mod.recibos_ptu_pdf(resultado)
-        media, filename = _MEDIA_PDF, "recibos-ptu.pdf"
+        media = _MEDIA_PDF
+        filename = _nombre_archivo(req.rfc, "recibos-ptu", anio_nombre, "pdf")
     else:
         doc = exportar_mod.construir_documento(
             req.calculadora, resultado, anio_de(modelo, resultado)
         )
         if formato == "xlsx":
             data = exportar_mod.a_xlsx(doc)
-            media, filename = _MEDIA_XLSX, f"{req.calculadora}.xlsx"
+            media = _MEDIA_XLSX
         else:
             data = exportar_mod.a_pdf(doc)
-            media, filename = _MEDIA_PDF, f"{req.calculadora}.pdf"
+            media = _MEDIA_PDF
+        filename = _nombre_archivo(req.rfc, req.calculadora, anio_nombre, formato)
 
     return StreamingResponse(
         iter([data]),

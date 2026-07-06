@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import { useAuth } from '@/providers/auth-provider';
 import { useServer } from '@/providers/server-provider';
+import { useEmpresas } from '@/hooks/use-empresas';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -51,9 +52,11 @@ function descargarBlob(blob: Blob, filename: string) {
 export function ExportButtons({ calculadora, inputs, habilitado, conRecibos = false }: Props) {
   const { apiClient } = useServer();
   const { license } = useAuth();
+  const { empresas } = useEmpresas();
   const [busy, setBusy] = useState<Formato | null>(null);
 
   const esPremium = license?.premium_features_unlocked === true;
+  const rfcActivo = empresas.find((e) => e.default)?.rfc ?? null;
 
   if (!esPremium) {
     return (
@@ -69,12 +72,20 @@ export function ExportButtons({ calculadora, inputs, habilitado, conRecibos = fa
   async function exportar(formato: Formato) {
     setBusy(formato);
     try {
-      // El RFC es solo para el auto-guardado del estado; el export no lo usa.
       const { rfc: _rfc, ...inputsLimpios } = inputs;
-      const blob = await apiClient.calculadoraExportar(formato, calculadora, inputsLimpios);
+      const blob = await apiClient.calculadoraExportar(
+        formato,
+        calculadora,
+        inputsLimpios,
+        rfcActivo,
+      );
+      // Nomenclatura: {RFC}_{concepto}_{año} — identifica la empresa sin
+      // renombrar a mano. Para PTU el año es el ejercicio a repartir.
       const ext = formato === 'xlsx' ? 'xlsx' : 'pdf';
-      const base = formato === 'recibos-ptu' ? 'recibos-ptu' : calculadora;
-      descargarBlob(blob, `${base}.${ext}`);
+      const concepto = formato === 'recibos-ptu' ? 'recibos-ptu' : calculadora;
+      const anio = (inputsLimpios.ejercicio ?? inputsLimpios.anio) as number | undefined;
+      const nombre = [rfcActivo, concepto, anio].filter(Boolean).join('_');
+      descargarBlob(blob, `${nombre}.${ext}`);
     } catch (e) {
       toast.error(mensajeDeError(e));
     } finally {

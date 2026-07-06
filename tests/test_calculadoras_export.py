@@ -68,7 +68,7 @@ def test_export_xlsx_finiquito(client):
     )
     assert r.status_code == 200
     assert r.content[:2] == b"PK"  # magic bytes de ZIP/XLSX
-    assert "finiquito.xlsx" in r.headers["content-disposition"]
+    assert "finiquito_2026.xlsx" in r.headers["content-disposition"]
     wb = load_workbook(io.BytesIO(r.content))
     assert "Resumen" in wb.sheetnames
     assert "Desglose" in wb.sheetnames
@@ -81,7 +81,24 @@ def test_export_pdf_finiquito(client):
     )
     assert r.status_code == 200
     assert r.content[:5] == b"%PDF-"
-    assert "finiquito.pdf" in r.headers["content-disposition"]
+    assert "finiquito_2026.pdf" in r.headers["content-disposition"]
+
+
+def test_nombre_archivo_con_rfc(client):
+    """Nomenclatura {RFC}_{concepto}_{año}; en PTU el año es el ejercicio."""
+    r = client.post(
+        "/calculadoras/exportar/xlsx",
+        json={"calculadora": "ptu", "inputs": PTU_INPUTS, "rfc": "CAUI890921DAA"},
+    )
+    assert "CAUI890921DAA_ptu_2025.xlsx" in r.headers["content-disposition"]
+
+    # RFC inválido se omite (no rompe el export)
+    r2 = client.post(
+        "/calculadoras/exportar/xlsx",
+        json={"calculadora": "ptu", "inputs": PTU_INPUTS, "rfc": "no-es-rfc"},
+    )
+    assert "ptu_2025.xlsx" in r2.headers["content-disposition"]
+    assert "no-es-rfc" not in r2.headers["content-disposition"]
 
 
 @pytest.mark.parametrize(
@@ -133,7 +150,7 @@ def test_recibos_ptu(client):
     )
     assert r.status_code == 200
     assert r.content[:5] == b"%PDF-"
-    assert "recibos-ptu.pdf" in r.headers["content-disposition"]
+    assert "recibos-ptu_2025.pdf" in r.headers["content-disposition"]
     # Un recibo (página) por trabajador
     assert r.content.count(b"/Type /Page") >= 2
 

@@ -1072,11 +1072,12 @@ export class SatApiClient {
     formato: 'xlsx' | 'pdf' | 'recibos-ptu',
     calculadora: CalculadoraNombre,
     inputs: Record<string, unknown>,
+    rfc?: string | null,
   ): Promise<Blob> {
     const r = await fetch(this.url(`/calculadoras/exportar/${formato}`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.tokenHeaders() },
-      body: JSON.stringify({ calculadora, inputs }),
+      body: JSON.stringify({ calculadora, inputs, rfc: rfc ?? null }),
     });
     if (!r.ok) {
       const text = await r.text();
