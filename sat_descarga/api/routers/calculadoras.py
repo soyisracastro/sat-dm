@@ -64,6 +64,7 @@ class AguinaldoRequest(CalculoBase):
     fecha_calculo: Optional[date] = None
     ingreso_ordinario_mensual: Optional[float] = None
     metodo_isr: Literal["ley", "reglamento"] = "ley"
+    es_zona_fronteriza: bool = False  # ZLFN: salario mínimo mayor al general
 
 
 class SBCRequest(CalculoBase):
@@ -193,6 +194,20 @@ def _responder(calculadora: str, req: CalculoBase, resultado: dict, anio: int) -
 
 
 def _run_aguinaldo(req: AguinaldoRequest) -> dict:
+    # El aguinaldo se calcula sobre el salario vigente de un trabajador activo:
+    # por debajo del mínimo (general o ZLFN) no es base válida. Mismo factor de
+    # conversión que la calculadora (mensual / 30.4).
+    salario_diario = req.salario / 30.4 if req.tipo_salario == "mensual" else req.salario
+    validar_salario_minimo(
+        salario_diario,
+        req.anio,
+        "diario",
+        req.es_zona_fronteriza,
+        contexto=(
+            "Un salario por debajo del mínimo legal (Art. 90 LFT) no es base válida "
+            "para calcular el aguinaldo."
+        ),
+    )
     return calcular_aguinaldo(
         AguinaldoInput(
             salario=req.salario,

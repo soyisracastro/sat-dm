@@ -928,6 +928,8 @@ export interface CalculadoraAguinaldoRequest {
   fecha_calculo?: string | null;
   ingreso_ordinario_mensual?: number | null;
   metodo_isr: MetodoIsrAguinaldo;
+  /** ZLFN: el salario mínimo (umbral de validación) es mayor al general. */
+  es_zona_fronteriza: boolean;
   anio: number;
   rfc?: string | null;
 }

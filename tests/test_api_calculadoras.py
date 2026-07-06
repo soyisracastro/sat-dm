@@ -36,7 +36,7 @@ def test_isr_basico(client):
 
 def test_aguinaldo_con_autoguardado(client):
     payload = {
-        "salario": 8000,
+        "salario": 12000,
         "tipo_salario": "mensual",
         "fecha_ingreso": "2025-01-01",
         "fecha_calculo": "2026-12-20",
@@ -45,18 +45,47 @@ def test_aguinaldo_con_autoguardado(client):
     r = client.post("/calculadoras/aguinaldo", json=payload)
     assert r.status_code == 200
     body = r.json()
-    assert body["resultado"]["aguinaldo_bruto"] == pytest.approx(3947.37, abs=0.01)
+    # 12,000 / 30.4 × 15 días (año completo)
+    assert body["resultado"]["aguinaldo_bruto"] == pytest.approx(5921.05, abs=0.01)
     assert body["guardado_en"] is not None
 
     # Round-trip: el estado quedó persistido por RFC
     estado = client.get(f"/calculadoras/estado/{RFC}/aguinaldo").json()["estado"]
     assert estado is not None
-    assert estado["inputs"]["salario"] == 8000
+    assert estado["inputs"]["salario"] == 12000
     assert estado["resultado"]["aguinaldo_bruto"] == body["resultado"]["aguinaldo_bruto"]
 
     # Y otra empresa NO ve ese estado
     otro = client.get("/calculadoras/estado/XAXX010101000/aguinaldo").json()["estado"]
     assert otro is None
+
+
+def test_aguinaldo_debajo_del_salario_minimo_400(client):
+    """$8,000 mensuales < SMG mensual 2026 (315.04 × 30.4 = $9,577.22) → 400."""
+    r = client.post(
+        "/calculadoras/aguinaldo",
+        json={
+            "salario": 8000,
+            "tipo_salario": "mensual",
+            "fecha_ingreso": "2025-01-01",
+            "fecha_calculo": "2026-12-20",
+        },
+    )
+    assert r.status_code == 400
+    assert "salario mínimo" in r.json()["detail"]
+
+    # $400 diarios: pasa en zona general, falla en la frontera ($440.87)
+    frontera = client.post(
+        "/calculadoras/aguinaldo",
+        json={
+            "salario": 400,
+            "tipo_salario": "diario",
+            "fecha_ingreso": "2025-01-01",
+            "fecha_calculo": "2026-12-20",
+            "es_zona_fronteriza": True,
+        },
+    )
+    assert frontera.status_code == 400
 
 
 def test_finiquito_endpoint(client):
