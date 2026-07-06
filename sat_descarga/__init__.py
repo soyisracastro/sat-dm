@@ -39,6 +39,24 @@ from .utils.listas_negras import (
     detectar_edos,
 )
 
+# Calculadoras fiscales y laborales (cálculo puro, sin dependencias extra).
+from .calculadoras import (
+    AguinaldoInput,
+    CargaPatronalInput,
+    EmpresaPTU,
+    FiniquitoInput,
+    LiquidacionInput,
+    SBCInput,
+    TrabajadorPTU,
+    calcular_aguinaldo,
+    calcular_carga_patronal,
+    calcular_finiquito,
+    calcular_isr_periodo,
+    calcular_liquidacion,
+    calcular_ptu,
+    calcular_sbc,
+)
+
 __all__ = [
     "descargar_cfdi",
     "verificar_solicitud_existente",
@@ -59,4 +77,18 @@ __all__ = [
     "consultar_rfcs",
     "consultar_metadata",
     "detectar_edos",
+    "AguinaldoInput",
+    "calcular_aguinaldo",
+    "CargaPatronalInput",
+    "calcular_carga_patronal",
+    "EmpresaPTU",
+    "TrabajadorPTU",
+    "calcular_ptu",
+    "FiniquitoInput",
+    "calcular_finiquito",
+    "LiquidacionInput",
+    "calcular_liquidacion",
+    "SBCInput",
+    "calcular_sbc",
+    "calcular_isr_periodo",
 ]
