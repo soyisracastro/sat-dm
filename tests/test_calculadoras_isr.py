@@ -9,6 +9,7 @@ from sat_descarga.calculadoras.isr import (
     isr_tarifa_directa,
     tarifa_por_periodicidad,
     tasa_efectiva_art174,
+    validar_salario_minimo,
 )
 
 
@@ -120,3 +121,30 @@ def test_tasa_efectiva_art174():
     assert res["mensualizado"] == pytest.approx(43240.35 / 365 * 30.4)
     assert res["isr"] == pytest.approx(43240.35 * res["tasa"] / 100)
     assert 0 < res["tasa"] < 35
+
+
+def test_validar_salario_minimo_general():
+    """$100 diarios < SMG general 2026 ($315.04) → rechazado con mensaje claro."""
+    with pytest.raises(ValueError, match="salario mínimo general"):
+        validar_salario_minimo(100, 2026, "diario")
+    # En o por encima del mínimo pasa sin error
+    validar_salario_minimo(315.04, 2026, "diario")
+    validar_salario_minimo(400, 2026, "diario")
+
+
+def test_validar_salario_minimo_frontera():
+    """$400 diarios: válido en zona general, inválido en ZLFN ($440.87)."""
+    validar_salario_minimo(400, 2026, "diario", es_zona_fronteriza=False)
+    with pytest.raises(ValueError, match="Frontera Norte"):
+        validar_salario_minimo(400, 2026, "diario", es_zona_fronteriza=True)
+    validar_salario_minimo(440.87, 2026, "diario", es_zona_fronteriza=True)
+
+
+def test_validar_salario_minimo_por_periodicidad():
+    """El umbral escala por días del período (mensual = SMG × 30.4)."""
+    umbral_mensual = 315.04 * 30.4  # $9,577.22
+    with pytest.raises(ValueError):
+        validar_salario_minimo(umbral_mensual - 0.01, 2026, "mensual")
+    validar_salario_minimo(umbral_mensual, 2026, "mensual")
+    with pytest.raises(ValueError):
+        validar_salario_minimo(315.04 * 15 - 0.01, 2026, "quincenal")

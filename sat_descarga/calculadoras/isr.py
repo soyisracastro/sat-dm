@@ -8,7 +8,12 @@ interfaz TS (``ISRResult``) en snake_case.
 
 from __future__ import annotations
 
-from .comunes import DIAS_ANIO, DIAS_MES_PROMEDIO, FACTORES_PERIODICIDAD
+from .comunes import (
+    DIAS_ANIO,
+    DIAS_MES_PROMEDIO,
+    DIAS_PERIODICIDAD,
+    FACTORES_PERIODICIDAD,
+)
 from .indicadores import TramoISR, get_indicadores
 
 
@@ -77,6 +82,41 @@ def calcular_spe(
         if rango.limite_inferior <= ingreso_mensual <= rango.limite_superior:
             return rango.subsidio_mensual * factor
     return 0.0
+
+
+def validar_salario_minimo(
+    ingreso_gravado: float,
+    anio: int = 2026,
+    periodicidad: str = "mensual",
+    es_zona_fronteriza: bool = False,
+) -> None:
+    """Rechaza (``ValueError``) un salario por debajo del mínimo del período.
+
+    Pagar por debajo del salario mínimo es ilegal (Art. 90 LFT) y quien percibe
+    exactamente el mínimo no es sujeto de retención (Art. 96 último párrafo
+    LISR), así que un "salario" menor al SMG no es base válida para calcular
+    retención. El umbral depende de la zona: general o Zona Libre de la
+    Frontera Norte (ZLFN), cuyo mínimo es mayor.
+
+    Aplica SOLO a la calculadora de ISR de sueldos (salarios reales); NO se usa
+    en las bases internas de aguinaldo/finiquito/PTU (ahí el gravado puede ser
+    legítimamente menor) ni en asimilados a salarios (no son salario según la
+    LFT y el mínimo no les aplica).
+    """
+    ind = get_indicadores(anio)
+    smg_diario = ind.smg_frontera if es_zona_fronteriza else ind.smg_general
+    umbral = smg_diario * DIAS_PERIODICIDAD[periodicidad]
+    if ingreso_gravado < umbral:
+        zona = (
+            "de la Zona Libre de la Frontera Norte" if es_zona_fronteriza else "general"
+        )
+        raise ValueError(
+            f"El ingreso del período (${ingreso_gravado:,.2f}) es menor al salario "
+            f"mínimo {zona} equivalente (${umbral:,.2f} = ${smg_diario:,.2f} diarios × "
+            f"{DIAS_PERIODICIDAD[periodicidad]:g} días). No procede calcular retención "
+            "de ISR sobre un salario por debajo del mínimo legal (Art. 90 LFT; Art. 96 "
+            "último párrafo LISR)."
+        )
 
 
 def _resultado_vacio(periodicidad: str) -> dict:

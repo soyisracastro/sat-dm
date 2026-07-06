@@ -946,6 +946,8 @@ export interface CalculadoraIsrRequest {
   ingreso_gravado: number;
   periodicidad: PeriodicidadIsr;
   es_asimilado: boolean;
+  /** ZLFN: el salario mínimo (umbral de retención) es mayor al general. */
+  es_zona_fronteriza: boolean;
   mes: number; // 1..12 (enero vs resto afecta el subsidio)
   anio: number;
   rfc?: string | null;

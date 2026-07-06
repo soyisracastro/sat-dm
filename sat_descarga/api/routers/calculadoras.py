@@ -40,6 +40,7 @@ from ...calculadoras import (
     get_indicadores,
 )
 from ...calculadoras import store
+from ...calculadoras.isr import validar_salario_minimo
 
 router = APIRouter()
 
@@ -77,6 +78,7 @@ class ISRRequest(CalculoBase):
     ingreso_gravado: float = Field(gt=0)
     periodicidad: Literal["diario", "semanal", "decenal", "quincenal", "mensual"] = "mensual"
     es_asimilado: bool = False
+    es_zona_fronteriza: bool = False  # ZLFN: salario mínimo mayor al general
     mes: int = Field(default=2, ge=1, le=12)
 
 
@@ -217,6 +219,12 @@ def _run_sbc(req: SBCRequest) -> dict:
 
 
 def _run_isr(req: ISRRequest) -> dict:
+    # Un salario real por debajo del mínimo (general o ZLFN) no es base válida
+    # de retención; a los asimilados el salario mínimo no les aplica.
+    if not req.es_asimilado:
+        validar_salario_minimo(
+            req.ingreso_gravado, req.anio, req.periodicidad, req.es_zona_fronteriza
+        )
     return calcular_isr_periodo(
         req.ingreso_gravado, req.anio, req.periodicidad, req.es_asimilado, req.mes
     )

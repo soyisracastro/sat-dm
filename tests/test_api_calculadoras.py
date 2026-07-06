@@ -86,6 +86,33 @@ def test_finiquito_fechas_invalidas_400(client):
     assert r.status_code == 400
 
 
+def test_isr_debajo_del_salario_minimo_400(client):
+    """$100 diarios < SMG general → 400; en ZLFN el umbral es mayor."""
+    r = client.post(
+        "/calculadoras/isr", json={"ingreso_gravado": 100, "periodicidad": "diario"}
+    )
+    assert r.status_code == 400
+    assert "salario mínimo" in r.json()["detail"]
+
+    # $400 diarios: pasa en zona general, falla en la frontera ($440.87)
+    ok = client.post(
+        "/calculadoras/isr", json={"ingreso_gravado": 400, "periodicidad": "diario"}
+    )
+    assert ok.status_code == 200
+    frontera = client.post(
+        "/calculadoras/isr",
+        json={"ingreso_gravado": 400, "periodicidad": "diario", "es_zona_fronteriza": True},
+    )
+    assert frontera.status_code == 400
+
+    # A los asimilados el salario mínimo no les aplica
+    asimilado = client.post(
+        "/calculadoras/isr",
+        json={"ingreso_gravado": 100, "periodicidad": "diario", "es_asimilado": True},
+    )
+    assert asimilado.status_code == 200
+
+
 def test_validacion_422(client):
     r = client.post("/calculadoras/isr", json={"ingreso_gravado": -5})
     assert r.status_code == 422
