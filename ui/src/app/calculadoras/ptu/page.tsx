@@ -30,10 +30,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useCalculadora } from '@/hooks/use-calculadora';
+import { RFC_GENERAL, useCalculadora } from '@/hooks/use-calculadora';
 import { formatCurrency, formatDate } from '@/lib/formatting';
 import type { CalculadoraInputs, TrabajadorPtuRequest } from '@/lib/types';
-import { Fragment } from 'react';
+import { Fragment, useEffect } from 'react';
 
 type Inputs = CalculadoraInputs<'ptu'>;
 
@@ -120,7 +120,26 @@ export default function PtuPage() {
     esValido,
     manual: true,
   });
-  const { inputs, setInput, setInputs, resultado } = calc;
+  const { inputs, setInput, setInputs, resultado, rfcActivo, restaurando } = calc;
+
+  // El tipo de persona se deduce del RFC de la empresa activa (13 caracteres =
+  // física, 12 = moral); sin empresa activa se asume moral. La fecha de pago
+  // no se captura: aquí solo se calcula el reparto — la fecha límite legal se
+  // muestra como referencia.
+  const sinEmpresa = rfcActivo === RFC_GENERAL;
+  const tipoDerivado: Inputs['tipo_persona'] =
+    !sinEmpresa && rfcActivo.length === 13 ? 'Física' : 'Moral';
+
+  useEffect(() => {
+    if (restaurando) return;
+    if (inputs.tipo_persona !== tipoDerivado || inputs.fecha_pago !== null) {
+      setInputs((prev) => ({ ...prev, tipo_persona: tipoDerivado, fecha_pago: null }));
+    }
+  }, [restaurando, tipoDerivado, inputs.tipo_persona, inputs.fecha_pago, setInputs]);
+
+  const anioPago = inputs.ejercicio + 1;
+  const fechaLimite =
+    tipoDerivado === 'Moral' ? `${anioPago}-05-30` : `${anioPago}-06-29`;
 
   function actualizarTrabajador(idx: number, patch: Partial<TrabajadorPtuRequest>) {
     setInputs((prev) => ({
@@ -186,33 +205,6 @@ export default function PtuPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Tipo de persona</Label>
-                <Select
-                  value={inputs.tipo_persona}
-                  onValueChange={(v) => setInput('tipo_persona', v as 'Moral' | 'Física')}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Moral">Moral (paga en mayo)</SelectItem>
-                    <SelectItem value="Física">Física (paga en junio)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fecha-pago">Fecha de pago</Label>
-                <Input
-                  id="fecha-pago"
-                  type="date"
-                  value={inputs.fecha_pago ?? ''}
-                  onChange={(e) => setInput('fecha_pago', e.target.value || null)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Opcional; valida contra la fecha límite legal.
-                </p>
-              </div>
-              <div className="space-y-2">
                 <Label>Criterio de exención</Label>
                 <Select
                   value={inputs.criterio_exencion}
@@ -232,6 +224,13 @@ export default function PtuPage() {
                 </p>
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Persona {tipoDerivado === 'Moral' ? 'moral' : 'física'}
+              {sinEmpresa
+                ? ' (sin empresa activa; se asume moral)'
+                : ' — según el RFC de la empresa activa'}
+              {' · '}fecha límite legal de pago: {formatDate(fechaLimite)}.
+            </p>
           </div>
 
           {/* Trabajadores */}
