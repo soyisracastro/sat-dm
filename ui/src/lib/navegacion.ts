@@ -21,6 +21,7 @@ export const NAV_ITEMS: readonly PaginaNav[] = [
   { href: '/listas-negras', label: 'Listas negras', icon: 'ph:shield-check-light' },
   { href: '/organizador', label: 'Organizador', icon: 'ph:folders-light' },
   { href: '/historial', label: 'Historial', icon: 'ph:clock-counter-clockwise-light' },
+  { href: '/calculadoras', label: 'Calculadoras', icon: 'ph:calculator-light' },
 ] as const;
 
 // Páginas fuera del nav plano (footer del sidebar / menú de cuenta).

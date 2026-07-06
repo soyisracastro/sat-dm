@@ -893,3 +893,597 @@ export interface ReportePeriodoVsPeriodo {
     observaciones: string[];
   } | null;
 }
+
+// ---------------------------------------------------------------------------
+// Calculadoras fiscales y laborales
+// (espejo de sat_descarga/api/routers/calculadoras.py + sat_descarga/calculadoras/)
+// ---------------------------------------------------------------------------
+
+export type CalculadoraNombre =
+  | 'aguinaldo'
+  | 'sbc'
+  | 'isr'
+  | 'finiquito'
+  | 'liquidacion'
+  | 'carga-patronal'
+  | 'ptu';
+
+export type TipoSalario = 'diario' | 'mensual';
+export type MetodoIsrAguinaldo = 'ley' | 'reglamento';
+export type PeriodicidadIsr = 'diario' | 'semanal' | 'decenal' | 'quincenal' | 'mensual';
+export type ClaseRiesgo = 'I' | 'II' | 'III' | 'IV' | 'V';
+export type TipoTerminacion =
+  | 'DESPIDO_INJUSTIFICADO'
+  | 'RESCISION_ART51'
+  | 'TERMINACION_COLECTIVA'
+  | 'RENUNCIA_VOLUNTARIA';
+
+// --- Requests de cálculo (el hook agrega `rfc` con la empresa activa) -------
+
+export interface CalculadoraAguinaldoRequest {
+  salario: number;
+  tipo_salario: TipoSalario;
+  fecha_ingreso: string; // "YYYY-MM-DD"
+  dias_aguinaldo: number;
+  fecha_calculo?: string | null;
+  ingreso_ordinario_mensual?: number | null;
+  metodo_isr: MetodoIsrAguinaldo;
+  anio: number;
+  rfc?: string | null;
+}
+
+export interface CalculadoraSbcRequest {
+  salario: number;
+  tipo_salario: TipoSalario;
+  antiguedad_anios: number;
+  dias_aguinaldo: number;
+  prima_vacacional: number; // 0.25..1
+  anio: number;
+  rfc?: string | null;
+}
+
+export interface CalculadoraIsrRequest {
+  ingreso_gravado: number;
+  periodicidad: PeriodicidadIsr;
+  es_asimilado: boolean;
+  mes: number; // 1..12 (enero vs resto afecta el subsidio)
+  anio: number;
+  rfc?: string | null;
+}
+
+export interface CalculadoraFiniquitoRequest {
+  salario: number;
+  tipo_salario: TipoSalario;
+  fecha_ingreso: string;
+  fecha_baja: string;
+  dias_aguinaldo: number;
+  prima_vacacional: number;
+  anio: number;
+  rfc?: string | null;
+}
+
+export interface CalculadoraLiquidacionRequest extends CalculadoraFiniquitoRequest {
+  tipo_terminacion: TipoTerminacion;
+  es_zona_fronteriza: boolean;
+  ultimo_sueldo_mensual?: number | null;
+}
+
+export interface PrestacionAdicional {
+  nombre: string;
+  monto: number;
+  tipo: 'mensual' | 'anual';
+}
+
+export interface CalculadoraCargaPatronalRequest {
+  salario: number;
+  tipo_salario: TipoSalario;
+  antiguedad_anios: number;
+  clase_riesgo: ClaseRiesgo;
+  /** En porcentaje (p. ej. 0.54355). null → prima media de la clase. */
+  prima_riesgo_trabajo?: number | null;
+  codigo_estado: string;
+  /** Decimal 0..0.1 (p. ej. 0.03). null → tasa nominal del estado. */
+  tasa_impuesto_estatal?: number | null;
+  incluir_aguinaldo_mensual: boolean;
+  incluir_vacaciones_mensual: boolean;
+  prestaciones_adicionales: PrestacionAdicional[];
+  anio: number;
+  rfc?: string | null;
+}
+
+export interface TrabajadorPtuRequest {
+  nombre: string;
+  salario_diario: number;
+  dias_trabajados: number; // 1..366
+  percepcion_anual: number;
+  rfc?: string;
+  curp?: string;
+  nss?: string;
+  es_confianza: boolean;
+  ptu_anio_1: number;
+  ptu_anio_2: number;
+  ptu_anio_3: number;
+  ingreso_mensual_ordinario: number;
+  isr_mensual_ordinario: number;
+}
+
+export interface CalculadoraPtuRequest {
+  utilidad_fiscal: number;
+  ejercicio: number; // 2021-2025
+  nombre: string;
+  rfc_empresa: string;
+  ptu_no_cobrada: number;
+  tipo_persona: 'Moral' | 'Física';
+  fecha_pago?: string | null;
+  criterio_exencion: 'UMA' | 'SMG';
+  trabajadores: TrabajadorPtuRequest[];
+  rfc?: string | null;
+}
+
+// --- Resultados --------------------------------------------------------------
+
+/** Paso del desglose "paso a paso" que generan aguinaldo y otras calculadoras. */
+export interface DesglosePaso {
+  numero: number;
+  descripcion: string;
+  formula: string;
+  valores: Record<string, unknown>;
+  resultado: number | string;
+}
+
+export interface DesgloseConPasos {
+  pasos: DesglosePaso[];
+  parametros: Record<string, number | string>;
+}
+
+export interface ComparacionMetodosAguinaldo {
+  metodo_ley: { isr_calculado: number; tasa_efectiva: number };
+  metodo_reglamento: {
+    isr_calculado: number;
+    tasa_efectiva: number;
+    aguinaldo_mensualizado: number;
+  };
+  diferencia: number;
+  metodo_recomendado: MetodoIsrAguinaldo;
+}
+
+export interface AguinaldoResultado {
+  salario_diario: number;
+  dias_trabajados: number;
+  dias_aguinaldo_proporcionales: number;
+  aguinaldo_bruto: number;
+  parte_exenta: number;
+  parte_gravada: number;
+  isr_retenido: number;
+  tasa_efectiva_isr: number;
+  aguinaldo_neto: number;
+  desglose: DesgloseConPasos;
+  comparacion_metodos: ComparacionMetodosAguinaldo | null;
+}
+
+export interface SbcResultado {
+  salario_diario_base: number;
+  factor_integracion: number;
+  sbc_diario: number;
+  sbc_mensual: number;
+  tope_sbc: number;
+  excede_tope: boolean;
+  desglose: {
+    salario_base: { dias: number; integracion_diaria: number };
+    aguinaldo: { dias: number; integracion_diaria: number };
+    prima_vacacional: {
+      dias_vacaciones: number;
+      porcentaje: number;
+      integracion_diaria: number;
+    };
+    total_integrado: number;
+  };
+}
+
+export interface IsrResultado {
+  ingreso_bruto: number;
+  base_gravable: number;
+  isr_bruto: number;
+  subsidio_aplicado: number;
+  isr_final: number;
+  tasa_efectiva: number;
+  ingreso_neto: number;
+  periodicidad: string;
+  desglose: {
+    limite_inferior: number;
+    excedente_limite_inferior: number;
+    tasa_marginal: number;
+    impuesto_marginal: number;
+    cuota_fija: number;
+    isr_antes_subsidio: number;
+    subsidio: number;
+    isr_final: number;
+    rango_tarifa: {
+      limite_inferior: number;
+      limite_superior: number | null;
+      cuota_fija: number;
+      porcentaje_sobre_excedente: number;
+    };
+  };
+}
+
+export interface Antiguedad {
+  anios: number;
+  meses: number;
+  dias: number;
+  anios_completos: number;
+  total_dias: number;
+  texto: string;
+}
+
+export interface SalarioDevengado {
+  dias: number;
+  monto_por_dia: number;
+  monto: number;
+}
+
+export interface AguinaldoProporcional {
+  dias_correspondientes: number;
+  dias_aguinaldo_anual: number;
+  monto: number;
+  exencion: number;
+  gravado: number;
+  exento: number;
+}
+
+export interface VacacionesProporcionales {
+  dias_vacaciones_anuales: number;
+  dias_correspondientes: number;
+  monto_por_dia: number;
+  monto: number;
+}
+
+export interface PrimaVacacionalProporcional {
+  porcentaje: number;
+  monto: number;
+  exencion: number;
+  gravado: number;
+  exento: number;
+}
+
+export interface FiniquitoResultado {
+  salario_diario: number;
+  salario_mensual: number;
+  antiguedad: Antiguedad;
+  salario_devengado: SalarioDevengado;
+  aguinaldo_proporcional: AguinaldoProporcional;
+  vacaciones_proporcionales: VacacionesProporcionales;
+  prima_vacacional: PrimaVacacionalProporcional;
+  fiscal: {
+    total_gravado: number;
+    total_exento: number;
+    isr_retenido: number;
+  };
+  subtotal_bruto: number;
+  total_isr: number;
+  total_neto: number;
+}
+
+/** Conceptos del finiquito dentro de una liquidación. */
+export interface FiniquitoConceptos {
+  salario_devengado: SalarioDevengado;
+  aguinaldo_proporcional: AguinaldoProporcional;
+  vacaciones_proporcionales: VacacionesProporcionales;
+  prima_vacacional: PrimaVacacionalProporcional;
+  subtotal: number;
+  total_gravado: number;
+  total_exento: number;
+}
+
+export interface LiquidacionIndemnizacion {
+  tres_meses_constitucional: {
+    dias_sdi: number;
+    salario_diario_integrado: number;
+    monto: number;
+    aplica: boolean;
+    fundamento_legal: string;
+  };
+  veinte_dias_por_anio: {
+    anios_completos: number;
+    dias_por_anio: number;
+    salario_diario_integrado: number;
+    monto: number;
+    aplica: boolean;
+    fundamento_legal: string;
+    razon_no_aplica: string | null;
+  };
+  prima_antiguedad: {
+    anios_servicio: number;
+    dias_por_anio: number;
+    salario_diario: number;
+    monto: number;
+    aplica: boolean;
+    salario_tope: number;
+    salario_aplicable: number;
+    fundamento_legal: string;
+    razon_no_aplica?: string;
+  };
+  subtotal: number;
+  exencion: number;
+  gravado: number;
+  exento: number;
+}
+
+export interface LiquidacionFiscalIndemnizacion {
+  total_bruto: number;
+  exencion_90_uma: number;
+  base_gravable: number;
+  ultimo_sueldo_mensual: number;
+  isr_ultimo_sueldo: number;
+  tasa_efectiva: number;
+  usa_tasa_efectiva: boolean;
+  isr: number;
+}
+
+export interface LiquidacionResultado {
+  salario_diario: number;
+  salario_mensual: number;
+  salario_diario_integrado: number;
+  factor_integracion: number;
+  antiguedad: Antiguedad;
+  finiquito: FiniquitoConceptos;
+  indemnizacion: LiquidacionIndemnizacion | null;
+  fiscal: {
+    finiquito: { base_gravable: number; isr: number };
+    indemnizacion: LiquidacionFiscalIndemnizacion;
+    total_gravado: number;
+    total_exento: number;
+    total_isr: number;
+  };
+  total_bruto: number;
+  total_isr: number;
+  total_neto: number;
+  aplica_indemnizacion: boolean;
+  aplica_tres_meses: boolean;
+  aplica_veinte_dias: boolean;
+  aplica_prima_antiguedad: boolean;
+  tipo_terminacion: TipoTerminacion;
+}
+
+export interface CuotasImss {
+  enfermedad_maternidad: number;
+  invalidez_vida: number;
+  cesantia_vejez: number;
+  guarderias: number;
+  riesgos_trabajo: number;
+  total: number;
+}
+
+export interface CargaPatronalConcepto {
+  nombre: string;
+  descripcion: string;
+  monto_mensual: number;
+  monto_anual: number;
+  categoria: string;
+}
+
+export interface CargaPatronalResultado {
+  salario_diario: number;
+  salario_mensual: number;
+  salario_anual: number;
+  sbc: number;
+  sbc_mensual: number;
+  cuotas_imss: CuotasImss;
+  infonavit: number;
+  impuesto_estatal: number;
+  aguinaldo_prorrateo: number;
+  vacaciones_prorrateo: number;
+  prestaciones_adicionales: number;
+  isr_empleado: number;
+  salario_neto: number;
+  carga_patronal_mensual: number;
+  costo_total_mensual: number;
+  costo_total_anual: number;
+  prima_riesgo_aplicada: number;
+  tasa_estatal_aplicada: number;
+  desglose: {
+    conceptos: CargaPatronalConcepto[];
+    total_salarios: number;
+    total_carga_patronal: number;
+    costo_total: number;
+  };
+}
+
+export interface PtuTrabajadorResultado {
+  nombre: string;
+  rfc: string;
+  curp: string;
+  nss: string;
+  salario_diario: number;
+  dias_trabajados: number;
+  percepcion_anual: number;
+  es_confianza: boolean;
+  salario_tope_confianza: number | null;
+  ingreso_mensual_ordinario: number;
+  isr_mensual_ordinario: number;
+  factor_dias: number;
+  ptu_dias: number;
+  factor_salarios: number;
+  ptu_salarios: number;
+  ptu_bruta: number;
+  tope_tres_meses: number;
+  promedio_tres_anios: number;
+  monto_maximo: number;
+  ptu_real: number;
+  exencion_aplicable: number;
+  ptu_exenta: number;
+  ptu_gravada: number;
+  art96: {
+    base_gravable: number;
+    isr_total: number;
+    isr_ordinario: number;
+    isr_ptu: number;
+    ptu_neta: number;
+  };
+  art174: {
+    ptu_promedio_mensual: number;
+    base_promediada: number;
+    isr_base_promediada: number;
+    isr_ordinario_sin_subsidio: number;
+    diferencia_isr: number;
+    tasa_efectiva: number;
+    isr_ptu: number;
+    ptu_neta: number;
+  };
+  comparacion: {
+    diferencia_isr: number;
+    metodo_recomendado: 'art96' | 'art174';
+    isr_recomendado: number;
+    ptu_neta_final: number;
+  };
+  advertencias: string[];
+}
+
+export interface PtuResultado {
+  config: {
+    ejercicio: number;
+    anio_pago: number;
+    uma_diaria: number;
+    smg_general: number;
+    smg_frontera: number;
+    criterio_exencion: 'UMA' | 'SMG';
+    dias_exencion: number;
+    exencion_por_trabajador: number;
+    tipo_persona: string;
+    fecha_pago: string | null;
+    fecha_limite_pago: string;
+  };
+  empresa: {
+    nombre: string;
+    rfc: string;
+    utilidad_fiscal: number;
+    ptu_no_cobrada: number;
+    ptu_generada: number;
+    ptu_a_repartir: number;
+    bolsa_dias: number;
+    bolsa_salarios: number;
+  };
+  trabajadores: PtuTrabajadorResultado[];
+  totales: {
+    ptu_bruta: number;
+    ptu_real: number;
+    ptu_exenta: number;
+    ptu_gravada: number;
+    isr_art96: number;
+    isr_art174: number;
+    isr_recomendado: number;
+    ptu_neta_a_pagar: number;
+  };
+  advertencias: string[];
+}
+
+// --- Mapas nombre → request/resultado (tipan calculadoraCalcular) -----------
+
+export interface CalculadoraRequestMap {
+  aguinaldo: CalculadoraAguinaldoRequest;
+  sbc: CalculadoraSbcRequest;
+  isr: CalculadoraIsrRequest;
+  finiquito: CalculadoraFiniquitoRequest;
+  liquidacion: CalculadoraLiquidacionRequest;
+  'carga-patronal': CalculadoraCargaPatronalRequest;
+  ptu: CalculadoraPtuRequest;
+}
+
+export interface CalculadoraResultadoMap {
+  aguinaldo: AguinaldoResultado;
+  sbc: SbcResultado;
+  isr: IsrResultado;
+  finiquito: FiniquitoResultado;
+  liquidacion: LiquidacionResultado;
+  'carga-patronal': CargaPatronalResultado;
+  ptu: PtuResultado;
+}
+
+/** Inputs de una calculadora = su request sin el RFC (lo agrega el hook). */
+export type CalculadoraInputs<N extends CalculadoraNombre> = Omit<
+  CalculadoraRequestMap[N],
+  'rfc'
+>;
+
+// --- Respuestas del agente ---------------------------------------------------
+
+export interface CalculoResponse<R> {
+  ok: boolean;
+  resultado: R;
+  advertencias: string[];
+  guardado_en: string | null;
+}
+
+export interface CalculadoraEstado {
+  inputs: Record<string, unknown>;
+  resultado: Record<string, unknown>;
+  anio: number;
+  actualizado_en: string;
+}
+
+export interface CalculadoraEstadoResponse {
+  ok: boolean;
+  estado: CalculadoraEstado | null;
+}
+
+export interface CalculadoraGuardado {
+  id: string;
+  calculadora: string;
+  nombre: string;
+  inputs: Record<string, unknown>;
+  resultado: Record<string, unknown>;
+  anio: number;
+  creado_en: string;
+}
+
+export interface CalculadorasEstadoResponse {
+  ok: boolean;
+  estados: Record<string, CalculadoraEstado>;
+  guardados: CalculadoraGuardado[];
+}
+
+export interface CalculadoraGuardadoRequest {
+  calculadora: CalculadoraNombre;
+  nombre: string;
+  inputs: Record<string, unknown>;
+  resultado: Record<string, unknown>;
+  anio: number;
+}
+
+// --- Indicadores del ejercicio (GET /calculadoras/indicadores/{anio}) -------
+
+export interface EstadoIsn {
+  codigo: string;
+  nombre: string;
+  tasa_nomina: number;
+}
+
+export interface TipoTerminacionInfo {
+  label: string;
+  descripcion: string;
+  finiquito: boolean;
+  tres_meses: boolean;
+  veinte_dias: boolean;
+  prima_antiguedad: boolean | 'condicional';
+  fundamento_legal: string;
+}
+
+export interface IndicadoresCalculadoras {
+  ok: boolean;
+  anio: number;
+  uma_diaria: number;
+  uma_mensual: number;
+  uma_anual: number;
+  smg_general: number;
+  smg_frontera: number;
+  tope_sbc_diario: number;
+  tarifa_isr_mensual: unknown;
+  spe: unknown;
+  imss: unknown;
+  estados_isn: EstadoIsn[];
+  /** Prima media por clase de riesgo, en decimal (0.0054355 = 0.54355%). */
+  primas_riesgo: Record<string, number>;
+  descripcion_clases_riesgo: Record<string, string>;
+  tipos_terminacion: Record<string, TipoTerminacionInfo>;
+  advertencias: string[];
+}
