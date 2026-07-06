@@ -195,6 +195,35 @@ def test_carga_patronal_endpoint(client):
     assert r.json()["resultado"]["impuesto_estatal"] == pytest.approx(480.0)
 
 
+def test_carga_patronal_debajo_del_salario_minimo_400(client):
+    """La carga patronal también rechaza salarios por debajo del mínimo."""
+    r = client.post(
+        "/calculadoras/carga-patronal",
+        json={"salario": 300, "tipo_salario": "diario", "antiguedad_anios": 1},
+    )
+    assert r.status_code == 400
+    assert "salario mínimo" in r.json()["detail"]
+
+    # Mensual usa el factor /30: $9,450 → $315 diarios (< SMG general)
+    bajo = client.post(
+        "/calculadoras/carga-patronal",
+        json={"salario": 9450, "tipo_salario": "mensual", "antiguedad_anios": 1},
+    )
+    assert bajo.status_code == 400
+
+    # $400 diarios: pasa en zona general, falla en la frontera ($440.87)
+    frontera = client.post(
+        "/calculadoras/carga-patronal",
+        json={
+            "salario": 400,
+            "tipo_salario": "diario",
+            "antiguedad_anios": 1,
+            "es_zona_fronteriza": True,
+        },
+    )
+    assert frontera.status_code == 400
+
+
 def test_carga_patronal_anio_sin_imss_400(client):
     r = client.post(
         "/calculadoras/carga-patronal",

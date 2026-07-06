@@ -113,6 +113,7 @@ class CargaPatronalRequest(CalculoBase):
     salario: float = Field(gt=0)
     tipo_salario: Literal["diario", "mensual"]
     antiguedad_anios: int = Field(ge=0)
+    es_zona_fronteriza: bool = False  # ZLFN: salario mínimo mayor al general
     clase_riesgo: Literal["I", "II", "III", "IV", "V"] = "I"
     prima_riesgo_trabajo: Optional[float] = Field(default=None, ge=0)
     codigo_estado: str = "CDMX"
@@ -277,6 +278,19 @@ def _run_liquidacion(req: LiquidacionRequest) -> dict:
 
 
 def _run_carga_patronal(req: CargaPatronalRequest) -> dict:
+    # Un salario por debajo del mínimo (general o ZLFN) no es un costo laboral
+    # válido. Mismo factor de conversión que la calculadora (mensual / 30).
+    salario_diario = req.salario / 30 if req.tipo_salario == "mensual" else req.salario
+    validar_salario_minimo(
+        salario_diario,
+        req.anio,
+        "diario",
+        req.es_zona_fronteriza,
+        contexto=(
+            "Un salario por debajo del mínimo legal (Art. 90 LFT) no es base válida "
+            "para calcular la carga patronal."
+        ),
+    )
     return calcular_carga_patronal(
         CargaPatronalInput(
             salario=req.salario,

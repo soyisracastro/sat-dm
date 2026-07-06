@@ -44,6 +44,7 @@ const DEFAULTS: Inputs = {
   salario: 0,
   tipo_salario: 'mensual',
   antiguedad_anios: 1,
+  es_zona_fronteriza: false,
   clase_riesgo: 'I',
   prima_riesgo_trabajo: null,
   codigo_estado: 'CDMX',
@@ -56,27 +57,44 @@ const DEFAULTS: Inputs = {
 
 const CLASES_RIESGO: ClaseRiesgo[] = ['I', 'II', 'III', 'IV', 'V'];
 
-function esValido(inputs: Inputs): boolean {
-  if (inputs.salario <= 0 || inputs.antiguedad_anios < 0) return false;
-  if (
-    inputs.tasa_impuesto_estatal != null &&
-    (inputs.tasa_impuesto_estatal < 0 || inputs.tasa_impuesto_estatal > 0.1)
-  ) {
-    return false;
-  }
-  if (inputs.prima_riesgo_trabajo != null && inputs.prima_riesgo_trabajo < 0) return false;
-  // Prestaciones a medio capturar no deben disparar (ni persistir) el cálculo.
-  return inputs.prestaciones_adicionales.every((p) => p.nombre.trim() !== '' && p.monto >= 0);
-}
-
 export default function CargaPatronalPage() {
+  const indicadores = useIndicadores(2026);
+
+  // Umbral de salario mínimo en la unidad del input (esta calculadora
+  // convierte mensual→diario con /30). Un salario por debajo del mínimo no es
+  // un costo laboral válido (Art. 90 LFT).
+  function umbralMinimo(inputs: Inputs): number | null {
+    if (!indicadores) return null;
+    const smgDiario = inputs.es_zona_fronteriza
+      ? indicadores.smg_frontera
+      : indicadores.smg_general;
+    return inputs.tipo_salario === 'mensual' ? smgDiario * 30 : smgDiario;
+  }
+
+  function esValido(inputs: Inputs): boolean {
+    if (inputs.salario <= 0 || inputs.antiguedad_anios < 0) return false;
+    if (
+      inputs.tasa_impuesto_estatal != null &&
+      (inputs.tasa_impuesto_estatal < 0 || inputs.tasa_impuesto_estatal > 0.1)
+    ) {
+      return false;
+    }
+    if (inputs.prima_riesgo_trabajo != null && inputs.prima_riesgo_trabajo < 0) return false;
+    const umbral = umbralMinimo(inputs);
+    if (umbral !== null && inputs.salario < umbral) return false;
+    // Prestaciones a medio capturar no deben disparar (ni persistir) el cálculo.
+    return inputs.prestaciones_adicionales.every((p) => p.nombre.trim() !== '' && p.monto >= 0);
+  }
+
   const calc = useCalculadora({ nombre: 'carga-patronal', defaults: DEFAULTS, esValido });
   const { inputs, setInput, setInputs, resultado } = calc;
-  const indicadores = useIndicadores(inputs.anio);
 
   const estados = indicadores?.estados_isn ?? [];
   const estadoActual = estados.find((e) => e.codigo === inputs.codigo_estado);
   const primaClase = indicadores?.primas_riesgo?.[inputs.clase_riesgo];
+  const umbral = umbralMinimo(inputs);
+  const debajoDelMinimo =
+    umbral !== null && inputs.salario > 0 && inputs.salario < umbral;
 
   const tasaPct =
     inputs.tasa_impuesto_estatal != null
@@ -130,6 +148,30 @@ export default function CargaPatronalPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {debajoDelMinimo && (
+            <p className="text-xs font-medium text-destructive">
+              El salario es menor al mínimo{' '}
+              {inputs.es_zona_fronteriza ? 'de la frontera norte' : 'general'}{' '}
+              {inputs.tipo_salario === 'mensual' ? 'mensual' : 'diario'} (
+              {formatCurrency(umbral)}). Pagar por debajo del mínimo es ilegal
+              (Art. 90 LFT); no es base válida para calcular la carga patronal.
+            </p>
+          )}
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+            <div className="space-y-0.5">
+              <Label htmlFor="zlfn">Zona Libre de la Frontera Norte</Label>
+              <p className="text-xs text-muted-foreground">
+                El salario mínimo de la ZLFN es mayor al del resto del país.
+              </p>
+            </div>
+            <Switch
+              id="zlfn"
+              checked={inputs.es_zona_fronteriza}
+              onCheckedChange={(v) => setInput('es_zona_fronteriza', v)}
+            />
           </div>
 
           <div className="space-y-2">
