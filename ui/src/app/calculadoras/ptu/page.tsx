@@ -118,6 +118,33 @@ function CeldaNumero({
   );
 }
 
+/**
+ * Input de montos compacto para la tabla: mismo comportamiento que los campos
+ * de la empresa (prefijo $, separador de miles y 2 decimales al perder foco).
+ */
+function CeldaMoneda({
+  valor,
+  onCambio,
+  ancho = 'w-28',
+  ariaLabel,
+}: {
+  valor: number;
+  onCambio: (n: number) => void;
+  ancho?: string;
+  ariaLabel: string;
+}) {
+  return (
+    <div className={ancho}>
+      <MonedaInput
+        aria-label={ariaLabel}
+        className="h-8 w-full md:text-xs"
+        value={valor > 0 ? valor : null}
+        onChange={(v) => onCambio(v ?? 0)}
+      />
+    </div>
+  );
+}
+
 export default function PtuPage() {
   const calc = useCalculadora({
     nombre: 'ptu',
@@ -302,7 +329,7 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="Salario diario"
                         valor={t.salario_diario}
                         onCambio={(n) => actualizarTrabajador(idx, { salario_diario: n })}
@@ -317,9 +344,9 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="Percepción anual"
-                        ancho="w-28"
+                        ancho="w-32"
                         valor={t.percepcion_anual}
                         onCambio={(n) => actualizarTrabajador(idx, { percepcion_anual: n })}
                       />
@@ -333,28 +360,28 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel={`PTU cobrada en ${inputs.ejercicio - 1}`}
                         valor={t.ptu_anio_1}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_1: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel={`PTU cobrada en ${inputs.ejercicio - 2}`}
                         valor={t.ptu_anio_2}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_2: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel={`PTU cobrada en ${inputs.ejercicio - 3}`}
                         valor={t.ptu_anio_3}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_3: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="Ingreso mensual ordinario"
                         valor={t.ingreso_mensual_ordinario}
                         onCambio={(n) =>
@@ -363,7 +390,7 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="ISR mensual ordinario"
                         valor={t.isr_mensual_ordinario}
                         onCambio={(n) =>
