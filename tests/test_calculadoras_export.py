@@ -88,7 +88,7 @@ def test_export_pdf_finiquito(client):
     "calculadora,inputs",
     [
         ("aguinaldo", {"salario": 8000, "tipo_salario": "mensual", "fecha_ingreso": "2025-01-01", "fecha_calculo": "2026-12-20"}),
-        ("sbc", {"salario": 300, "tipo_salario": "diario", "antiguedad_anios": 1}),
+        ("sbc", {"salario": 400, "tipo_salario": "diario", "antiguedad_anios": 1}),
         ("isr", {"ingreso_gravado": 15000}),
         (
             "liquidacion",

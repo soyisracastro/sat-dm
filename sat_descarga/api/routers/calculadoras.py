@@ -72,6 +72,7 @@ class SBCRequest(CalculoBase):
     antiguedad_anios: int = Field(ge=0)
     dias_aguinaldo: int = Field(default=15, ge=15)
     prima_vacacional: float = Field(default=0.25, ge=0.25, le=1)
+    es_zona_fronteriza: bool = False  # ZLFN: salario mínimo mayor al general
 
 
 class ISRRequest(CalculoBase):
@@ -206,6 +207,20 @@ def _run_aguinaldo(req: AguinaldoRequest) -> dict:
 
 
 def _run_sbc(req: SBCRequest) -> dict:
+    # Un salario por debajo del mínimo (general o ZLFN) no es base válida para
+    # cotizar. Se valida sobre el salario DIARIO derivado con el mismo factor
+    # que usa la calculadora (mensual / 30).
+    salario_diario = req.salario / 30 if req.tipo_salario == "mensual" else req.salario
+    validar_salario_minimo(
+        salario_diario,
+        req.anio,
+        "diario",
+        req.es_zona_fronteriza,
+        contexto=(
+            "Un salario por debajo del mínimo legal (Art. 90 LFT) no es base válida "
+            "para determinar el salario base de cotización."
+        ),
+    )
     return calcular_sbc(
         SBCInput(
             salario=req.salario,

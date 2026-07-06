@@ -938,6 +938,8 @@ export interface CalculadoraSbcRequest {
   antiguedad_anios: number;
   dias_aguinaldo: number;
   prima_vacacional: number; // 0.25..1
+  /** ZLFN: el salario mínimo (umbral de validación) es mayor al general. */
+  es_zona_fronteriza: boolean;
   anio: number;
   rfc?: string | null;
 }

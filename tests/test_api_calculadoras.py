@@ -113,6 +113,40 @@ def test_isr_debajo_del_salario_minimo_400(client):
     assert asimilado.status_code == 200
 
 
+def test_sbc_debajo_del_salario_minimo_400(client):
+    """El SBC también rechaza salarios por debajo del mínimo (general/ZLFN)."""
+    r = client.post(
+        "/calculadoras/sbc",
+        json={"salario": 300, "tipo_salario": "diario", "antiguedad_anios": 1},
+    )
+    assert r.status_code == 400
+    assert "salario mínimo" in r.json()["detail"]
+
+    # Mensual usa el mismo factor /30 de la calculadora: $9,450 → $315 diarios (< SMG)
+    bajo = client.post(
+        "/calculadoras/sbc",
+        json={"salario": 9450, "tipo_salario": "mensual", "antiguedad_anios": 1},
+    )
+    assert bajo.status_code == 400
+    ok = client.post(
+        "/calculadoras/sbc",
+        json={"salario": 9452, "tipo_salario": "mensual", "antiguedad_anios": 1},
+    )
+    assert ok.status_code == 200
+
+    # $400 diarios: pasa en zona general, falla en la frontera ($440.87)
+    frontera = client.post(
+        "/calculadoras/sbc",
+        json={
+            "salario": 400,
+            "tipo_salario": "diario",
+            "antiguedad_anios": 1,
+            "es_zona_fronteriza": True,
+        },
+    )
+    assert frontera.status_code == 400
+
+
 def test_validacion_422(client):
     r = client.post("/calculadoras/isr", json={"ingreso_gravado": -5})
     assert r.status_code == 422
@@ -238,7 +272,7 @@ def test_estado_empresa_completo(client):
     client.post("/calculadoras/isr", json={"ingreso_gravado": 10000, "rfc": RFC})
     client.post(
         "/calculadoras/sbc",
-        json={"salario": 300, "tipo_salario": "diario", "antiguedad_anios": 1, "rfc": RFC},
+        json={"salario": 400, "tipo_salario": "diario", "antiguedad_anios": 1, "rfc": RFC},
     )
     r = client.get(f"/calculadoras/estado/{RFC}")
     assert r.status_code == 200
