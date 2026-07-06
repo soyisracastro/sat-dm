@@ -281,9 +281,9 @@ export default function PtuPage() {
                   <TableHead className="text-right">Días</TableHead>
                   <TableHead className="text-right">Percepción anual</TableHead>
                   <TableHead className="text-center">Confianza</TableHead>
-                  <TableHead className="text-right">PTU año -1</TableHead>
-                  <TableHead className="text-right">PTU año -2</TableHead>
-                  <TableHead className="text-right">PTU año -3</TableHead>
+                  <TableHead className="text-right">PTU {inputs.ejercicio - 1}</TableHead>
+                  <TableHead className="text-right">PTU {inputs.ejercicio - 2}</TableHead>
+                  <TableHead className="text-right">PTU {inputs.ejercicio - 3}</TableHead>
                   <TableHead className="text-right">Ingreso mensual</TableHead>
                   <TableHead className="text-right">ISR mensual</TableHead>
                   <TableHead />
@@ -334,21 +334,21 @@ export default function PtuPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <CeldaNumero
-                        ariaLabel="PTU del año anterior"
+                        ariaLabel={`PTU cobrada en ${inputs.ejercicio - 1}`}
                         valor={t.ptu_anio_1}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_1: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
                       <CeldaNumero
-                        ariaLabel="PTU de hace dos años"
+                        ariaLabel={`PTU cobrada en ${inputs.ejercicio - 2}`}
                         valor={t.ptu_anio_2}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_2: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
                       <CeldaNumero
-                        ariaLabel="PTU de hace tres años"
+                        ariaLabel={`PTU cobrada en ${inputs.ejercicio - 3}`}
                         valor={t.ptu_anio_3}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_3: n })}
                       />
@@ -393,7 +393,8 @@ export default function PtuPage() {
               </TableBody>
             </Table>
             <p className="text-xs text-muted-foreground">
-              «PTU año -1/-2/-3»: PTU cobrada en los tres años anteriores (para el tope del
+              «PTU {inputs.ejercicio - 1}/{inputs.ejercicio - 2}/{inputs.ejercicio - 3}»:
+              PTU cobrada en los tres años anteriores al ejercicio (para el tope del
               promedio). «Ingreso/ISR mensual»: nómina ordinaria del mes de pago (para el
               ISR Art. 96 vs Art. 174).
             </p>
