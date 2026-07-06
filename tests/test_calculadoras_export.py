@@ -30,6 +30,21 @@ FINIQUITO_INPUTS = {
     "fecha_baja": "2026-07-15",
 }
 
+PTU_INPUTS_SIN_EMPRESA = {
+    "utilidad_fiscal": 600000,
+    "ejercicio": 2025,
+    "trabajadores": [
+        {
+            "nombre": "Trabajador de Prueba",
+            "salario_diario": 15000 / 30.4,
+            "dias_trabajados": 365,
+            "percepcion_anual": 180000,
+            "ingreso_mensual_ordinario": 15000,
+            "isr_mensual_ordinario": 1068.54,
+        }
+    ],
+}
+
 PTU_INPUTS = {
     "utilidad_fiscal": 600000,
     "ejercicio": 2025,
@@ -161,6 +176,34 @@ def test_recibos_solo_para_ptu(client):
         json={"calculadora": "finiquito", "inputs": FINIQUITO_INPUTS},
     )
     assert r.status_code == 400
+
+
+def test_latin1_translitera_tipografia():
+    """Guión largo, puntos suspensivos y comillas tipográficas → ASCII (no «?»)."""
+    from sat_descarga.calculadoras.exportar import _latin1
+
+    assert _latin1("PTU — Reparto…") == "PTU - Reparto..."
+    assert _latin1("“cita” – ‘x’") == '"cita" - \'x\''
+    assert "?" not in _latin1("PTU — Reparto de utilidades · año 2025")
+
+
+def test_ptu_xlsx_ejercicio_y_empresa_activa(client):
+    """El Resumen lleva el ejercicio seleccionado y la empresa activa del catálogo."""
+    config_store.add_empresa_ciec("CAUI890921DAA", "Mi Empresa SA de CV", "ciec123")
+    r = client.post(
+        "/calculadoras/exportar/xlsx",
+        json={"calculadora": "ptu", "inputs": PTU_INPUTS_SIN_EMPRESA, "rfc": "CAUI890921DAA"},
+    )
+    assert r.status_code == 200
+    ws = load_workbook(io.BytesIO(r.content))["Resumen"]
+    assert ws.cell(row=2, column=1).value == "TodoConta · Ejercicio 2025"  # no el año de pago
+    filas = {
+        ws.cell(row=i, column=1).value: ws.cell(row=i, column=2).value
+        for i in range(1, 30)
+        if ws.cell(row=i, column=1).value
+    }
+    assert filas["Empresa"] == "Mi Empresa SA de CV"
+    assert filas["RFC"] == "CAUI890921DAA"
 
 
 def test_export_formato_desconocido(client):

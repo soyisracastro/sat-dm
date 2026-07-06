@@ -548,15 +548,15 @@ def eliminar_guardado_endpoint(rfc: str, guardado_id: str):
 # Export (Excel / PDF / recibos PTU) — premium; el gating vive en el frontend
 # ---------------------------------------------------------------------------
 
-# (modelo de request, ejecutor, año a reportar en el documento)
+# (modelo de request, ejecutor)
 _EXPORTABLES: dict = {
-    "aguinaldo": (AguinaldoRequest, _run_aguinaldo, lambda req, res: req.anio),
-    "sbc": (SBCRequest, _run_sbc, lambda req, res: req.anio),
-    "isr": (ISRRequest, _run_isr, lambda req, res: req.anio),
-    "finiquito": (FiniquitoRequest, _run_finiquito, lambda req, res: req.anio),
-    "liquidacion": (LiquidacionRequest, _run_liquidacion, lambda req, res: req.anio),
-    "carga-patronal": (CargaPatronalRequest, _run_carga_patronal, lambda req, res: req.anio),
-    "ptu": (PTURequest, _run_ptu, lambda req, res: res["config"]["anio_pago"]),
+    "aguinaldo": (AguinaldoRequest, _run_aguinaldo),
+    "sbc": (SBCRequest, _run_sbc),
+    "isr": (ISRRequest, _run_isr),
+    "finiquito": (FiniquitoRequest, _run_finiquito),
+    "liquidacion": (LiquidacionRequest, _run_liquidacion),
+    "carga-patronal": (CargaPatronalRequest, _run_carga_patronal),
+    "ptu": (PTURequest, _run_ptu),
 }
 
 _MEDIA_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -603,9 +603,26 @@ def exportar_endpoint(formato: str, req: ExportarRequest):
     if formato == "recibos-ptu" and req.calculadora != "ptu":
         raise HTTPException(status_code=400, detail="Los recibos solo aplican a PTU.")
 
-    modelo_cls, run, anio_de = _EXPORTABLES[req.calculadora]
+    inputs = dict(req.inputs)
+    rfc_limpio = (req.rfc or "").strip().upper()
+    if not re.fullmatch(r"[A-ZÑ&0-9]{12,13}", rfc_limpio):
+        rfc_limpio = ""
+
+    # PTU: el documento y los recibos llevan la identidad de la empresa activa
+    # (nombre del catálogo + RFC) cuando el formulario no la trae.
+    if req.calculadora == "ptu" and rfc_limpio:
+        if not inputs.get("rfc_empresa"):
+            inputs["rfc_empresa"] = rfc_limpio
+        if not inputs.get("nombre"):
+            from ...cli.config_store import load_empresas
+
+            empresa = load_empresas().get("empresas", {}).get(rfc_limpio) or {}
+            if empresa.get("nombre"):
+                inputs["nombre"] = empresa["nombre"]
+
+    modelo_cls, run = _EXPORTABLES[req.calculadora]
     try:
-        modelo = modelo_cls(**req.inputs)
+        modelo = modelo_cls(**inputs)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     try:
@@ -613,7 +630,8 @@ def exportar_endpoint(formato: str, req: ExportarRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Año para el nombre: en PTU el ejercicio a repartir; en el resto, el del cálculo.
+    # Año del documento y del nombre: en PTU el ejercicio a repartir; en el
+    # resto, el del cálculo.
     anio_nombre = modelo.ejercicio if req.calculadora == "ptu" else modelo.anio
 
     if formato == "recibos-ptu":
@@ -621,9 +639,7 @@ def exportar_endpoint(formato: str, req: ExportarRequest):
         media = _MEDIA_PDF
         filename = _nombre_archivo(req.rfc, "recibos-ptu", anio_nombre, "pdf")
     else:
-        doc = exportar_mod.construir_documento(
-            req.calculadora, resultado, anio_de(modelo, resultado)
-        )
+        doc = exportar_mod.construir_documento(req.calculadora, resultado, anio_nombre)
         if formato == "xlsx":
             data = exportar_mod.a_xlsx(doc)
             media = _MEDIA_XLSX

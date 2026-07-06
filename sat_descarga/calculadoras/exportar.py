@@ -535,8 +535,29 @@ def a_xlsx(doc: dict) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+# Las fuentes core del PDF solo cubren latin-1: los caracteres tipográficos
+# comunes se transliteran a su equivalente ASCII (antes salían como "?").
+_TRANSLITERACIONES = str.maketrans(
+    {
+        "—": "-",    # — guión largo
+        "–": "-",    # – guión medio
+        "…": "...",  # … puntos suspensivos
+        "‘": "'",
+        "’": "'",
+        "“": '"',
+        "”": '"',
+        " ": " ",    # espacio no separable
+    }
+)
+
+
 def _latin1(texto: str) -> str:
-    return str(texto).encode("latin-1", errors="replace").decode("latin-1")
+    return (
+        str(texto)
+        .translate(_TRANSLITERACIONES)
+        .encode("latin-1", errors="replace")
+        .decode("latin-1")
+    )
 
 
 def _pdf_base(titulo: str, subtitulo: str):
@@ -586,27 +607,38 @@ def _pdf_tabla(pdf, tabla: dict) -> None:
     ancho_resto = (ancho_total - ancho_primera) / (n - 1) if n > 1 else ancho_total
     anchos = [ancho_primera] + [ancho_resto] * (n - 1)
 
-    pdf.set_font("Helvetica", "B", 8)
+    def _celda_ajustada(texto: str, w: float, estilo: str, es_primera: bool) -> str:
+        """Reduce la fuente hasta que el texto quepa en la celda (los montos
+        nunca se truncan); solo la primera columna (textos largos) se recorta
+        con "..." como último recurso."""
+        size = 8.0
+        pdf.set_font("Helvetica", estilo, size)
+        while size > 5.5 and pdf.get_string_width(texto) > w - 2:
+            size -= 0.5
+            pdf.set_font("Helvetica", estilo, size)
+        if es_primera and pdf.get_string_width(texto) > w - 2:
+            while len(texto) > 3 and pdf.get_string_width(texto + "...") > w - 2:
+                texto = texto[:-1]
+            texto += "..."
+        return texto
+
     pdf.set_text_color(255, 255, 255)
     pdf.set_fill_color(*_BRAND_PRIMARY_RGB)
-    for w, h in zip(anchos, tabla["headers"]):
-        pdf.cell(w, 7, _latin1(h), fill=True, align="C")
+    for i, (w, h) in enumerate(zip(anchos, tabla["headers"])):
+        texto = _celda_ajustada(_latin1(h), w, "B", es_primera=i == 0)
+        pdf.cell(w, 7, texto, fill=True, align="C")
     pdf.ln()
 
-    pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(*_BRAND_NAVY_RGB)
     relleno = False
     pdf.set_fill_color(247, 249, 252)
     for row in tabla["rows"]:
         for i, (w, v) in enumerate(zip(anchos, row)):
-            texto = _latin1(v)
-            # Truncado defensivo para que la celda no desborde.
-            max_chars = max(6, int(w / 1.7))
-            if len(texto) > max_chars:
-                texto = texto[: max_chars - 1] + "…".encode("latin-1", "replace").decode("latin-1")
+            texto = _celda_ajustada(_latin1(v), w, "", es_primera=i == 0)
             pdf.cell(w, 6, texto, fill=relleno, align="L" if i == 0 else "R")
         pdf.ln()
         relleno = not relleno
+    pdf.set_font("Helvetica", "", 8)
     pdf.ln(3)
 
 
