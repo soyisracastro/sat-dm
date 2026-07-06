@@ -6,7 +6,7 @@ import { Icon } from '@/components/ui/icon';
 
 interface CalculadoraShellProps {
   titulo: string;
-  descripcion: string;
+  descripcion: ReactNode;
   /** Formulario de captura; se renderiza dentro de una Card a la izquierda. */
   formulario: ReactNode;
   /** Columna de resultados (derecha; abajo en pantallas chicas). */
@@ -15,6 +15,8 @@ interface CalculadoraShellProps {
   unaColumna?: boolean;
   /** Muestra un indicador sutil de "Calculando…" junto al título. */
   calculando?: boolean;
+  /** Acciones del encabezado (p. ej. botón de exportar), alineadas a la derecha. */
+  acciones?: ReactNode;
 }
 
 /**
@@ -29,6 +31,7 @@ export function CalculadoraShell({
   resultados,
   unaColumna = false,
   calculando = false,
+  acciones,
 }: CalculadoraShellProps) {
   return (
     <div className="space-y-6">
@@ -40,17 +43,20 @@ export function CalculadoraShell({
           <Icon icon="ph:arrow-left-light" className="size-4" />
           Calculadoras
         </Link>
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-3 text-2xl font-extrabold tracking-tight">
-            {titulo}
-            {calculando && (
-              <span className="inline-flex items-center gap-1 text-xs font-normal text-muted-foreground">
-                <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
-                Calculando…
-              </span>
-            )}
-          </h1>
-          <p className="text-muted-foreground">{descripcion}</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="flex items-center gap-3 text-2xl font-extrabold tracking-tight">
+              {titulo}
+              {calculando && (
+                <span className="inline-flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                  <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
+                  Calculando…
+                </span>
+              )}
+            </h1>
+            <p className="text-muted-foreground">{descripcion}</p>
+          </div>
+          {acciones && <div className="shrink-0">{acciones}</div>}
         </div>
       </div>
 

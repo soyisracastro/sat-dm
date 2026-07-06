@@ -5,6 +5,7 @@ import {
   CalculadoraShell,
   SinResultado,
 } from '@/components/calculadoras/calculadora-shell';
+import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { ComparacionMetodos } from '@/components/calculadoras/comparacion-metodos';
 import { DesglosePasos } from '@/components/calculadoras/desglose-pasos';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
@@ -18,7 +19,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCalculadora } from '@/hooks/use-calculadora';
+import { Switch } from '@/components/ui/switch';
+import { useCalculadora, useIndicadores } from '@/hooks/use-calculadora';
+import { formatCurrency } from '@/lib/formatting';
 import type { CalculadoraInputs, MetodoIsrAguinaldo, TipoSalario } from '@/lib/types';
 
 type Inputs = CalculadoraInputs<'aguinaldo'>;
@@ -31,27 +34,53 @@ const DEFAULTS: Inputs = {
   fecha_calculo: '2026-12-20',
   ingreso_ordinario_mensual: null,
   metodo_isr: 'ley',
+  es_zona_fronteriza: false,
   anio: 2026,
 };
 
-function esValido(inputs: Inputs): boolean {
-  if (inputs.salario <= 0) return false;
-  if (!inputs.fecha_ingreso) return false;
-  if (inputs.dias_aguinaldo < 1) return false;
-  // Con fecha de cálculo capturada, el ingreso debe ser anterior.
-  if (inputs.fecha_calculo && inputs.fecha_ingreso > inputs.fecha_calculo) return false;
-  return true;
-}
-
 export default function AguinaldoPage() {
+  const indicadores = useIndicadores(2026);
+
+  // Umbral de salario mínimo en la unidad del input (esta calculadora
+  // convierte mensual→diario con /30.4). El aguinaldo se paga a un trabajador
+  // activo: su salario vigente no puede estar por debajo del mínimo (Art. 90 LFT).
+  function umbralMinimo(inputs: Inputs): number | null {
+    if (!indicadores) return null;
+    const smgDiario = inputs.es_zona_fronteriza
+      ? indicadores.smg_frontera
+      : indicadores.smg_general;
+    return inputs.tipo_salario === 'mensual' ? smgDiario * 30.4 : smgDiario;
+  }
+
+  function esValido(inputs: Inputs): boolean {
+    if (inputs.salario <= 0) return false;
+    if (!inputs.fecha_ingreso) return false;
+    if (inputs.dias_aguinaldo < 1) return false;
+    // Con fecha de cálculo capturada, el ingreso debe ser anterior.
+    if (inputs.fecha_calculo && inputs.fecha_ingreso > inputs.fecha_calculo) return false;
+    const umbral = umbralMinimo(inputs);
+    return umbral === null || inputs.salario >= umbral;
+  }
+
   const calc = useCalculadora({ nombre: 'aguinaldo', defaults: DEFAULTS, esValido });
   const { inputs, setInput, resultado } = calc;
+
+  const umbral = umbralMinimo(inputs);
+  const debajoDelMinimo =
+    umbral !== null && inputs.salario > 0 && inputs.salario < umbral;
 
   return (
     <CalculadoraShell
       titulo="Aguinaldo"
       descripcion="Aguinaldo proporcional del ejercicio 2026 con la parte exenta (30 UMA) y el ISR por Ley (Art. 96) o por Reglamento (Art. 174)."
       calculando={calc.calculando}
+      acciones={
+        <ExportButtons
+          calculadora="aguinaldo"
+          inputs={calc.inputs as unknown as Record<string, unknown>}
+          habilitado={calc.resultado !== null}
+        />
+      }
       formulario={
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -78,6 +107,30 @@ export default function AguinaldoPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {debajoDelMinimo && (
+            <p className="text-xs font-medium text-destructive">
+              El salario es menor al mínimo{' '}
+              {inputs.es_zona_fronteriza ? 'de la frontera norte' : 'general'}{' '}
+              {inputs.tipo_salario === 'mensual' ? 'mensual' : 'diario'} (
+              {formatCurrency(umbral)}). Pagar por debajo del mínimo es ilegal
+              (Art. 90 LFT); no es base válida para calcular el aguinaldo.
+            </p>
+          )}
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+            <div className="space-y-0.5">
+              <Label htmlFor="zlfn">Zona Libre de la Frontera Norte</Label>
+              <p className="text-xs text-muted-foreground">
+                El salario mínimo de la ZLFN es mayor al del resto del país.
+              </p>
+            </div>
+            <Switch
+              id="zlfn"
+              checked={inputs.es_zona_fronteriza}
+              onCheckedChange={(v) => setInput('es_zona_fronteriza', v)}
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

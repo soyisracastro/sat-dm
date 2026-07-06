@@ -116,6 +116,9 @@ hiddenimports: list[str] = [
     "playwright._impl._connection",
     "playwright._impl._helper",
     "playwright._impl._api_types",
+    # fpdf2 (export PDF de calculadoras; importado dentro de los endpoints)
+    "fpdf",
+    "fpdf.fpdf",
     # Internos del agente (importados dinámicamente desde server.py)
     "sat_descarga.cli.config_store",
     "sat_descarga.cli.empresas",
@@ -133,6 +136,9 @@ hiddenimports: list[str] = [
     "sat_descarga.portal.constancia",
     "sat_descarga.portal.opinion",
     "sat_descarga.portal.login",
+    "sat_descarga.calculadoras",
+    "sat_descarga.calculadoras.exportar",
+    "sat_descarga.calculadoras.store",
 ]
 
 # Recolectar todos los submódulos de uvicorn y playwright (cinturón + tirantes).

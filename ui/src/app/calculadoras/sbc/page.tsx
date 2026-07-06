@@ -5,6 +5,7 @@ import {
   CalculadoraShell,
   SinResultado,
 } from '@/components/calculadoras/calculadora-shell';
+import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
 import { ResumenCards } from '@/components/calculadoras/resumen-cards';
 import { Input } from '@/components/ui/input';
@@ -16,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -25,7 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useCalculadora } from '@/hooks/use-calculadora';
+import { useCalculadora, useIndicadores } from '@/hooks/use-calculadora';
 import { formatCurrency } from '@/lib/formatting';
 import type { CalculadoraInputs, TipoSalario } from '@/lib/types';
 
@@ -37,30 +39,58 @@ const DEFAULTS: Inputs = {
   antiguedad_anios: 1,
   dias_aguinaldo: 15,
   prima_vacacional: 0.25,
+  es_zona_fronteriza: false,
   anio: 2026,
 };
 
-function esValido(inputs: Inputs): boolean {
-  return (
-    inputs.salario > 0 &&
-    inputs.antiguedad_anios >= 0 &&
-    inputs.dias_aguinaldo >= 15 &&
-    inputs.prima_vacacional >= 0.25 &&
-    inputs.prima_vacacional <= 1
-  );
-}
-
 export default function SbcPage() {
+  const indicadores = useIndicadores(2026);
+
+  // Umbral de salario mínimo en la unidad del input (esta calculadora
+  // convierte mensual→diario con /30; el umbral mensual usa el mismo factor).
+  // Un salario por debajo del mínimo no es base válida para cotizar (Art. 90 LFT).
+  function umbralMinimo(inputs: Inputs): number | null {
+    if (!indicadores) return null;
+    const smgDiario = inputs.es_zona_fronteriza
+      ? indicadores.smg_frontera
+      : indicadores.smg_general;
+    return inputs.tipo_salario === 'mensual' ? smgDiario * 30 : smgDiario;
+  }
+
+  function esValido(inputs: Inputs): boolean {
+    if (
+      inputs.salario <= 0 ||
+      inputs.antiguedad_anios < 0 ||
+      inputs.dias_aguinaldo < 15 ||
+      inputs.prima_vacacional < 0.25 ||
+      inputs.prima_vacacional > 1
+    ) {
+      return false;
+    }
+    const umbral = umbralMinimo(inputs);
+    return umbral === null || inputs.salario >= umbral;
+  }
+
   const calc = useCalculadora({ nombre: 'sbc', defaults: DEFAULTS, esValido });
   const { inputs, setInput, resultado } = calc;
 
   const primaPct = Number((inputs.prima_vacacional * 100).toFixed(2));
+  const umbral = umbralMinimo(inputs);
+  const debajoDelMinimo =
+    umbral !== null && inputs.salario > 0 && inputs.salario < umbral;
 
   return (
     <CalculadoraShell
       titulo="Salario Base de Cotización"
       descripcion="Factor de integración con prestaciones mínimas de ley (o superiores) y SBC diario y mensual para cotizar en el IMSS."
       calculando={calc.calculando}
+      acciones={
+        <ExportButtons
+          calculadora="sbc"
+          inputs={calc.inputs as unknown as Record<string, unknown>}
+          habilitado={calc.resultado !== null}
+        />
+      }
       formulario={
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -87,6 +117,30 @@ export default function SbcPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {debajoDelMinimo && (
+            <p className="text-xs font-medium text-destructive">
+              El salario es menor al mínimo{' '}
+              {inputs.es_zona_fronteriza ? 'de la frontera norte' : 'general'}{' '}
+              {inputs.tipo_salario === 'mensual' ? 'mensual' : 'diario'} (
+              {formatCurrency(umbral)}). Pagar por debajo del mínimo es ilegal
+              (Art. 90 LFT); no es base válida para determinar el SBC.
+            </p>
+          )}
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
+            <div className="space-y-0.5">
+              <Label htmlFor="zlfn">Zona Libre de la Frontera Norte</Label>
+              <p className="text-xs text-muted-foreground">
+                El salario mínimo de la ZLFN es mayor al del resto del país.
+              </p>
+            </div>
+            <Switch
+              id="zlfn"
+              checked={inputs.es_zona_fronteriza}
+              onCheckedChange={(v) => setInput('es_zona_fronteriza', v)}
+            />
           </div>
 
           <div className="space-y-2">

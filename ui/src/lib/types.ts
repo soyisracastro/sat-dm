@@ -928,6 +928,8 @@ export interface CalculadoraAguinaldoRequest {
   fecha_calculo?: string | null;
   ingreso_ordinario_mensual?: number | null;
   metodo_isr: MetodoIsrAguinaldo;
+  /** ZLFN: el salario mínimo (umbral de validación) es mayor al general. */
+  es_zona_fronteriza: boolean;
   anio: number;
   rfc?: string | null;
 }
@@ -938,6 +940,8 @@ export interface CalculadoraSbcRequest {
   antiguedad_anios: number;
   dias_aguinaldo: number;
   prima_vacacional: number; // 0.25..1
+  /** ZLFN: el salario mínimo (umbral de validación) es mayor al general. */
+  es_zona_fronteriza: boolean;
   anio: number;
   rfc?: string | null;
 }
@@ -946,6 +950,8 @@ export interface CalculadoraIsrRequest {
   ingreso_gravado: number;
   periodicidad: PeriodicidadIsr;
   es_asimilado: boolean;
+  /** ZLFN: el salario mínimo (umbral de retención) es mayor al general. */
+  es_zona_fronteriza: boolean;
   mes: number; // 1..12 (enero vs resto afecta el subsidio)
   anio: number;
   rfc?: string | null;
@@ -978,6 +984,8 @@ export interface CalculadoraCargaPatronalRequest {
   salario: number;
   tipo_salario: TipoSalario;
   antiguedad_anios: number;
+  /** ZLFN: el salario mínimo (umbral de validación) es mayor al general. */
+  es_zona_fronteriza: boolean;
   clase_riesgo: ClaseRiesgo;
   /** En porcentaje (p. ej. 0.54355). null → prima media de la clase. */
   prima_riesgo_trabajo?: number | null;

@@ -128,12 +128,14 @@ import eyeSlash from '@iconify-icons/ph/eye-slash-light';
 // Atajos de teclado (card en /ayuda).
 import keyboard from '@iconify-icons/ph/keyboard-light';
 
-// Calculadoras (nav + cards del índice).
+// Calculadoras (nav + cards del índice + export premium).
 import calculator from '@iconify-icons/ph/calculator-light';
 import factory from '@iconify-icons/ph/factory-light';
 import gift from '@iconify-icons/ph/gift-light';
 import handshake from '@iconify-icons/ph/handshake-light';
 import heartbeat from '@iconify-icons/ph/heartbeat-light';
+import lockSimple from '@iconify-icons/ph/lock-simple-light';
+import printer from '@iconify-icons/ph/printer-light';
 import scales from '@iconify-icons/ph/scales-light';
 
 addIcon('ph:arrow-counter-clockwise-light', arrowCounterClockwise);
@@ -257,4 +259,6 @@ addIcon('ph:factory-light', factory);
 addIcon('ph:gift-light', gift);
 addIcon('ph:handshake-light', handshake);
 addIcon('ph:heartbeat-light', heartbeat);
+addIcon('ph:lock-simple-light', lockSimple);
+addIcon('ph:printer-light', printer);
 addIcon('ph:scales-light', scales);

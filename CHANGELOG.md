@@ -6,6 +6,21 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Feature
+
+- **Calculadoras fiscales y laborales** (PRs #110–#113): nueva sección
+  **Calculadoras** con 7 herramientas de libre acceso — aguinaldo, SBC, ISR de
+  sueldos, finiquito, liquidación, carga patronal y **PTU** (con la lógica de
+  la plantilla Excel de TodoConta: año de pago = ejercicio+1, tope de confianza
+  al 120%, criterio de exención UMA-SAT vs SMG-PRODECON y fecha límite legal).
+  Todo el cálculo vive en el agente Python con indicadores por año (UMA, SMG,
+  tarifas ISR del Anexo 8, subsidio al empleo por decreto del DOF, cuotas IMSS
+  2026) y **el estado se guarda por empresa**: cambiar de empresa nunca pisa
+  los cálculos de otra (`~/.sat-descarga/calculadoras/{RFC}.json`). La
+  **exportación a Excel/PDF es premium**, incluyendo para PTU los recibos
+  imprimibles por trabajador y la hoja de pre-nómina (percepción 003 /
+  deducción 002) lista para timbrado.
+
 ### Bug fix
 
 - **Opinión 32-D con e.firma: el login ya no reporta éxito sin haber aterrizado**

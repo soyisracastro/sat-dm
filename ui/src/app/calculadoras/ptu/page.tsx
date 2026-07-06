@@ -5,6 +5,7 @@ import {
   CalculadoraShell,
   SinResultado,
 } from '@/components/calculadoras/calculadora-shell';
+import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
 import { ResumenCards } from '@/components/calculadoras/resumen-cards';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +22,11 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Table,
   TableBody,
   TableCell,
@@ -29,10 +35,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useCalculadora } from '@/hooks/use-calculadora';
+import { RFC_GENERAL, useCalculadora } from '@/hooks/use-calculadora';
 import { formatCurrency, formatDate } from '@/lib/formatting';
 import type { CalculadoraInputs, TrabajadorPtuRequest } from '@/lib/types';
-import { Fragment } from 'react';
+import { Fragment, useEffect, type ReactNode } from 'react';
 
 type Inputs = CalculadoraInputs<'ptu'>;
 
@@ -112,6 +118,54 @@ function CeldaNumero({
   );
 }
 
+/** Texto (opcional) con icono de info y tooltip explicativo. */
+function HeadInfo({ children, tooltip }: { children?: ReactNode; tooltip: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {children}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            tabIndex={0}
+            className="inline-flex text-muted-foreground"
+            aria-label={tooltip}
+          >
+            <Icon icon="ph:info-light" className="size-3.5" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64">{tooltip}</TooltipContent>
+      </Tooltip>
+    </span>
+  );
+}
+
+/**
+ * Input de montos compacto para la tabla: mismo comportamiento que los campos
+ * de la empresa (prefijo $, separador de miles y 2 decimales al perder foco).
+ */
+function CeldaMoneda({
+  valor,
+  onCambio,
+  ancho = 'w-28',
+  ariaLabel,
+}: {
+  valor: number;
+  onCambio: (n: number) => void;
+  ancho?: string;
+  ariaLabel: string;
+}) {
+  return (
+    <div className={ancho}>
+      <MonedaInput
+        aria-label={ariaLabel}
+        className="h-8 w-full md:text-xs"
+        value={valor > 0 ? valor : null}
+        onChange={(v) => onCambio(v ?? 0)}
+      />
+    </div>
+  );
+}
+
 export default function PtuPage() {
   const calc = useCalculadora({
     nombre: 'ptu',
@@ -119,7 +173,26 @@ export default function PtuPage() {
     esValido,
     manual: true,
   });
-  const { inputs, setInput, setInputs, resultado } = calc;
+  const { inputs, setInput, setInputs, resultado, rfcActivo, restaurando } = calc;
+
+  // El tipo de persona se deduce del RFC de la empresa activa (13 caracteres =
+  // física, 12 = moral); sin empresa activa se asume moral. La fecha de pago
+  // no se captura: aquí solo se calcula el reparto — la fecha límite legal se
+  // muestra como referencia.
+  const sinEmpresa = rfcActivo === RFC_GENERAL;
+  const tipoDerivado: Inputs['tipo_persona'] =
+    !sinEmpresa && rfcActivo.length === 13 ? 'Física' : 'Moral';
+
+  useEffect(() => {
+    if (restaurando) return;
+    if (inputs.tipo_persona !== tipoDerivado || inputs.fecha_pago !== null) {
+      setInputs((prev) => ({ ...prev, tipo_persona: tipoDerivado, fecha_pago: null }));
+    }
+  }, [restaurando, tipoDerivado, inputs.tipo_persona, inputs.fecha_pago, setInputs]);
+
+  const anioPago = inputs.ejercicio + 1;
+  const fechaLimite =
+    tipoDerivado === 'Moral' ? `${anioPago}-05-30` : `${anioPago}-06-29`;
 
   function actualizarTrabajador(idx: number, patch: Partial<TrabajadorPtuRequest>) {
     setInputs((prev) => ({
@@ -133,33 +206,48 @@ export default function PtuPage() {
   return (
     <CalculadoraShell
       titulo="PTU"
-      descripcion="Reparto de utilidades (Art. 123 constitucional y 117-131 LFT): bolsas por días y por salarios, tope de tres meses / promedio de tres años, exención de 15 UMA y comparación del ISR por Art. 96 vs Art. 174."
+      descripcion={
+        <>
+          Calcula el reparto de utilidades entre los trabajadores conforme a la LFT,
+          con el tope legal y la retención de ISR más favorable.{' '}
+          <a
+            href="https://todoconta.com/blog/calculo-ptu-trabajadores"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Conoce la mecánica completa en nuestro blog
+          </a>
+          .
+        </>
+      }
       unaColumna
       calculando={calc.calculando}
+      acciones={
+        <ExportButtons
+          calculadora="ptu"
+          inputs={calc.inputs as unknown as Record<string, unknown>}
+          habilitado={calc.resultado !== null}
+          conRecibos
+        />
+      }
       formulario={
         <div className="space-y-6">
           {/* Datos de la empresa */}
           <div className="space-y-3">
             <h2 className="text-sm font-bold">Datos de la empresa</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="utilidad">Utilidad fiscal del ejercicio</Label>
-                <MonedaInput
-                  id="utilidad"
-                  value={inputs.utilidad_fiscal > 0 ? inputs.utilidad_fiscal : null}
-                  onChange={(v) => setInput('utilidad_fiscal', v ?? 0)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ptu-no-cobrada">PTU no cobrada del año anterior</Label>
-                <MonedaInput
-                  id="ptu-no-cobrada"
-                  value={inputs.ptu_no_cobrada > 0 ? inputs.ptu_no_cobrada : null}
-                  onChange={(v) => setInput('ptu_no_cobrada', v ?? 0)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Ejercicio</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Ejercicio</Label>
+                  <HeadInfo
+                    tooltip={`Persona ${tipoDerivado === 'Moral' ? 'moral' : 'física'}${
+                      sinEmpresa
+                        ? ' (sin empresa activa; se asume moral)'
+                        : ' — según el RFC de la empresa activa'
+                    } · fecha límite legal de pago: ${formatDate(fechaLimite)}.`}
+                  />
+                </div>
                 <Select
                   value={String(inputs.ejercicio)}
                   onValueChange={(v) => setInput('ejercicio', parseInt(v, 10))}
@@ -177,34 +265,25 @@ export default function PtuPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Tipo de persona</Label>
-                <Select
-                  value={inputs.tipo_persona}
-                  onValueChange={(v) => setInput('tipo_persona', v as 'Moral' | 'Física')}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Moral">Moral (paga en mayo)</SelectItem>
-                    <SelectItem value="Física">Física (paga en junio)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fecha-pago">Fecha de pago</Label>
-                <Input
-                  id="fecha-pago"
-                  type="date"
-                  value={inputs.fecha_pago ?? ''}
-                  onChange={(e) => setInput('fecha_pago', e.target.value || null)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Opcional; valida contra la fecha límite legal.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Criterio de exención</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Criterio de exención</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        tabIndex={0}
+                        className="inline-flex text-muted-foreground"
+                        aria-label="Acerca del criterio de exención"
+                      >
+                        <Icon icon="ph:info-light" className="size-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-64">
+                      La exención es de 15 días: el SAT la calcula con UMA; PRODECON
+                      sostiene que procede con salario mínimo (más favorable al
+                      trabajador).
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <Select
                   value={inputs.criterio_exencion}
                   onValueChange={(v) => setInput('criterio_exencion', v as 'UMA' | 'SMG')}
@@ -217,10 +296,22 @@ export default function PtuPage() {
                     <SelectItem value="SMG">Salario mínimo (criterio PRODECON)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  La exención es de 15 días: el SAT la calcula con UMA; PRODECON sostiene
-                  que procede con salario mínimo (más favorable al trabajador).
-                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="utilidad">Utilidad fiscal del ejercicio</Label>
+                <MonedaInput
+                  id="utilidad"
+                  value={inputs.utilidad_fiscal > 0 ? inputs.utilidad_fiscal : null}
+                  onChange={(v) => setInput('utilidad_fiscal', v ?? 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ptu-no-cobrada">PTU no cobrada del año anterior</Label>
+                <MonedaInput
+                  id="ptu-no-cobrada"
+                  value={inputs.ptu_no_cobrada > 0 ? inputs.ptu_no_cobrada : null}
+                  onChange={(v) => setInput('ptu_no_cobrada', v ?? 0)}
+                />
               </div>
             </div>
           </div>
@@ -254,11 +345,31 @@ export default function PtuPage() {
                   <TableHead className="text-right">Días</TableHead>
                   <TableHead className="text-right">Percepción anual</TableHead>
                   <TableHead className="text-center">Confianza</TableHead>
-                  <TableHead className="text-right">PTU año -1</TableHead>
-                  <TableHead className="text-right">PTU año -2</TableHead>
-                  <TableHead className="text-right">PTU año -3</TableHead>
-                  <TableHead className="text-right">Ingreso mensual</TableHead>
-                  <TableHead className="text-right">ISR mensual</TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip={`PTU cobrada en ${inputs.ejercicio - 1}. El promedio de los tres años anteriores es una de las dos opciones del tope (Art. 127 fr. VIII LFT).`}>
+                      PTU {inputs.ejercicio - 1}
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip={`PTU cobrada en ${inputs.ejercicio - 2}. El promedio de los tres años anteriores es una de las dos opciones del tope (Art. 127 fr. VIII LFT).`}>
+                      PTU {inputs.ejercicio - 2}
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip={`PTU cobrada en ${inputs.ejercicio - 3}. El promedio de los tres años anteriores es una de las dos opciones del tope (Art. 127 fr. VIII LFT).`}>
+                      PTU {inputs.ejercicio - 3}
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip="Nómina ordinaria del mes en que se paga la PTU; base para comparar el ISR por Art. 96 LISR vs Art. 174 RLISR.">
+                      Ingreso mensual
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip="ISR retenido en la nómina ordinaria del mes; se usa en el método directo del Art. 96 LISR.">
+                      ISR mensual
+                    </HeadInfo>
+                  </TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -275,7 +386,7 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="Salario diario"
                         valor={t.salario_diario}
                         onCambio={(n) => actualizarTrabajador(idx, { salario_diario: n })}
@@ -290,9 +401,9 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="Percepción anual"
-                        ancho="w-28"
+                        ancho="w-32"
                         valor={t.percepcion_anual}
                         onCambio={(n) => actualizarTrabajador(idx, { percepcion_anual: n })}
                       />
@@ -306,28 +417,28 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
-                        ariaLabel="PTU del año anterior"
+                      <CeldaMoneda
+                        ariaLabel={`PTU cobrada en ${inputs.ejercicio - 1}`}
                         valor={t.ptu_anio_1}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_1: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
-                        ariaLabel="PTU de hace dos años"
+                      <CeldaMoneda
+                        ariaLabel={`PTU cobrada en ${inputs.ejercicio - 2}`}
                         valor={t.ptu_anio_2}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_2: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
-                        ariaLabel="PTU de hace tres años"
+                      <CeldaMoneda
+                        ariaLabel={`PTU cobrada en ${inputs.ejercicio - 3}`}
                         valor={t.ptu_anio_3}
                         onCambio={(n) => actualizarTrabajador(idx, { ptu_anio_3: n })}
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="Ingreso mensual ordinario"
                         valor={t.ingreso_mensual_ordinario}
                         onCambio={(n) =>
@@ -336,7 +447,7 @@ export default function PtuPage() {
                       />
                     </TableCell>
                     <TableCell className="text-right">
-                      <CeldaNumero
+                      <CeldaMoneda
                         ariaLabel="ISR mensual ordinario"
                         valor={t.isr_mensual_ordinario}
                         onCambio={(n) =>
@@ -365,11 +476,6 @@ export default function PtuPage() {
                 ))}
               </TableBody>
             </Table>
-            <p className="text-xs text-muted-foreground">
-              «PTU año -1/-2/-3»: PTU cobrada en los tres años anteriores (para el tope del
-              promedio). «Ingreso/ISR mensual»: nómina ordinaria del mes de pago (para el
-              ISR Art. 96 vs Art. 174).
-            </p>
           </div>
 
           <Button
@@ -417,9 +523,10 @@ export default function PtuPage() {
               Fecha límite de pago: {formatDate(resultado.config.fecha_limite_pago)} ·
               exención por trabajador{' '}
               {formatCurrency(resultado.config.exencion_por_trabajador)} (
-              {resultado.config.criterio_exencion}) · bolsa por días{' '}
-              {formatCurrency(resultado.empresa.bolsa_dias)} · bolsa por salarios{' '}
-              {formatCurrency(resultado.empresa.bolsa_salarios)}
+              {resultado.config.criterio_exencion}). La PTU se reparte en dos partes
+              iguales (Art. 123 LFT): {formatCurrency(resultado.empresa.bolsa_dias)} por
+              días trabajados y {formatCurrency(resultado.empresa.bolsa_salarios)} por
+              salarios devengados.
             </p>
 
             <div className="rounded-xl border bg-card p-4 shadow-sm">
