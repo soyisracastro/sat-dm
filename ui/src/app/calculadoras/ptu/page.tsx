@@ -22,6 +22,11 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Table,
   TableBody,
   TableCell,
@@ -189,7 +194,25 @@ export default function PtuPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Criterio de exención</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Criterio de exención</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        tabIndex={0}
+                        className="inline-flex text-muted-foreground"
+                        aria-label="Acerca del criterio de exención"
+                      >
+                        <Icon icon="ph:info-light" className="size-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-64">
+                      La exención es de 15 días: el SAT la calcula con UMA; PRODECON
+                      sostiene que procede con salario mínimo (más favorable al
+                      trabajador).
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <Select
                   value={inputs.criterio_exencion}
                   onValueChange={(v) => setInput('criterio_exencion', v as 'UMA' | 'SMG')}
@@ -202,10 +225,6 @@ export default function PtuPage() {
                     <SelectItem value="SMG">Salario mínimo (criterio PRODECON)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  La exención es de 15 días: el SAT la calcula con UMA; PRODECON sostiene
-                  que procede con salario mínimo (más favorable al trabajador).
-                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="utilidad">Utilidad fiscal del ejercicio</Label>
