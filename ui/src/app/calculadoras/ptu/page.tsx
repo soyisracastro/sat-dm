@@ -38,7 +38,7 @@ import {
 import { RFC_GENERAL, useCalculadora } from '@/hooks/use-calculadora';
 import { formatCurrency, formatDate } from '@/lib/formatting';
 import type { CalculadoraInputs, TrabajadorPtuRequest } from '@/lib/types';
-import { Fragment, useEffect } from 'react';
+import { Fragment, useEffect, type ReactNode } from 'react';
 
 type Inputs = CalculadoraInputs<'ptu'>;
 
@@ -115,6 +115,27 @@ function CeldaNumero({
         onCambio(Number.isFinite(n) ? n : 0);
       }}
     />
+  );
+}
+
+/** Encabezado de columna con icono de info y tooltip explicativo. */
+function HeadInfo({ children, tooltip }: { children: ReactNode; tooltip: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {children}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            tabIndex={0}
+            className="inline-flex text-muted-foreground"
+            aria-label={tooltip}
+          >
+            <Icon icon="ph:info-light" className="size-3.5" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64">{tooltip}</TooltipContent>
+      </Tooltip>
+    </span>
   );
 }
 
@@ -308,11 +329,31 @@ export default function PtuPage() {
                   <TableHead className="text-right">Días</TableHead>
                   <TableHead className="text-right">Percepción anual</TableHead>
                   <TableHead className="text-center">Confianza</TableHead>
-                  <TableHead className="text-right">PTU {inputs.ejercicio - 1}</TableHead>
-                  <TableHead className="text-right">PTU {inputs.ejercicio - 2}</TableHead>
-                  <TableHead className="text-right">PTU {inputs.ejercicio - 3}</TableHead>
-                  <TableHead className="text-right">Ingreso mensual</TableHead>
-                  <TableHead className="text-right">ISR mensual</TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip={`PTU cobrada en ${inputs.ejercicio - 1}. El promedio de los tres años anteriores es una de las dos opciones del tope (Art. 127 fr. VIII LFT).`}>
+                      PTU {inputs.ejercicio - 1}
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip={`PTU cobrada en ${inputs.ejercicio - 2}. El promedio de los tres años anteriores es una de las dos opciones del tope (Art. 127 fr. VIII LFT).`}>
+                      PTU {inputs.ejercicio - 2}
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip={`PTU cobrada en ${inputs.ejercicio - 3}. El promedio de los tres años anteriores es una de las dos opciones del tope (Art. 127 fr. VIII LFT).`}>
+                      PTU {inputs.ejercicio - 3}
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip="Nómina ordinaria del mes en que se paga la PTU; base para comparar el ISR por Art. 96 LISR vs Art. 174 RLISR.">
+                      Ingreso mensual
+                    </HeadInfo>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <HeadInfo tooltip="ISR retenido en la nómina ordinaria del mes; se usa en el método directo del Art. 96 LISR.">
+                      ISR mensual
+                    </HeadInfo>
+                  </TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -419,12 +460,6 @@ export default function PtuPage() {
                 ))}
               </TableBody>
             </Table>
-            <p className="text-xs text-muted-foreground">
-              «PTU {inputs.ejercicio - 1}/{inputs.ejercicio - 2}/{inputs.ejercicio - 3}»:
-              PTU cobrada en los tres años anteriores al ejercicio (para el tope del
-              promedio). «Ingreso/ISR mensual»: nómina ordinaria del mes de pago (para el
-              ISR Art. 96 vs Art. 174).
-            </p>
           </div>
 
           <Button
