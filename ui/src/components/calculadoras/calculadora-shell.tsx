@@ -6,7 +6,7 @@ import { Icon } from '@/components/ui/icon';
 
 interface CalculadoraShellProps {
   titulo: string;
-  descripcion: string;
+  descripcion: ReactNode;
   /** Formulario de captura; se renderiza dentro de una Card a la izquierda. */
   formulario: ReactNode;
   /** Columna de resultados (derecha; abajo en pantallas chicas). */

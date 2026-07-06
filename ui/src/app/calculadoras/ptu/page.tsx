@@ -206,7 +206,21 @@ export default function PtuPage() {
   return (
     <CalculadoraShell
       titulo="PTU"
-      descripcion="Reparto de utilidades (Art. 123 constitucional y 117-131 LFT): bolsas por días y por salarios, tope de tres meses / promedio de tres años, exención de 15 UMA y comparación del ISR por Art. 96 vs Art. 174."
+      descripcion={
+        <>
+          Calcula el reparto de utilidades entre los trabajadores conforme a la LFT,
+          con el tope legal y la retención de ISR más favorable.{' '}
+          <a
+            href="https://todoconta.com/blog/calculo-ptu-trabajadores"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Conoce la mecánica completa en nuestro blog
+          </a>
+          .
+        </>
+      }
       unaColumna
       calculando={calc.calculando}
       acciones={
