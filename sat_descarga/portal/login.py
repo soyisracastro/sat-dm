@@ -223,7 +223,9 @@ def iniciar_sesion_fiel(page, cer_path: str, key_path: str, password: str,
         page.wait_for_load_state("networkidle", timeout=15_000)
     except PWTimeout:
         pass
-    logger.info("[FIEL] Login exitoso.")
+    # La URL va en el log: si el predicado `exito` disparara donde no debe, esto
+    # es lo que delata el falso positivo en Sentry (cf. TODOCONTA-DESKTOP-Z).
+    logger.info("[FIEL] Login exitoso: %s", page.url)
 
 
 def _login_efirma(page, cer_path: str, key_path: str, password: str):
@@ -254,9 +256,14 @@ def _login_efirma(page, cer_path: str, key_path: str, password: str):
     logger.info("[FIEL] .cer/.key/contraseña llenados (auto).")
 
     # Clic en el #submit visible (el del form e.firma); el #submit del form de
-    # contraseña queda oculto y compartiría el id.
+    # contraseña queda oculto y compartiría el id. no_wait_after=True: la firma
+    # client-side (onclick="firmar(event)") + el POST pueden tardar más que el
+    # timeout del click y reventarlo aunque el submit YA se disparó (mismo patrón
+    # que el submit CIEC / TODOCONTA-DESKTOP-9; visto en e.firma en loginda:
+    # el fallback esperaba 30 s un #submit que ya había navegado). El aterrizaje
+    # lo espera wait_for_url en iniciar_sesion_fiel.
     try:
-        page.click("#submit:visible", timeout=10_000)
+        page.click("#submit:visible", timeout=10_000, no_wait_after=True)
     except PWTimeout:
-        page.click("#submit")  # fallback: id sin filtrar
+        page.click("#submit", no_wait_after=True)  # fallback: id sin filtrar
     logger.info("[FIEL] e.firma enviada.")
