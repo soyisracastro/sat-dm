@@ -32,6 +32,18 @@ _PARES_DEV = (
     ("dev_imp_intang_16", "valor_imp_intang_16"),
 )
 
+# IVA acreditable ≤ "IVA pagado" = round((valor − dev) × tasa). La aplicación
+# DIOT del SAT rechaza la carga si se excede (confirmado con un archivo real,
+# 2026-07: "El importe del 'IVA acreditable' ... no puede ser mayor al 'IVA
+# pagado'"). Por categoría: (excl, prop, valor, dev, tasa, nombre corto).
+_CATEGORIAS_ACRED = (
+    ("acred_excl_rf_norte", "acred_prop_rf_norte", "valor_rf_norte", "dev_rf_norte", 0.08, "región fronteriza norte"),
+    ("acred_excl_rf_sur", "acred_prop_rf_sur", "valor_rf_sur", "dev_rf_sur", 0.08, "región fronteriza sur"),
+    ("acred_excl_16", "acred_prop_16", "valor_16", "dev_16", 0.16, "tasa 16%"),
+    ("acred_excl_imp_aduana", "acred_prop_imp_aduana", "valor_imp_aduana_16", "dev_imp_aduana_16", 0.16, "importación por aduana"),
+    ("acred_excl_imp_intang", "acred_prop_imp_intang", "valor_imp_intang_16", "dev_imp_intang_16", 0.16, "importación de intangibles"),
+)
+
 _ETIQUETAS = {c.clave: c.etiqueta for c in CAMPOS_DIOT}
 
 
@@ -128,6 +140,22 @@ def validar_filas(filas: list[dict]) -> dict:
                     f"Las devoluciones ({dev}) superan el valor de los actos ({valor}) "
                     f"en «{_ETIQUETAS[clave_valor]}» para {quien}. El SAT exige "
                     "devoluciones ≤ valor; ajusta los montos.",
+                )
+
+        # IVA acreditable ≤ IVA pagado derivado de los enteros declarados.
+        for clave_excl, clave_prop, clave_valor, clave_dev, tasa, categoria in _CATEGORIAS_ACRED:
+            excl = _entero_o_none(fila.get(clave_excl)) or 0
+            prop = _entero_o_none(fila.get(clave_prop)) or 0
+            valor = _entero_o_none(fila.get(clave_valor)) or 0
+            dev = _entero_o_none(fila.get(clave_dev)) or 0
+            tope = int(round(max(0, valor - dev) * tasa))
+            if excl + prop > tope:
+                error(
+                    i, clave_excl,
+                    f"El IVA acreditable de {categoria} ({excl + prop}) excede el IVA "
+                    f"pagado que el SAT deriva del valor declarado ({tope} = "
+                    f"({valor} − {dev}) × {tasa:.2f}) para {quien}. La aplicación DIOT "
+                    "rechaza la carga; baja el acreditable o sube el valor.",
                 )
 
         if not con_monto:
