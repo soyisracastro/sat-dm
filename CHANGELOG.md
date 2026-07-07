@@ -8,6 +8,14 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **DIOT: rediseño de la pantalla (Claude Design)**: tarjetas de resumen del
+  periodo (proveedores, valor de actos 16%, IVA acreditable, IVA retenido), el
+  detalle del renglón pasó de fila expandida a **panel lateral** con secciones
+  colapsables que indican cuántos campos tienen valor, montos con separador de
+  miles, y un estado vacío con guía de 3 pasos (descarga → prellena → genera).
+  Sin cambios en la lógica ni en el TXT: los 54 campos siguen viniendo del
+  layout del agente.
+
 - **DIOT 2025 (núcleo): generación del archivo de carga masiva**: nuevo paquete
   `sat_descarga/diot/` que implementa el layout oficial de **54 campos** del
   instructivo del SAT (Enero 2025, documentado en
