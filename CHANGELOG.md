@@ -14,9 +14,8 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   Día, RFC de la empresa, RFC emisor, RFC receptor, **Emitidos/Recibidos** y
   Tipo de comprobante — con vista previa en vivo (ej.
   `CULL551116HM8/2026/05/Emitidos/Ingreso`). La clasificación
-  Emitidos/Recibidos compara cada CFDI contra el RFC de la empresa (prefilado
-  con la empresa activa). La última estructura personalizada se recuerda entre
-  sesiones. Desde CLI: `sat-dm organizar carpetas --estructura
+  Emitidos/Recibidos compara cada CFDI contra el RFC de la **empresa activa**.
+  La última estructura personalizada se recuerda entre sesiones. Desde CLI: `sat-dm organizar carpetas --estructura
   "rfc/anio/mes/flujo/tipo" --rfc XXX`. Los nombres de carpeta generados se
   sanean para Windows (caracteres inválidos, valores vacíos).
 
