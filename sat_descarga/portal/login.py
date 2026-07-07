@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 LOGIN_TIMEOUT_MS = 180_000        # 3 min para el login FIEL (e.firma, sin captcha)
 MAX_INTENTOS_CAPTCHA = 3          # CIEC: 1 + 2 reintentos; tras agotarse → cancelar
 EXITO_TIMEOUT_MS = 25_000         # espera de aterrizaje tras enviar el captcha
+GRACIA_ATERRIZAJE_MS = 10_000     # 2ª oportunidad si la navegación sigue en vuelo
 
 # Selectores donde el portal NIDP del SAT muestra el mensaje de error del login.
 _ERROR_SELECTORS = "#msgError, .msg-error, #errormsg"
@@ -45,16 +46,25 @@ def _es_error_credenciales(msg: str) -> bool:
 
 
 def _texto_error_login(page) -> str:
-    """Texto del mensaje de error visible en el login (o '' si no hay)."""
-    el = page.query_selector(_ERROR_SELECTORS)
-    if el is None:
-        return ""
+    """Texto del mensaje de error visible en el login (o '' si no hay).
+
+    Nunca lanza: si la página navega a media lectura, el contexto de ejecución
+    se destruye bajo los pies de query_selector/text_content ("Execution context
+    was destroyed", TODOCONTA-DESKTOP-T); eso se trata como "sin mensaje" y la
+    política de reintentos decide qué hacer.
+    """
     try:
-        if not el.is_visible():
+        el = page.query_selector(_ERROR_SELECTORS)
+        if el is None:
             return ""
-    except Exception:  # noqa: BLE001 — si is_visible falla, intentamos leer igual
-        pass
-    return (el.text_content() or "").strip()
+        try:
+            if not el.is_visible():
+                return ""
+        except Exception:  # noqa: BLE001 — si is_visible falla, intentamos leer igual
+            pass
+        return (el.text_content() or "").strip()
+    except Exception:  # noqa: BLE001 — navegación en vuelo destruyó el contexto
+        return ""
 
 
 def _login_ciec_con_reintentos(rellenar_form, leer_captcha_img, pedir_captcha,
@@ -157,18 +167,27 @@ def iniciar_sesion_ciec(page, rfc: str, ciec: str, url_entrada: str, exito,
         try:
             page.wait_for_url(exito, timeout=EXITO_TIMEOUT_MS)
         except PWTimeout:
-            # No aterrizó. Si el portal muestra un error de CREDENCIALES (RFC/contraseña),
-            # reintentar el captcha es inútil → abortar de inmediato con copy claro.
-            # Si es error de captcha (u otro), devolver False para reintentar.
-            err = _texto_error_login(page)
-            if err and _es_error_credenciales(err):
-                raise CredencialCIECInvalida(
-                    f"El SAT rechazó el acceso: «{err}». Revisa el RFC y la contraseña "
-                    "CIEC de esta empresa en Empresas."
-                )
-            if err:
-                logger.warning("[CIEC] Error de login (reintentable): %s", err)
-            return False
+            # No aterrizó a tiempo, pero la navegación del submit puede seguir EN
+            # VUELO (el SAT a veces tarda >25 s en responder el POST). Leer el DOM
+            # en ese estado destruye el contexto y tumbaba el job justo cuando el
+            # login iba a aterrizar (TODOCONTA-DESKTOP-T) → gracia corta antes de
+            # dar el intento por fallido.
+            try:
+                page.wait_for_url(exito, timeout=GRACIA_ATERRIZAJE_MS)
+            except PWTimeout:
+                # Ahora sí no aterrizó. Si el portal muestra un error de CREDENCIALES
+                # (RFC/contraseña), reintentar el captcha es inútil → abortar de
+                # inmediato con copy claro. Si es error de captcha (u otro), devolver
+                # False para reintentar.
+                err = _texto_error_login(page)
+                if err and _es_error_credenciales(err):
+                    raise CredencialCIECInvalida(
+                        f"El SAT rechazó el acceso: «{err}». Revisa el RFC y la "
+                        "contraseña CIEC de esta empresa en Empresas."
+                    )
+                if err:
+                    logger.warning("[CIEC] Error de login (reintentable): %s", err)
+                return False
         try:
             page.wait_for_load_state("networkidle", timeout=15_000)
         except PWTimeout:

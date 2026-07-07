@@ -34,6 +34,15 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Bug fix
 
+- **Descarga CIEC: el login ya no truena con «Execution context was destroyed»
+  cuando el SAT tarda en responder el captcha** (TODOCONTA-DESKTOP-T): si el
+  aterrizaje post-submit no llegaba en 25 s, se leía el mensaje de error del
+  DOM justo mientras la navegación seguía en vuelo — el contexto se destruía y
+  el job moría, casi siempre cuando el login SÍ iba a entrar. Ahora hay una
+  gracia de aterrizaje de 10 s antes de dar el intento por fallido y la lectura
+  del mensaje de error es a prueba de navegaciones (se trata como "sin mensaje"
+  y aplica la política normal de reintentos del captcha).
+
 - **Opinión 32-D con e.firma: el login ya no reporta éxito sin haber aterrizado**
   (TODOCONTA-DESKTOP-Z/-X/-Y/-W/-10/-11, corrida real jul 2026): el predicado de
   aterrizaje comparaba por substring y la página de login de loginda lleva un
