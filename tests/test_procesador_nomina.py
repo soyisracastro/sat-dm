@@ -31,6 +31,10 @@ from sat_descarga.procesador.reportes_nomina import (
     stats_nomina,
 )
 
+# Empresa dueña del buffer en los tests (el receptor de los fixtures).
+MI_RFC = "BBB020202BBB"
+F_RFC = {"mi_rfc": MI_RFC}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -268,7 +272,7 @@ def test_parser_no_extrae_nomina_si_tipo_no_es_n():
 
 def test_db_agregar_inserta_recibo_y_conceptos(db):
     cfdi = _recibo("NOM00001-1111-1111-1111-111111111111")
-    db.agregar([cfdi])
+    db.agregar([cfdi], mi_rfc=MI_RFC)
 
     with db.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM nomina_recibos")
@@ -287,8 +291,8 @@ def test_db_agregar_inserta_recibo_y_conceptos(db):
 
 
 def test_db_borrar_limpia_nomina_tables(db):
-    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")])
-    db.borrar()
+    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")], mi_rfc=MI_RFC)
+    db.borrar(MI_RFC)
     with db.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM nomina_recibos")
         assert cur.fetchone()[0] == 0
@@ -299,7 +303,7 @@ def test_db_borrar_limpia_nomina_tables(db):
 def test_db_repoblar_nomina_idempotente(db):
     """Llamar _repoblar_nomina dos veces no debe duplicar filas."""
     cfdi = _recibo("NOM00001-1111-1111-1111-111111111111")
-    db.agregar([cfdi])
+    db.agregar([cfdi], mi_rfc=MI_RFC)
 
     # Vaciar las tablas de nómina pero dejar el CFDI en `cfdis` con su raw_json.
     with db._lock, db._conn:
@@ -328,8 +332,8 @@ def test_stats_nomina(db):
         _recibo("NOM00001-1111-1111-1111-111111111111", rfc="AAA111", nombre="A"),
         _recibo("NOM00002-2222-2222-2222-222222222222", rfc="AAA111", nombre="A"),
         _recibo("NOM00003-3333-3333-3333-333333333333", rfc="BBB222", nombre="B"),
-    ])
-    s = stats_nomina(db)
+    ], mi_rfc=MI_RFC)
+    s = stats_nomina(db, F_RFC)
     assert s["total_recibos"] == 3
     assert s["total_empleados"] == 2
     assert s["nominas_ordinarias"] == 3
@@ -344,7 +348,7 @@ def test_listar_recibos_filtros(db):
                 periodicidad="04", fecha_pago="2026-01-15"),
         _recibo("NOM00002-2222-2222-2222-222222222222", tipo_nomina="E",
                 periodicidad="05", fecha_pago="2026-02-15"),
-    ])
+    ], mi_rfc=MI_RFC)
 
     todos = listar_recibos(db)
     assert todos["total"] == 2
@@ -362,8 +366,8 @@ def test_listar_recibos_filtros(db):
 
 
 def test_conceptos_de_recibo_orden(db):
-    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")])
-    conceptos = conceptos_de_recibo(db, "NOM00001-1111-1111-1111-111111111111")
+    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")], mi_rfc=MI_RFC)
+    conceptos = conceptos_de_recibo(db, "NOM00001-1111-1111-1111-111111111111", MI_RFC)
     # Default: 1 percep + 2 deduc → 3 conceptos
     assert len(conceptos) == 3
     # Percepciones primero, luego Deducciones, luego OtrosPagos.
@@ -387,7 +391,7 @@ def test_reporte_deducibilidad_calculo_isr_2026(db):
         percepciones=[("001", 20000.0, 0.0)],
         deducciones=[("002", 2500.0)],
         fecha_pago="2026-01-31",
-    )])
+    )], mi_rfc=MI_RFC)
     r = reporte_deducibilidad(db)
     isr = r["isr_analisis"]
     assert isr["year_detected"] == 2026
@@ -411,7 +415,7 @@ def test_reporte_deducibilidad_multiples_meses(db):
         _recibo("NOM00002-2222-2222-2222-222222222222",
                 percepciones=[("001", 20000.0, 0.0)],
                 fecha_pago="2026-02-28"),
-    ])
+    ], mi_rfc=MI_RFC)
     r = reporte_deducibilidad(db)
     isr_un_mes = calcular_isr_bruto(20000.0, 2026)
     # ISR teórico total = ISR mensual × 2.
@@ -427,7 +431,7 @@ def test_reporte_deducibilidad_periodo_incompleto_advertencia(db):
         "NOM00001-1111-1111-1111-111111111111",
         periodicidad="04",      # quincenal → se esperan 2 por mes
         fecha_pago="2026-01-15",
-    )])
+    )], mi_rfc=MI_RFC)
     r = reporte_deducibilidad(db)
     emp = r["desglose_por_empleado"][0]
     assert emp["advertencia_periodo"] is not None
@@ -445,7 +449,7 @@ def test_reporte_imss_aportaciones(db):
     db.agregar([_recibo(
         "NOM00001-1111-1111-1111-111111111111",
         sbc=500.0,
-    )])
+    )], mi_rfc=MI_RFC)
     r = reporte_imss(db)
     assert r["total_empleados"] == 1
     reg = r["registros"][0]
@@ -458,7 +462,7 @@ def test_reporte_imss_alertas_sin_nss(db):
         "NOM00001-1111-1111-1111-111111111111",
         rfc="AAA111",
         nss="",
-    )])
+    )], mi_rfc=MI_RFC)
     r = reporte_imss(db)
     assert "AAA111" in r["alertas"]["empleados_sin_nss"]
 
@@ -468,7 +472,7 @@ def test_reporte_imss_alertas_sbc_fuera(db):
         "NOM00001-1111-1111-1111-111111111111",
         rfc="AAA111",
         sbc=999_999.0,
-    )])
+    )], mi_rfc=MI_RFC)
     r = reporte_imss(db)
     assert "AAA111" in r["alertas"]["sbc_fuera_limites"]
 
@@ -479,7 +483,7 @@ def test_reporte_imss_alertas_sbc_fuera(db):
 
 
 def test_reporte_periodo_vs_periodo_insuficiente(db):
-    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111", fecha_pago="2026-01-31")])
+    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111", fecha_pago="2026-01-31")], mi_rfc=MI_RFC)
     r = reporte_periodo_vs_periodo(db)
     assert r["insuficiente"] is True
     assert "dos meses" in (r["mensaje_insuficiente"] or "").lower()
@@ -494,7 +498,7 @@ def test_reporte_periodo_vs_periodo_variaciones(db):
         # Mes actual: empleado B (A salió, B entró)
         _recibo("NOM00002-2222-2222-2222-222222222222", rfc="BBB222",
                 fecha_pago="2026-02-28"),
-    ])
+    ], mi_rfc=MI_RFC)
     r = reporte_periodo_vs_periodo(db)
     assert r["insuficiente"] is False
     assert "AAA111" in r["variaciones"]["empleados_eliminados"]
@@ -507,8 +511,8 @@ def test_reporte_periodo_vs_periodo_variaciones(db):
 
 
 def test_exportar_nomina_xlsx_estructura(db):
-    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")])
-    xlsx_bytes = to_xlsx(db)
+    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")], mi_rfc=MI_RFC)
+    xlsx_bytes = to_xlsx(db, F_RFC)
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True)
     # Sheets siempre presentes
@@ -524,8 +528,8 @@ def test_exportar_nomina_xlsx_estructura(db):
 
 
 def test_exportar_nomina_xlsx_disclaimer_first(db):
-    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")])
-    xlsx_bytes = to_xlsx(db)
+    db.agregar([_recibo("NOM00001-1111-1111-1111-111111111111")], mi_rfc=MI_RFC)
+    xlsx_bytes = to_xlsx(db, F_RFC)
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True)
     assert wb.sheetnames[0] == "Disclaimer"

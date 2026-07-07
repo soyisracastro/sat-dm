@@ -18,6 +18,8 @@ import type { CfdiFiltros } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa: el export sale de SU buffer. */
+  rfc: string;
   filtros: Partial<CfdiFiltros>;
 }
 
@@ -32,14 +34,14 @@ function descargarBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function CfdiExportButtons({ filtros }: Props) {
+export function CfdiExportButtons({ rfc, filtros }: Props) {
   const { apiClient } = useServer();
   const [busy, setBusy] = useState<'xlsx' | 'csv' | null>(null);
 
   async function exportar(formato: 'xlsx' | 'csv') {
     setBusy(formato);
     try {
-      const blob = await apiClient.procesadorExportar(formato, filtros);
+      const blob = await apiClient.procesadorExportar(rfc, formato, filtros);
       const fecha = new Date().toISOString().slice(0, 10);
       descargarBlob(blob, `cfdis_${fecha}.${formato}`);
     } catch (e) {

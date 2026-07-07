@@ -8,6 +8,17 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Procesador de comprobantes aislado por empresa (RFC)**: el buffer, los
+  filtros, reportes y exportaciones de CFDI/Pagos/Nómina ahora viven POR
+  empresa — al cambiar de empresa activa solo ves sus comprobantes y al
+  regresar (A→B→A) se recupera lo que esa empresa tenía cargado, igual que
+  las calculadoras. La carga de XML exige empresa activa y la vía "Examinar"
+  **omite los comprobantes que no correspondan a su RFC** (ni emisor ni
+  receptor) reportando el conteo. "Borrar todo" vacía solo el buffer de la
+  empresa activa. Los buffers existentes se asignan automáticamente a la
+  empresa predeterminada al primer arranque (si no hay empresa registrada,
+  se vacían — el buffer es una caché re-cargable desde los XMLs).
+
 - **Calculadoras fiscales y laborales** (PRs #110–#113): nueva sección
   **Calculadoras** con 7 herramientas de libre acceso — aguinaldo, SBC, ISR de
   sueldos, finiquito, liquidación, carga patronal y **PTU** (con la lógica de

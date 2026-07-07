@@ -18,6 +18,8 @@ import type { PagosFiltros, ReporteIncidenciasPue } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa (el reporte sale de SU buffer). */
+  rfc: string;
   filtros: Partial<PagosFiltros>;
 }
 
@@ -36,7 +38,7 @@ function formatoMXN(n: number | null): string {
   }).format(n ?? 0);
 }
 
-export function PagosIncidenciasPue({ filtros }: Props) {
+export function PagosIncidenciasPue({ rfc, filtros }: Props) {
   const { apiClient } = useServer();
   const [data, setData] = useState<ReporteIncidenciasPue | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export function PagosIncidenciasPue({ filtros }: Props) {
   useEffect(() => {
     let mounted = true;
     apiClient
-      .procesadorPagosReporte('incidencias-pue', filtros)
+      .procesadorPagosReporte(rfc, 'incidencias-pue', filtros)
       .then((r) => {
         if (mounted) setData(r);
       })
@@ -54,7 +56,7 @@ export function PagosIncidenciasPue({ filtros }: Props) {
     return () => {
       mounted = false;
     };
-  }, [apiClient, JSON.stringify(filtros)]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [apiClient, rfc, JSON.stringify(filtros)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error || !data || data.items.length === 0) return null;
 

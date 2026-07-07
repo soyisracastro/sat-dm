@@ -359,21 +359,24 @@ class TestDetectarEdos:
 # ---------------------------------------------------------------------------
 
 
+DUENO_RFC = "XAXX010101000"  # empresa dueña del buffer en estos tests
+
+
 @pytest.fixture
 def db_con_cfdis(tmp_path):
-    """ProcesadorDB temporal con 3 CFDIs precargados."""
+    """ProcesadorDB temporal con 3 CFDIs precargados (dueño: DUENO_RFC)."""
     from sat_descarga.procesador.db import ProcesadorDB
     db = ProcesadorDB(tmp_path / "test.db")
 
     # Insert directo (saltamos el parser para simplificar el setup).
     with db._conn:
         db._conn.executemany(
-            "INSERT INTO cfdis (uuid, emisor_rfc, receptor_rfc, total, fecha, cargado_en) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO cfdis (uuid, mi_rfc, emisor_rfc, receptor_rfc, total, fecha, cargado_en) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
-                ("uuid-1", "EFOS010101AAA", "MIRFC010101XYZ", 1000.0, "2026-05-01T10:00:00", "2026-05-01T10:00:00"),
-                ("uuid-2", "EFOS010101AAA", "MIRFC010101XYZ", 500.0, "2026-05-15T10:00:00", "2026-05-15T10:00:00"),
-                ("uuid-3", "LIMP010101CCC", "MIRFC010101XYZ", 2000.0, "2026-06-01T10:00:00", "2026-06-01T10:00:00"),
+                ("uuid-1", DUENO_RFC, "EFOS010101AAA", "MIRFC010101XYZ", 1000.0, "2026-05-01T10:00:00", "2026-05-01T10:00:00"),
+                ("uuid-2", DUENO_RFC, "EFOS010101AAA", "MIRFC010101XYZ", 500.0, "2026-05-15T10:00:00", "2026-05-15T10:00:00"),
+                ("uuid-3", DUENO_RFC, "LIMP010101CCC", "MIRFC010101XYZ", 2000.0, "2026-06-01T10:00:00", "2026-06-01T10:00:00"),
             ],
         )
     return db
@@ -412,14 +415,14 @@ class TestPersistencia:
 
     def test_rfcs_sin_validar_devuelve_unicos(self, db_con_cfdis):
         db = db_con_cfdis
-        rfcs = set(db.rfcs_sin_validar_listas())
+        rfcs = set(db.rfcs_sin_validar_listas(DUENO_RFC))
         assert rfcs == {"EFOS010101AAA", "LIMP010101CCC", "MIRFC010101XYZ"}
 
     def test_ttl_omite_recientes(self, db_con_cfdis):
         db = db_con_cfdis
         # Marca el emisor EFOS como validado AHORA
         db.actualizar_lista_negra_rfc("EFOS010101AAA", "EFOS", "{}")
-        rfcs = set(db.rfcs_sin_validar_listas(ttl_days=30))
+        rfcs = set(db.rfcs_sin_validar_listas(DUENO_RFC, ttl_days=30))
         # EFOS010101AAA tiene timestamp fresh → no debe estar
         assert "EFOS010101AAA" not in rfcs
         # MIRFC tampoco, porque actualizar_lista_negra_rfc también tocó las
@@ -432,7 +435,7 @@ class TestPersistencia:
     def test_force_refresh_devuelve_todos(self, db_con_cfdis):
         db = db_con_cfdis
         db.actualizar_lista_negra_rfc("EFOS010101AAA", "EFOS", "{}")
-        rfcs = set(db.rfcs_sin_validar_listas(force_refresh=True))
+        rfcs = set(db.rfcs_sin_validar_listas(DUENO_RFC, force_refresh=True))
         assert rfcs == {"EFOS010101AAA", "LIMP010101CCC", "MIRFC010101XYZ"}
 
     def test_stats_listas_negras(self, db_con_cfdis):

@@ -21,11 +21,11 @@ const FILTROS_INICIALES: PagosFiltros = {
 const CONFIG: ProcesadorConfig<PagosFiltros, FacturasPPDResponse, PagosStats> = {
   filtrosIniciales: FILTROS_INICIALES,
   etiquetaLog: 'pagos',
-  filtrosGet: (api) => api.procesadorPagosFiltrosGet(),
-  filtrosSet: (api, filtros) => api.procesadorPagosFiltrosSet(filtros),
-  listar: (api, filtros, page, pageSize) =>
-    api.procesadorPagosListar(filtros, page, pageSize),
-  stats: (api, filtros) => api.procesadorPagosStats(filtros),
+  filtrosGet: (api, rfc) => api.procesadorPagosFiltrosGet(rfc),
+  filtrosSet: (api, rfc, filtros) => api.procesadorPagosFiltrosSet(rfc, filtros),
+  listar: (api, rfc, filtros, page, pageSize) =>
+    api.procesadorPagosListar(rfc, filtros, page, pageSize),
+  stats: (api, rfc, filtros) => api.procesadorPagosStats(rfc, filtros),
 };
 
 /**

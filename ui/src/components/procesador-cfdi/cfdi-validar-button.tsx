@@ -9,6 +9,8 @@ import { Icon } from '@/components/ui/icon';
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa: se validan solo los CFDIs de su buffer. */
+  rfc: string;
   /** Llamado tras una validación exitosa para refrescar el listado. */
   onValidado: () => void;
 }
@@ -22,7 +24,7 @@ interface Props {
  * falla, la otra sigue (típicamente listas negras puede fallar con 401 si la
  * sesión expiró; el estatus CFDI siempre funciona porque no requiere auth).
  */
-export function CfdiValidarButton({ onValidado }: Props) {
+export function CfdiValidarButton({ rfc, onValidado }: Props) {
   const { apiClient } = useServer();
   const [busy, setBusy] = useState(false);
 
@@ -30,8 +32,8 @@ export function CfdiValidarButton({ onValidado }: Props) {
     setBusy(true);
 
     const [estatusRes, listasRes] = await Promise.allSettled([
-      apiClient.procesadorValidarSat(),
-      apiClient.procesadorValidarListasNegras(),
+      apiClient.procesadorValidarSat(rfc),
+      apiClient.procesadorValidarListasNegras(rfc),
     ]);
 
     const partes: string[] = [];

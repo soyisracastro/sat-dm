@@ -477,6 +477,8 @@ export interface ReporteIntegridad {
 export interface ProcesadorCargarResponse {
   agregados: number;
   duplicados: number;
+  /** XMLs omitidos por no corresponder al RFC de la empresa (ni emisor ni receptor). */
+  omitidos_rfc: number;
   errores: { filename: string; mensaje: string }[];
   archivos_encontrados?: number; // solo en cargar-desde-empresa
 }

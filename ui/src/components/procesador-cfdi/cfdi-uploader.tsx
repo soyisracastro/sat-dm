@@ -37,8 +37,9 @@ const MAX_BATCH = 500;
 
 export function CfdiUploader({ bareback = false, onCargado }: Props) {
   const { apiClient } = useServer();
-  const { empresas } = useEmpresas();
+  const { empresas, loading: empresasLoading } = useEmpresas();
   const empresaActiva = empresas.find((e) => e.default);
+  const sinEmpresa = !empresasLoading && !empresaActiva;
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [tipoEmpresa, setTipoEmpresa] = useState<'E' | 'R'>('R');
@@ -50,6 +51,8 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
   const folderInput = useRef<HTMLInputElement | null>(null);
 
   async function subirArchivos(files: File[]) {
+    // El drop no respeta `disabled`: gate explícito también aquí.
+    if (!empresaActiva) return;
     const xmls = files.filter((f) => f.name.toLowerCase().endsWith('.xml'));
     if (xmls.length === 0) {
       setError('No se encontraron archivos `.xml` en la selección.');
@@ -70,15 +73,17 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
     const acum: ProcesadorCargarResponse = {
       agregados: 0,
       duplicados: 0,
+      omitidos_rfc: 0,
       errores: [],
     };
 
     try {
       for (let i = 0; i < lotes.length; i++) {
         setProgreso({ lote: i + 1, total: lotes.length });
-        const r = await apiClient.procesadorCargar(lotes[i]);
+        const r = await apiClient.procesadorCargar(empresaActiva.rfc, lotes[i]);
         acum.agregados += r.agregados;
         acum.duplicados += r.duplicados;
+        acum.omitidos_rfc += r.omitidos_rfc;
         acum.errores.push(...r.errores);
         // Refrescar a medida que llegan lotes para que la tabla / stats
         // se vayan poblando sin esperar al último.
@@ -131,7 +136,17 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
     ev.target.value = '';
   }
 
-  const cuerpo = (
+  // Sin empresa activa el procesador no tiene dónde guardar: el buffer y los
+  // filtros viven POR empresa en el agente. Se bloquean ambas vías de carga.
+  const cuerpo = sinEmpresa ? (
+    <Alert variant="warning">
+      <Icon icon="ph:warning-light" className="size-4" />
+      <AlertDescription>
+        No hay empresa activa. Activa una empresa en la sección Empresas para
+        cargar comprobantes — el procesador guarda los XMLs por empresa.
+      </AlertDescription>
+    </Alert>
+  ) : (
     <div className="space-y-4">
       <Tabs defaultValue="archivos">
           <TabsList>
@@ -170,7 +185,7 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
                 variant="outline"
                 size="sm"
                 type="button"
-                disabled={busy}
+                disabled={busy || !empresaActiva}
                 onClick={() => folderInput.current?.click()}
               >
                 <Icon icon="ph:folder-open-light" className="size-4" />
@@ -189,8 +204,15 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Las selecciones grandes se procesan en lotes de {MAX_BATCH}.
-              Los duplicados (mismo UUID) se ignoran.
+              Solo se cargan comprobantes de la empresa activa
+              {empresaActiva && (
+                <>
+                  {' '}(<span className="font-mono">{empresaActiva.rfc}</span> como
+                  emisor o receptor)
+                </>
+              )}
+              ; el resto se omite. Las selecciones grandes se procesan en lotes
+              de {MAX_BATCH}. Los duplicados (mismo UUID) se ignoran.
             </p>
           </TabsContent>
 
@@ -286,11 +308,26 @@ export function CfdiUploader({ bareback = false, onCargado }: Props) {
         )}
 
         {resumen && (
-          <Alert>
-            <Icon icon="ph:check-circle-light" className="size-4" />
+          <Alert
+            variant={
+              resumen.omitidos_rfc > 0 && resumen.agregados === 0
+                ? 'warning'
+                : 'default'
+            }
+          >
+            <Icon
+              icon={
+                resumen.omitidos_rfc > 0 && resumen.agregados === 0
+                  ? 'ph:warning-light'
+                  : 'ph:check-circle-light'
+              }
+              className="size-4"
+            />
             <AlertDescription>
               {resumen.agregados} agregados
               {resumen.duplicados > 0 && ` · ${resumen.duplicados} duplicados`}
+              {resumen.omitidos_rfc > 0 &&
+                ` · ${resumen.omitidos_rfc} omitidos por no corresponder al RFC ${empresaActiva?.rfc ?? 'de la empresa activa'}`}
               {resumen.archivos_encontrados !== undefined &&
                 ` · ${resumen.archivos_encontrados} archivos escaneados`}
               {resumen.errores.length > 0 && ` · ${resumen.errores.length} con error`}

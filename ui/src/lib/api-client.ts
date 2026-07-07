@@ -545,10 +545,15 @@ export class SatApiClient {
   // -----------------------------------------------------------------------
   // Procesador de comprobantes — CFDI
   // -----------------------------------------------------------------------
+  //
+  // El buffer está AISLADO POR EMPRESA: todos los métodos llevan el `rfc`
+  // de la empresa activa como primer parámetro (el agente lo exige y acota
+  // datos, filtros, reportes y exports a esa empresa).
 
-  /** Sube XMLs por multipart al buffer del procesador (drag&drop, examinar). */
-  async procesadorCargar(files: File[]): Promise<ProcesadorCargarResponse> {
+  /** Sube XMLs por multipart al buffer de la empresa (drag&drop, examinar). */
+  async procesadorCargar(rfc: string, files: File[]): Promise<ProcesadorCargarResponse> {
     const form = new FormData();
+    form.append('rfc', rfc);
     for (const f of files) form.append('files', f);
     return this.request<ProcesadorCargarResponse>('/procesador/cfdi/cargar', {
       method: 'POST',
@@ -566,75 +571,88 @@ export class SatApiClient {
     );
   }
 
-  /** Valida contra el SAT los CFDIs del buffer (o los uuids indicados). */
-  async procesadorValidarSat(uuids?: string[]): Promise<ValidarSatResponse> {
+  /** Valida contra el SAT los CFDIs del buffer de la empresa (o los uuids indicados). */
+  async procesadorValidarSat(rfc: string, uuids?: string[]): Promise<ValidarSatResponse> {
     return this.post<ValidarSatResponse>('/procesador/cfdi/validar-sat', {
+      rfc,
       uuids: uuids ?? null,
     });
   }
 
   /** Lista paginada del buffer con filtros. */
   async procesadorListar(
+    rfc: string,
     filtros?: Partial<CfdiFiltros>,
     page = 1,
     pageSize = 50,
   ): Promise<CfdiListResponse> {
-    const qs = _filtrosToQuery({ ...filtros, page, page_size: pageSize });
+    const qs = _filtrosToQuery({ ...filtros, rfc, page, page_size: pageSize });
     return this.request<CfdiListResponse>(`/procesador/cfdi?${qs}`);
   }
 
   /** Stats agregados (cards superiores). */
-  async procesadorStats(filtros?: Partial<CfdiFiltros>): Promise<CfdiStats> {
-    const qs = _filtrosToQuery(filtros ?? {});
+  async procesadorStats(rfc: string, filtros?: Partial<CfdiFiltros>): Promise<CfdiStats> {
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), rfc });
     return this.request<CfdiStats>(`/procesador/cfdi/stats?${qs}`);
   }
 
   /** Reporte específico: 'totales-mes' | 'top-contrapartes' | 'integridad'. */
   async procesadorReporte(
+    rfc: string,
     nombre: 'totales-mes',
     filtros?: Partial<CfdiFiltros>,
   ): Promise<ReporteTotalesMes>;
   async procesadorReporte(
+    rfc: string,
     nombre: 'top-contrapartes',
     filtros?: Partial<CfdiFiltros>,
   ): Promise<ReporteTopContrapartes>;
   async procesadorReporte(
+    rfc: string,
     nombre: 'integridad',
     filtros?: Partial<CfdiFiltros>,
   ): Promise<ReporteIntegridad>;
   async procesadorReporte(
+    rfc: string,
     nombre: string,
     filtros?: Partial<CfdiFiltros>,
   ): Promise<ReporteTotalesMes | ReporteTopContrapartes | ReporteIntegridad> {
-    const qs = _filtrosToQuery(filtros ?? {});
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), rfc });
     return this.request(`/procesador/cfdi/reporte/${nombre}?${qs}`);
   }
 
-  /** Filtros persistidos (lectura). */
-  async procesadorFiltrosGet(): Promise<CfdiFiltros> {
-    return this.request<CfdiFiltros>('/procesador/cfdi/filtros');
+  /** Filtros persistidos de la empresa (lectura). */
+  async procesadorFiltrosGet(rfc: string): Promise<CfdiFiltros> {
+    return this.request<CfdiFiltros>(`/procesador/cfdi/filtros?rfc=${encodeURIComponent(rfc)}`);
   }
 
-  /** Filtros persistidos (escritura). */
-  async procesadorFiltrosSet(filtros: Partial<CfdiFiltros>): Promise<{ ok: boolean }> {
+  /** Filtros persistidos de la empresa (escritura). */
+  async procesadorFiltrosSet(
+    rfc: string,
+    filtros: Partial<CfdiFiltros>,
+  ): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>('/procesador/cfdi/filtros', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(filtros),
+      body: JSON.stringify({ ...filtros, rfc }),
     });
   }
 
-  /** Vacía el buffer completo. */
-  async procesadorBorrar(): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>('/procesador/cfdi', { method: 'DELETE' });
+  /** Vacía el buffer y los filtros de UNA empresa (las demás no se tocan). */
+  async procesadorBorrar(rfc: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(
+      `/procesador/cfdi?rfc=${encodeURIComponent(rfc)}`,
+      { method: 'DELETE' },
+    );
   }
 
   /** Descarga el buffer filtrado como Blob (xlsx o csv). */
   async procesadorExportar(
+    rfc: string,
     formato: 'xlsx' | 'csv',
     filtros?: Partial<CfdiFiltros>,
   ): Promise<Blob> {
-    const qs = _filtrosToQuery({ ...(filtros ?? {}), formato });
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), rfc, formato });
     const r = await fetch(this.url(`/procesador/cfdi/exportar?${qs}`), { headers: this.tokenHeaders() });
     if (!r.ok) {
       const text = await r.text();
@@ -653,11 +671,13 @@ export class SatApiClient {
 
   /** Facturas PPD paginadas con status calculado. */
   async procesadorPagosListar(
+    rfc: string,
     filtros?: Partial<PagosFiltros>,
     page = 1,
     pageSize = 50,
   ): Promise<FacturasPPDResponse> {
     const params: Record<string, unknown> = {
+      rfc,
       desde: filtros?.desde,
       hasta: filtros?.hasta,
       busqueda: filtros?.busqueda,
@@ -672,8 +692,12 @@ export class SatApiClient {
   }
 
   /** KPIs del procesador de Pagos. */
-  async procesadorPagosStats(filtros?: Partial<PagosFiltros>): Promise<PagosStats> {
+  async procesadorPagosStats(
+    rfc: string,
+    filtros?: Partial<PagosFiltros>,
+  ): Promise<PagosStats> {
     const qs = _filtrosToQuery({
+      rfc,
       desde: filtros?.desde,
       hasta: filtros?.hasta,
       busqueda: filtros?.busqueda,
@@ -681,31 +705,39 @@ export class SatApiClient {
     return this.request<PagosStats>(`/procesador/pagos/stats?${qs}`);
   }
 
-  /** Drilldown: complementos asociados a una factura PPD. */
+  /** Drilldown: complementos asociados a una factura PPD de la empresa. */
   async procesadorPagosDetalleFactura(
+    rfc: string,
     uuid: string,
   ): Promise<{ uuid: string; items: PagoRelacionadoDetalle[] }> {
-    return this.request(`/procesador/pagos/factura/${encodeURIComponent(uuid)}/pagos`);
+    return this.request(
+      `/procesador/pagos/factura/${encodeURIComponent(uuid)}/pagos?rfc=${encodeURIComponent(rfc)}`,
+    );
   }
 
   /** Reporte específico. */
   async procesadorPagosReporte(
+    rfc: string,
     nombre: 'analisis-fechas',
     filtros?: Partial<PagosFiltros>,
   ): Promise<ReporteAnalisisFechas>;
   async procesadorPagosReporte(
+    rfc: string,
     nombre: 'huerfanos',
     filtros?: Partial<PagosFiltros>,
   ): Promise<ReportePagosHuerfanos>;
   async procesadorPagosReporte(
+    rfc: string,
     nombre: 'incidencias-pue',
     filtros?: Partial<PagosFiltros>,
   ): Promise<ReporteIncidenciasPue>;
   async procesadorPagosReporte(
+    rfc: string,
     nombre: string,
     filtros?: Partial<PagosFiltros>,
   ): Promise<ReporteAnalisisFechas | ReportePagosHuerfanos | ReporteIncidenciasPue> {
     const qs = _filtrosToQuery({
+      rfc,
       desde: filtros?.desde,
       hasta: filtros?.hasta,
       busqueda: filtros?.busqueda,
@@ -713,22 +745,31 @@ export class SatApiClient {
     return this.request(`/procesador/pagos/reporte/${nombre}?${qs}`);
   }
 
-  /** Filtros persistidos del procesador de Pagos. */
-  async procesadorPagosFiltrosGet(): Promise<PagosFiltros> {
-    return this.request<PagosFiltros>('/procesador/pagos/filtros');
+  /** Filtros persistidos del procesador de Pagos (por empresa). */
+  async procesadorPagosFiltrosGet(rfc: string): Promise<PagosFiltros> {
+    return this.request<PagosFiltros>(
+      `/procesador/pagos/filtros?rfc=${encodeURIComponent(rfc)}`,
+    );
   }
 
-  async procesadorPagosFiltrosSet(filtros: Partial<PagosFiltros>): Promise<{ ok: boolean }> {
+  async procesadorPagosFiltrosSet(
+    rfc: string,
+    filtros: Partial<PagosFiltros>,
+  ): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>('/procesador/pagos/filtros', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(filtros),
+      body: JSON.stringify({ ...filtros, rfc }),
     });
   }
 
   /** Descarga XLSX multi-sheet del procesador de Pagos. */
-  async procesadorPagosExportar(filtros?: Partial<PagosFiltros>): Promise<Blob> {
+  async procesadorPagosExportar(
+    rfc: string,
+    filtros?: Partial<PagosFiltros>,
+  ): Promise<Blob> {
     const qs = _filtrosToQuery({
+      rfc,
       desde: filtros?.desde,
       hasta: filtros?.hasta,
       busqueda: filtros?.busqueda,
@@ -762,11 +803,13 @@ export class SatApiClient {
 
   /** Recibos de nómina paginados (1 fila por CFDI tipo N). */
   async procesadorNominaListar(
+    rfc: string,
     filtros?: Partial<NominaFiltros>,
     page = 1,
     pageSize = 50,
   ): Promise<NominaRecibosResponse> {
     const qs = _filtrosToQuery({
+      rfc,
       ...this._filtrosNominaParams(filtros),
       page,
       page_size: pageSize,
@@ -775,59 +818,73 @@ export class SatApiClient {
   }
 
   /** KPIs del procesador de Nómina. */
-  async procesadorNominaStats(filtros?: Partial<NominaFiltros>): Promise<NominaStats> {
-    const qs = _filtrosToQuery(this._filtrosNominaParams(filtros));
+  async procesadorNominaStats(
+    rfc: string,
+    filtros?: Partial<NominaFiltros>,
+  ): Promise<NominaStats> {
+    const qs = _filtrosToQuery({ rfc, ...this._filtrosNominaParams(filtros) });
     return this.request<NominaStats>(`/procesador/nomina/stats?${qs}`);
   }
 
-  /** Drilldown: conceptos de un recibo de nómina ordenados por clase. */
+  /** Drilldown: conceptos de un recibo de nómina de la empresa, por clase. */
   async procesadorNominaConceptosDeRecibo(
+    rfc: string,
     uuid: string,
   ): Promise<{ uuid: string; items: NominaConceptoDetalle[] }> {
     return this.request(
-      `/procesador/nomina/recibo/${encodeURIComponent(uuid)}/conceptos`,
+      `/procesador/nomina/recibo/${encodeURIComponent(uuid)}/conceptos?rfc=${encodeURIComponent(rfc)}`,
     );
   }
 
   /** Reporte específico (Deductibilidad / IMSS / Periodo vs Periodo). */
   async procesadorNominaReporte(
+    rfc: string,
     nombre: 'deducibilidad',
     filtros?: Partial<NominaFiltros>,
   ): Promise<ReporteDeducibilidad>;
   async procesadorNominaReporte(
+    rfc: string,
     nombre: 'imss',
     filtros?: Partial<NominaFiltros>,
   ): Promise<ReporteImss>;
   async procesadorNominaReporte(
+    rfc: string,
     nombre: 'periodo-vs-periodo',
     filtros?: Partial<NominaFiltros>,
   ): Promise<ReportePeriodoVsPeriodo>;
   async procesadorNominaReporte(
+    rfc: string,
     nombre: string,
     filtros?: Partial<NominaFiltros>,
   ): Promise<ReporteDeducibilidad | ReporteImss | ReportePeriodoVsPeriodo> {
-    const qs = _filtrosToQuery(this._filtrosNominaParams(filtros));
+    const qs = _filtrosToQuery({ rfc, ...this._filtrosNominaParams(filtros) });
     return this.request(`/procesador/nomina/reporte/${nombre}?${qs}`);
   }
 
-  /** Filtros persistidos del procesador de Nómina. */
-  async procesadorNominaFiltrosGet(): Promise<NominaFiltros> {
-    return this.request<NominaFiltros>('/procesador/nomina/filtros');
+  /** Filtros persistidos del procesador de Nómina (por empresa). */
+  async procesadorNominaFiltrosGet(rfc: string): Promise<NominaFiltros> {
+    return this.request<NominaFiltros>(
+      `/procesador/nomina/filtros?rfc=${encodeURIComponent(rfc)}`,
+    );
   }
 
   async procesadorNominaFiltrosSet(
+    rfc: string,
     filtros: Partial<NominaFiltros>,
   ): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>('/procesador/nomina/filtros', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(filtros),
+      body: JSON.stringify({ ...filtros, rfc }),
     });
   }
 
   /** Descarga XLSX multi-sheet del procesador de Nómina (con disclaimer fiscal). */
-  async procesadorNominaExportar(filtros?: Partial<NominaFiltros>): Promise<Blob> {
-    const qs = _filtrosToQuery(this._filtrosNominaParams(filtros));
+  async procesadorNominaExportar(
+    rfc: string,
+    filtros?: Partial<NominaFiltros>,
+  ): Promise<Blob> {
+    const qs = _filtrosToQuery({ rfc, ...this._filtrosNominaParams(filtros) });
     const r = await fetch(this.url(`/procesador/nomina/exportar?${qs}`), { headers: this.tokenHeaders() });
     if (!r.ok) {
       const text = await r.text();
@@ -971,13 +1028,15 @@ export class SatApiClient {
     return this.request<ListasNegrasMetadata>('/listas-negras/metadata');
   }
 
-  /** Valida los RFCs del buffer del procesador y persiste el resultado por fila. */
+  /** Valida los RFCs del buffer de la empresa y persiste el resultado por fila. */
   async procesadorValidarListasNegras(
+    rfc: string,
     opts: { uuids?: string[]; force_refresh?: boolean } = {},
   ): Promise<ProcesadorValidarListasNegrasResponse> {
     return this.post<ProcesadorValidarListasNegrasResponse>(
       '/procesador/cfdi/validar-listas-negras',
       {
+        rfc,
         uuids: opts.uuids ?? null,
         force_refresh: opts.force_refresh ?? false,
       },
@@ -986,9 +1045,10 @@ export class SatApiClient {
 
   /** KPIs (EFOS / EDOS / Aclarado / 69 / Limpios / Sin validar) sobre el buffer filtrado. */
   async procesadorListasNegrasStats(
+    rfc: string,
     filtros?: Partial<CfdiFiltros>,
   ): Promise<ProcesadorListasNegrasStats> {
-    const qs = _filtrosToQuery(filtros ?? {});
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), rfc });
     return this.request<ProcesadorListasNegrasStats>(
       `/procesador/cfdi/listas-negras/stats?${qs}`,
     );
@@ -996,11 +1056,12 @@ export class SatApiClient {
 
   /** Una fila por emisor_rfc (no por CFDI) con SUM(total) + COUNT, ordenada por total desc. */
   async procesadorListasNegrasPorEmisor(
+    rfc: string,
     filtros?: Partial<CfdiFiltros>,
     page = 1,
     pageSize = 50,
   ): Promise<EmisoresListasNegrasResponse> {
-    const qs = _filtrosToQuery({ ...(filtros ?? {}), page, page_size: pageSize });
+    const qs = _filtrosToQuery({ ...(filtros ?? {}), rfc, page, page_size: pageSize });
     return this.request<EmisoresListasNegrasResponse>(
       `/procesador/cfdi/listas-negras/por-emisor?${qs}`,
     );

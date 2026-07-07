@@ -42,9 +42,11 @@ def stats_generales(db: ProcesadorDB, filtros: Optional[CfdiFiltros] = None) -> 
             params,
         )
         por_tipo = {r["tipo"]: r["n"] for r in cur.fetchall()}
-        # Total global SIN filtros — útil para que la UI decida si el buffer
-        # está realmente vacío (vs un filtro restrictivo que oculta todo).
-        cur.execute("SELECT COUNT(*) FROM cfdis")
+        # Total "global" = todo el buffer de LA EMPRESA sin filtros de UI —
+        # útil para que la UI decida si el buffer está realmente vacío
+        # (vs un filtro restrictivo que oculta todo).
+        where_g, params_g = _construir_where({"mi_rfc": (filtros or {}).get("mi_rfc")})
+        cur.execute(f"SELECT COUNT(*) FROM cfdis {where_g}", params_g)
         total_global = cur.fetchone()[0]
     return {
         "total_comprobantes": row["total_comprobantes"] or 0,

@@ -32,7 +32,7 @@ from .constants_nomina import (
     get_limite_spe,
     get_tarifa_year_label,
 )
-from .db import ProcesadorDB
+from .db import ProcesadorDB, normalizar_mi_rfc
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +51,12 @@ def _construir_where_nomina(filtros: Optional[dict]) -> tuple[str, list]:
 
     if not filtros:
         return "", params
+
+    # Dueño del buffer (empresa activa) — acota todo el reporte.
+    mi_rfc = filtros.get("mi_rfc")
+    if mi_rfc:
+        clauses.append("cfdis.mi_rfc = ?")
+        params.append(normalizar_mi_rfc(mi_rfc))
 
     desde = filtros.get("desde")
     hasta = filtros.get("hasta")
@@ -123,7 +129,10 @@ def _clave_mes(fecha_iso: str) -> str:
 
 
 def stats_nomina(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
-    """KPIs para las cards del procesador de Nómina."""
+    """KPIs para las cards del procesador de Nómina (acotados a la empresa)."""
+    # El dueño es obligatorio: el conteo global de esta función no pasa por
+    # `_construir_where_nomina` y sin él mezclaría empresas.
+    mi_rfc = normalizar_mi_rfc((filtros or {}).get("mi_rfc"))
     where, params = _construir_where_nomina(filtros)
 
     sql_recibos = f"""
@@ -137,19 +146,23 @@ def stats_nomina(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
             COALESCE(SUM(nomina_recibos.total_otros_pagos), 0) AS total_otros_pagos
         FROM nomina_recibos
         JOIN cfdis ON cfdis.uuid = nomina_recibos.cfdi_uuid
+                  AND cfdis.mi_rfc = nomina_recibos.mi_rfc
         {where}
     """
     sql_conceptos = f"""
         SELECT COUNT(*) AS total_conceptos
         FROM nomina_conceptos
         JOIN nomina_recibos ON nomina_recibos.cfdi_uuid = nomina_conceptos.cfdi_uuid
+                           AND nomina_recibos.mi_rfc = nomina_conceptos.mi_rfc
         JOIN cfdis ON cfdis.uuid = nomina_recibos.cfdi_uuid
+                  AND cfdis.mi_rfc = nomina_recibos.mi_rfc
         {where}
     """
     sql_con_errores = f"""
         SELECT COUNT(DISTINCT cfdis.uuid) AS c
         FROM cfdis
         JOIN nomina_recibos ON nomina_recibos.cfdi_uuid = cfdis.uuid
+                           AND nomina_recibos.mi_rfc = cfdis.mi_rfc
         {where if where else ""}
         {"AND" if where else "WHERE"} cfdis.warnings_json != '[]'
                                   AND cfdis.warnings_json IS NOT NULL
@@ -162,9 +175,11 @@ def stats_nomina(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
         c = cur.fetchone()
         cur.execute(sql_con_errores, params)
         e = cur.fetchone()
-        # Global (sin filtros) para el empty-state de la UI.
+        # "Global" = todos los recibos de LA EMPRESA sin filtros de UI —
+        # para el empty-state de la UI.
         cur.execute(
-            "SELECT COUNT(*) FROM nomina_recibos JOIN cfdis ON cfdis.uuid = nomina_recibos.cfdi_uuid"
+            "SELECT COUNT(*) FROM nomina_recibos WHERE mi_rfc = ?",
+            (mi_rfc,),
         )
         global_count = cur.fetchone()[0]
 
@@ -205,6 +220,7 @@ def listar_recibos(
     sql_count = f"""
         SELECT COUNT(*) FROM nomina_recibos
         JOIN cfdis ON cfdis.uuid = nomina_recibos.cfdi_uuid
+                  AND cfdis.mi_rfc = nomina_recibos.mi_rfc
         {where}
     """
     sql_items = f"""
@@ -217,6 +233,7 @@ def listar_recibos(
             nomina_recibos.*
         FROM nomina_recibos
         JOIN cfdis ON cfdis.uuid = nomina_recibos.cfdi_uuid
+                  AND cfdis.mi_rfc = nomina_recibos.mi_rfc
         {where}
         ORDER BY nomina_recibos.fecha_pago DESC, cfdis.uuid
         LIMIT ? OFFSET ?
@@ -256,17 +273,19 @@ def listar_recibos(
 _ORDEN_CLASE = {"Percepcion": 0, "Deduccion": 1, "OtroPago": 2}
 
 
-def conceptos_de_recibo(db: ProcesadorDB, cfdi_uuid: str) -> list[dict]:
-    """Devuelve los conceptos del recibo ordenados por clase y tipo."""
+def conceptos_de_recibo(db: ProcesadorDB, cfdi_uuid: str, mi_rfc: str) -> list[dict]:
+    """Devuelve los conceptos del recibo (de una empresa) ordenados por clase
+    y tipo. El uuid ya no identifica una fila única — el mismo CFDI puede
+    vivir bajo dos empresas del catálogo."""
     with db.cursor() as cur:
         cur.execute(
             """
             SELECT clase, tipo_concepto, clave_interna, concepto,
                    importe_gravado, importe_exento, importe, subsidio_causado
             FROM nomina_conceptos
-            WHERE cfdi_uuid = ?
+            WHERE cfdi_uuid = ? AND mi_rfc = ?
             """,
-            (cfdi_uuid,),
+            (cfdi_uuid, normalizar_mi_rfc(mi_rfc)),
         )
         rows = [dict(r) for r in cur.fetchall()]
 
@@ -302,7 +321,9 @@ def _cargar_records(db: ProcesadorDB, filtros: Optional[dict]) -> list[dict]:
             nomina_conceptos.importe, nomina_conceptos.subsidio_causado
         FROM nomina_conceptos
         JOIN nomina_recibos ON nomina_recibos.cfdi_uuid = nomina_conceptos.cfdi_uuid
+                           AND nomina_recibos.mi_rfc = nomina_conceptos.mi_rfc
         JOIN cfdis ON cfdis.uuid = nomina_recibos.cfdi_uuid
+                  AND cfdis.mi_rfc = nomina_recibos.mi_rfc
         {where}
     """
     with db.cursor() as cur:

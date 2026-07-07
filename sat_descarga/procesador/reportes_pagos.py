@@ -25,7 +25,7 @@ import json
 from typing import Any, Optional
 
 from .catalogos import INTEGRIDAD_TOLERANCE
-from .db import ProcesadorDB
+from .db import ProcesadorDB, normalizar_mi_rfc
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +40,12 @@ def _construir_where_ppd(filtros: Optional[dict]) -> tuple[str, list]:
 
     if not filtros:
         return " AND ".join(clauses), params
+
+    # Dueño del buffer (empresa activa) — acota todo el reporte.
+    mi_rfc = filtros.get("mi_rfc")
+    if mi_rfc:
+        clauses.append("cfdis.mi_rfc = ?")
+        params.append(normalizar_mi_rfc(mi_rfc))
 
     desde = filtros.get("desde")
     hasta = filtros.get("hasta")
@@ -76,7 +82,10 @@ _LIMITE_EXTEMP_SQL = (
 
 
 def stats_pagos(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
-    """KPIs para las cards del procesador de Pagos."""
+    """KPIs para las cards del procesador de Pagos (acotados a la empresa)."""
+    # El dueño es obligatorio: las queries crudas de esta función no pasan
+    # por `_construir_where_ppd` y sin él mezclarían empresas.
+    mi_rfc = normalizar_mi_rfc((filtros or {}).get("mi_rfc"))
     where, params = _construir_where_ppd(filtros)
     tol = INTEGRIDAD_TOLERANCE
 
@@ -87,7 +96,8 @@ def stats_pagos(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
             cfdis.total AS total,
             COALESCE(SUM(p.docto_imp_pagado), 0) AS total_pagado
         FROM cfdis
-        LEFT JOIN pagos_relaciones p ON p.docto_uuid = cfdis.uuid
+        LEFT JOIN pagos_relaciones p
+            ON p.docto_uuid = cfdis.uuid AND p.mi_rfc = cfdis.mi_rfc
         WHERE {where}
         GROUP BY cfdis.uuid
     """
@@ -117,20 +127,26 @@ def stats_pagos(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
         else:
             pagos_completos += 1
 
-    # 2) Conteos de tipo P (complementos) y problemas.
+    # 2) Conteos de tipo P (complementos) y problemas — de LA empresa.
     with db.cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS n FROM cfdis WHERE tipo = 'P'")
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM cfdis WHERE tipo = 'P' AND mi_rfc = ?",
+            (mi_rfc,),
+        )
         total_pagos = cur.fetchone()["n"]
 
-        # Huérfanos: el docto_uuid NO existe como tipo I cargado.
+        # Huérfanos: el docto_uuid NO existe como tipo I cargado (en esta empresa).
         cur.execute(
             """
             SELECT COUNT(DISTINCT p.cfdi_pago_uuid) AS n
             FROM pagos_relaciones p
-            WHERE NOT EXISTS (
-                SELECT 1 FROM cfdis c WHERE c.uuid = p.docto_uuid AND c.tipo = 'I'
+            WHERE p.mi_rfc = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM cfdis c
+                WHERE c.uuid = p.docto_uuid AND c.mi_rfc = p.mi_rfc AND c.tipo = 'I'
             )
-            """
+            """,
+            (mi_rfc,),
         )
         pagos_huerfanos = cur.fetchone()["n"]
 
@@ -140,10 +156,11 @@ def stats_pagos(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
             """
             SELECT COUNT(*) AS n
             FROM pagos_relaciones p
-            LEFT JOIN cfdis c ON c.uuid = p.docto_uuid
-            WHERE (p.docto_metodo_pago = 'PUE')
-               OR (c.metodo_pago = 'PUE')
-            """
+            LEFT JOIN cfdis c ON c.uuid = p.docto_uuid AND c.mi_rfc = p.mi_rfc
+            WHERE p.mi_rfc = ?
+              AND ((p.docto_metodo_pago = 'PUE') OR (c.metodo_pago = 'PUE'))
+            """,
+            (mi_rfc,),
         )
         incidencias_pue = cur.fetchone()["n"]
 
@@ -153,17 +170,21 @@ def stats_pagos(db: ProcesadorDB, filtros: Optional[dict] = None) -> dict:
             SELECT COUNT(DISTINCT p.cfdi_pago_uuid) AS n,
                    COALESCE(SUM(c.total), 0) AS monto
             FROM pagos_relaciones p
-            JOIN cfdis c ON c.uuid = p.cfdi_pago_uuid
-            WHERE c.fecha > {_LIMITE_EXTEMP_SQL}
-            """
+            JOIN cfdis c ON c.uuid = p.cfdi_pago_uuid AND c.mi_rfc = p.mi_rfc
+            WHERE p.mi_rfc = ? AND c.fecha > {_LIMITE_EXTEMP_SQL}
+            """,
+            (mi_rfc,),
         )
         ext_row = cur.fetchone()
         complementos_extemporaneos = ext_row["n"]
         monto_extemporaneos = float(ext_row["monto"] or 0.0)
 
-        # Total global PPD (sin filtros) — para detectar buffer vacío en UI.
+        # Total "global" PPD = de la empresa, sin filtros de UI — para
+        # detectar buffer vacío en la UI.
         cur.execute(
-            "SELECT COUNT(*) FROM cfdis WHERE tipo = 'I' AND metodo_pago = 'PPD'"
+            "SELECT COUNT(*) FROM cfdis "
+            "WHERE tipo = 'I' AND metodo_pago = 'PPD' AND mi_rfc = ?",
+            (mi_rfc,),
         )
         total_global_ppd = cur.fetchone()[0]
 
@@ -235,7 +256,8 @@ def facturas_ppd(
             COALESCE(SUM(p.docto_imp_pagado), 0) AS total_pagado,
             COUNT(DISTINCT p.cfdi_pago_uuid) AS num_pagos
         FROM cfdis
-        LEFT JOIN pagos_relaciones p ON p.docto_uuid = cfdis.uuid
+        LEFT JOIN pagos_relaciones p
+            ON p.docto_uuid = cfdis.uuid AND p.mi_rfc = cfdis.mi_rfc
         WHERE {where}
         GROUP BY cfdis.uuid
         ORDER BY cfdis.fecha DESC, cfdis.uuid
@@ -291,8 +313,10 @@ def facturas_ppd(
 # ---------------------------------------------------------------------------
 
 
-def detalle_pagos_de_ppd(db: ProcesadorDB, ppd_uuid: str) -> list[dict]:
-    """Lista de pagos asociados a una factura PPD, ordenados por parcialidad."""
+def detalle_pagos_de_ppd(db: ProcesadorDB, ppd_uuid: str, mi_rfc: str) -> list[dict]:
+    """Lista de pagos asociados a una factura PPD (de una empresa), ordenados
+    por parcialidad. El uuid ya no identifica una fila única — el mismo CFDI
+    puede vivir bajo dos empresas del catálogo."""
     sql = """
         SELECT
             p.cfdi_pago_uuid,
@@ -307,12 +331,12 @@ def detalle_pagos_de_ppd(db: ProcesadorDB, ppd_uuid: str) -> list[dict]:
             c.emisor_rfc AS pago_emisor_rfc,
             c.emisor_nombre AS pago_emisor_nombre
         FROM pagos_relaciones p
-        JOIN cfdis c ON c.uuid = p.cfdi_pago_uuid
-        WHERE p.docto_uuid = ?
+        JOIN cfdis c ON c.uuid = p.cfdi_pago_uuid AND c.mi_rfc = p.mi_rfc
+        WHERE p.docto_uuid = ? AND p.mi_rfc = ?
         ORDER BY p.docto_num_parcialidad, p.cfdi_pago_fecha_pago
     """
     with db.cursor() as cur:
-        cur.execute(sql, (ppd_uuid,))
+        cur.execute(sql, (ppd_uuid, normalizar_mi_rfc(mi_rfc)))
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -326,6 +350,7 @@ def analisis_fechas(db: ProcesadorDB, filtros: Optional[dict] = None) -> list[di
     Lista de complementos emitidos después del día 5 del mes siguiente al
     FechaPago. Devuelve por cada complemento la diferencia en días.
     """
+    mi_rfc = normalizar_mi_rfc((filtros or {}).get("mi_rfc"))
     sql = f"""
         SELECT
             p.cfdi_pago_uuid,
@@ -337,14 +362,15 @@ def analisis_fechas(db: ProcesadorDB, filtros: Optional[dict] = None) -> list[di
             {_LIMITE_EXTEMP_SQL} AS limite,
             CAST(julianday(c.fecha) - julianday({_LIMITE_EXTEMP_SQL}) AS INTEGER) AS dias_retraso,
             p.docto_uuid AS factura_uuid,
-            (SELECT folio FROM cfdis WHERE uuid = p.docto_uuid) AS factura_folio
+            (SELECT folio FROM cfdis
+             WHERE uuid = p.docto_uuid AND mi_rfc = p.mi_rfc) AS factura_folio
         FROM pagos_relaciones p
-        JOIN cfdis c ON c.uuid = p.cfdi_pago_uuid
-        WHERE c.fecha > {_LIMITE_EXTEMP_SQL}
+        JOIN cfdis c ON c.uuid = p.cfdi_pago_uuid AND c.mi_rfc = p.mi_rfc
+        WHERE p.mi_rfc = ? AND c.fecha > {_LIMITE_EXTEMP_SQL}
         ORDER BY dias_retraso DESC, c.fecha DESC
     """
     with db.cursor() as cur:
-        cur.execute(sql)
+        cur.execute(sql, (mi_rfc,))
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -355,9 +381,11 @@ def analisis_fechas(db: ProcesadorDB, filtros: Optional[dict] = None) -> list[di
 
 def pagos_huerfanos(db: ProcesadorDB, filtros: Optional[dict] = None) -> list[dict]:
     """
-    Complementos cuyo `docto_uuid` no existe en `cfdis` (PPD nunca cargado).
-    Para cada complemento huérfano lista los UUIDs documentos referenciados.
+    Complementos cuyo `docto_uuid` no existe en `cfdis` (PPD nunca cargado
+    bajo esta empresa). Para cada complemento huérfano lista los UUIDs
+    documentos referenciados.
     """
+    mi_rfc = normalizar_mi_rfc((filtros or {}).get("mi_rfc"))
     sql = """
         SELECT
             c.uuid AS cfdi_pago_uuid,
@@ -367,17 +395,20 @@ def pagos_huerfanos(db: ProcesadorDB, filtros: Optional[dict] = None) -> list[di
             c.total AS monto,
             GROUP_CONCAT(p.docto_uuid, '|') AS documentos_referenciados
         FROM cfdis c
-        JOIN pagos_relaciones p ON p.cfdi_pago_uuid = c.uuid
+        JOIN pagos_relaciones p
+            ON p.cfdi_pago_uuid = c.uuid AND p.mi_rfc = c.mi_rfc
         WHERE c.tipo = 'P'
+          AND c.mi_rfc = ?
           AND NOT EXISTS (
               SELECT 1 FROM cfdis ppd
-              WHERE ppd.uuid = p.docto_uuid AND ppd.tipo = 'I'
+              WHERE ppd.uuid = p.docto_uuid AND ppd.mi_rfc = p.mi_rfc
+                AND ppd.tipo = 'I'
           )
         GROUP BY c.uuid
         ORDER BY c.fecha DESC
     """
     with db.cursor() as cur:
-        cur.execute(sql)
+        cur.execute(sql, (mi_rfc,))
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -392,6 +423,7 @@ def incidencias_pue(db: ProcesadorDB, filtros: Optional[dict] = None) -> list[di
     el ingreso "ya pagado en un acto" en el momento de la emisión PUE; emitir
     un complemento adicional duplica el ingreso ante el SAT.
     """
+    mi_rfc = normalizar_mi_rfc((filtros or {}).get("mi_rfc"))
     sql = """
         SELECT
             ppd.uuid AS factura_uuid,
@@ -405,13 +437,13 @@ def incidencias_pue(db: ProcesadorDB, filtros: Optional[dict] = None) -> list[di
             p.docto_imp_pagado AS monto_pagado,
             p.docto_metodo_pago AS docto_metodo_pago
         FROM pagos_relaciones p
-        LEFT JOIN cfdis ppd ON ppd.uuid = p.docto_uuid
-        WHERE p.docto_metodo_pago = 'PUE'
-           OR ppd.metodo_pago = 'PUE'
+        LEFT JOIN cfdis ppd ON ppd.uuid = p.docto_uuid AND ppd.mi_rfc = p.mi_rfc
+        WHERE p.mi_rfc = ?
+          AND (p.docto_metodo_pago = 'PUE' OR ppd.metodo_pago = 'PUE')
         ORDER BY ppd.fecha DESC, p.cfdi_pago_fecha_pago DESC
     """
     with db.cursor() as cur:
-        cur.execute(sql)
+        cur.execute(sql, (mi_rfc,))
         out = []
         for r in cur.fetchall():
             d = dict(r)

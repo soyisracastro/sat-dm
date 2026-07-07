@@ -24,6 +24,8 @@ import type {
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa (el drilldown consulta SU buffer). */
+  rfc: string;
   data: NominaRecibosResponse | null;
   page: number;
   pageSize: number;
@@ -93,7 +95,7 @@ function badgeEstadoSat(estado: NominaRecibo['estado_sat']) {
   );
 }
 
-export function NominaRecibosTable({ data, page, pageSize, loading, onPage }: Props) {
+export function NominaRecibosTable({ rfc, data, page, pageSize, loading, onPage }: Props) {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -208,7 +210,7 @@ export function NominaRecibosTable({ data, page, pageSize, loading, onPage }: Pr
                 {abierto && (
                   <TableRow>
                     <TableCell colSpan={11} className="bg-muted/30">
-                      <ConceptosDrilldown uuid={r.cfdi_uuid} recibo={r} />
+                      <ConceptosDrilldown rfc={rfc} uuid={r.cfdi_uuid} recibo={r} />
                     </TableCell>
                   </TableRow>
                 )}
@@ -256,9 +258,11 @@ const CLASE_LABEL: Record<string, string> = {
 };
 
 function ConceptosDrilldown({
+  rfc,
   uuid,
   recibo,
 }: {
+  rfc: string;
   uuid: string;
   recibo: NominaRecibo;
 }) {
@@ -269,7 +273,7 @@ function ConceptosDrilldown({
   useEffect(() => {
     let mounted = true;
     apiClient
-      .procesadorNominaConceptosDeRecibo(uuid)
+      .procesadorNominaConceptosDeRecibo(rfc, uuid)
       .then((r) => {
         if (mounted) setItems(r.items);
       })
@@ -279,7 +283,7 @@ function ConceptosDrilldown({
     return () => {
       mounted = false;
     };
-  }, [apiClient, uuid]);
+  }, [apiClient, rfc, uuid]);
 
   if (error) {
     return <div className="p-3 text-xs text-destructive">Error: {error}</div>;

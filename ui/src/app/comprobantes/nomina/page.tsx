@@ -14,6 +14,7 @@ import { NominaFiltersPanel } from '@/components/procesador-nomina/nomina-filter
 import { NominaRecibosTable } from '@/components/procesador-nomina/nomina-recibos-table';
 import { NominaStatsCards } from '@/components/procesador-nomina/nomina-stats';
 import { ProcesadorEstado } from '@/components/shared/procesador-estado';
+import { ProcesadorSinEmpresa } from '@/components/shared/procesador-sin-empresa';
 import { useProcesadorNomina } from '@/hooks/use-procesador-nomina';
 
 export default function ProcesadorNominaPage() {
@@ -31,6 +32,8 @@ export default function ProcesadorNominaPage() {
     error,
     recargar,
     hidratado,
+    rfcActivo,
+    sinEmpresa,
   } = useProcesadorNomina();
 
   const bufferVacio = hidratado && stats !== null && stats.total_global_recibos === 0;
@@ -50,55 +53,63 @@ export default function ProcesadorNominaPage() {
         }
       />
 
-      <ProcesadorEstado
-        stats={stats}
-        error={error}
-        loading={loading}
-        onReintentar={recargar}
-      >
-      {/* Empty state: reusa el mismo CfdiUploader del procesador CFDI. */}
-      {bufferVacio && <CfdiUploader onCargado={recargar} />}
+      {/* Sin empresa activa el hook no consulta nada: el buffer vive POR empresa. */}
+      {sinEmpresa || !rfcActivo ? (
+        <ProcesadorSinEmpresa listo={sinEmpresa} />
+      ) : (
+        <ProcesadorEstado
+          stats={stats}
+          error={error}
+          loading={loading}
+          onReintentar={recargar}
+        >
+        {/* Empty state: reusa el mismo CfdiUploader del procesador CFDI. */}
+        {bufferVacio && <CfdiUploader onCargado={recargar} />}
 
-      {/* Estado normal: hay recibos en el buffer. */}
-      {!bufferVacio && stats !== null && (
-        <>
-          <NominaStatsCards stats={stats} />
+        {/* Estado normal: hay recibos en el buffer de la empresa. */}
+        {!bufferVacio && stats !== null && (
+          <>
+            <NominaStatsCards stats={stats} />
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <CfdiValidarButton onValidado={recargar} />
-            <CfdiCargarMasButton onCargado={recargar} />
-            <NominaExportButton filtros={filtros} />
-            <CfdiClearButton
-              onBorrado={recargar}
-              descripcion={
-                <>
-                  Esto vaciará <strong>todo el procesador de comprobantes</strong>:
-                  los {stats.total_global_recibos.toLocaleString('es-MX')} recibos de
-                  nómina, así como las facturas PPD y los CFDIs cargados en los
-                  otros procesadores. Los filtros activos también se restablecen.
-                  La acción no se puede deshacer.
-                </>
-              }
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <CfdiValidarButton rfc={rfcActivo} onValidado={recargar} />
+              <CfdiCargarMasButton onCargado={recargar} />
+              <NominaExportButton rfc={rfcActivo} filtros={filtros} />
+              <CfdiClearButton
+                rfc={rfcActivo}
+                onBorrado={recargar}
+                descripcion={
+                  <>
+                    Esto vaciará <strong>todo el procesador de comprobantes</strong> de la
+                    empresa <span className="font-mono">{rfcActivo}</span>: los{' '}
+                    {stats.total_global_recibos.toLocaleString('es-MX')} recibos de
+                    nómina, así como las facturas PPD y los CFDIs cargados en los
+                    otros procesadores. Los filtros activos también se restablecen
+                    (las demás empresas no se tocan). La acción no se puede deshacer.
+                  </>
+                }
+              />
+            </div>
+
+            <NominaFiltersPanel
+              filtros={filtros}
+              setFiltro={setFiltro}
+              reset={reset}
+              filtrosActivos={filtrosActivos}
             />
-          </div>
 
-          <NominaFiltersPanel
-            filtros={filtros}
-            setFiltro={setFiltro}
-            reset={reset}
-            filtrosActivos={filtrosActivos}
-          />
-
-          <NominaRecibosTable
-            data={data}
-            page={page}
-            pageSize={pageSize}
-            loading={loading}
-            onPage={setPage}
-          />
-        </>
+            <NominaRecibosTable
+              rfc={rfcActivo}
+              data={data}
+              page={page}
+              pageSize={pageSize}
+              loading={loading}
+              onPage={setPage}
+            />
+          </>
+        )}
+        </ProcesadorEstado>
       )}
-      </ProcesadorEstado>
     </div>
   );
 }

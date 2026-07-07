@@ -23,6 +23,10 @@ from sat_descarga.procesador.reportes_pagos import (
 )
 from sat_descarga.procesador.validaciones import validar_y_anotar
 
+# Empresa dueña del buffer en los tests (el receptor de los fixtures).
+MI_RFC = "BBB020202BBB"
+F_RFC = {"mi_rfc": MI_RFC}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures: factories sintéticos para PPD + complemento
@@ -115,7 +119,7 @@ def test_insertar_tipo_p_hidrata_pagos_relaciones(db):
         "PAGO1111-1111-1111-1111-111111111111",
         [("PPD11111-1111-1111-1111-111111111111", 1160.0, 1)],
     )
-    db.agregar([ppd, pago])
+    db.agregar([ppd, pago], mi_rfc=MI_RFC)
 
     with db.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM pagos_relaciones")
@@ -140,7 +144,7 @@ def test_un_complemento_n_documentos(db):
             ("PPD22222-2222-2222-2222-222222222222", 300.0, 1),
         ],
     )
-    db.agregar([p1, p2, pago])
+    db.agregar([p1, p2, pago], mi_rfc=MI_RFC)
 
     with db.cursor() as cur:
         cur.execute(
@@ -156,7 +160,7 @@ def test_un_complemento_n_documentos(db):
 
 
 def test_status_sin_complemento(db):
-    db.agregar([_ppd("PPD11111-1111-1111-1111-111111111111", total=1000.0)])
+    db.agregar([_ppd("PPD11111-1111-1111-1111-111111111111", total=1000.0)], mi_rfc=MI_RFC)
     items = facturas_ppd(db)["items"]
     assert items[0]["status"] == "sin_complemento"
     assert items[0]["total_pagado"] == 0.0
@@ -170,7 +174,7 @@ def test_status_pago_parcial(db):
             "PAGO1111-1111-1111-1111-111111111111",
             [("PPD11111-1111-1111-1111-111111111111", 400.0, 1)],
         ),
-    ])
+    ], mi_rfc=MI_RFC)
     items = facturas_ppd(db)["items"]
     ppd = next(i for i in items if i["uuid"] == "PPD11111-1111-1111-1111-111111111111")
     assert ppd["status"] == "pago_parcial"
@@ -189,7 +193,7 @@ def test_status_pagado_completo_dos_parcialidades(db):
             "PAGO2222-2222-2222-2222-222222222222",
             [("PPD11111-1111-1111-1111-111111111111", 600.0, 2)],
         ),
-    ])
+    ], mi_rfc=MI_RFC)
     items = facturas_ppd(db)["items"]
     ppd = next(i for i in items if i["uuid"] == "PPD11111-1111-1111-1111-111111111111")
     assert ppd["status"] == "pagado_completo"
@@ -203,7 +207,7 @@ def test_status_sobrante(db):
             "PAGO1111-1111-1111-1111-111111111111",
             [("PPD11111-1111-1111-1111-111111111111", 1100.0, 1)],
         ),
-    ])
+    ], mi_rfc=MI_RFC)
     items = facturas_ppd(db)["items"]
     ppd = next(i for i in items if i["uuid"] == "PPD11111-1111-1111-1111-111111111111")
     assert ppd["status"] == "sobrante"
@@ -222,8 +226,8 @@ def test_pagos_huerfanos(db):
             "PAGO1111-1111-1111-1111-111111111111",
             [("FANTASMA-NOT-LOADED-IN-DB-XXXXXXXX", 500.0, 1)],
         ),
-    ])
-    items = pagos_huerfanos(db)
+    ], mi_rfc=MI_RFC)
+    items = pagos_huerfanos(db, F_RFC)
     assert len(items) == 1
     assert items[0]["cfdi_pago_uuid"] == "PAGO1111-1111-1111-1111-111111111111"
 
@@ -243,8 +247,8 @@ def test_complemento_extemporaneo(db):
             fecha_pago="2026-01-15T10:00:00",
             fecha_emision="2026-02-10T10:00:00",  # 5 días tarde
         ),
-    ])
-    items = analisis_fechas(db)
+    ], mi_rfc=MI_RFC)
+    items = analisis_fechas(db, F_RFC)
     assert len(items) == 1
     assert items[0]["cfdi_pago_uuid"] == "PAGO1111-1111-1111-1111-111111111111"
     assert items[0]["dias_retraso"] >= 4
@@ -260,8 +264,8 @@ def test_complemento_a_tiempo_no_es_extemporaneo(db):
             fecha_pago="2026-01-15T10:00:00",
             fecha_emision="2026-02-03T10:00:00",
         ),
-    ])
-    assert analisis_fechas(db) == []
+    ], mi_rfc=MI_RFC)
+    assert analisis_fechas(db, F_RFC) == []
 
 
 # ---------------------------------------------------------------------------
@@ -277,8 +281,8 @@ def test_incidencia_pue(db):
             "PAGO1111-1111-1111-1111-111111111111",
             [("PPD11111-1111-1111-1111-111111111111", 1160.0, 1)],
         ),
-    ])
-    items = incidencias_pue(db)
+    ], mi_rfc=MI_RFC)
+    items = incidencias_pue(db, F_RFC)
     assert len(items) == 1
     assert items[0]["factura_uuid"] == "PPD11111-1111-1111-1111-111111111111"
     assert "duplica" in items[0]["descripcion_riesgo"]
@@ -297,8 +301,8 @@ def test_stats_pagos_kpis(db):
             "PAGO1111-1111-1111-1111-111111111111",
             [("PPD11111-1111-1111-1111-111111111111", 1000.0, 1)],
         ),
-    ])
-    s = stats_pagos(db)
+    ], mi_rfc=MI_RFC)
+    s = stats_pagos(db, F_RFC)
     assert s["total_ingresos_ppd"] == 2
     assert s["pagos_completos"] == 1
     assert s["sin_complemento"] == 1
@@ -324,8 +328,8 @@ def test_detalle_pagos_de_ppd_ordena_por_parcialidad(db):
             "PAGO1111-1111-1111-1111-111111111111",
             [("PPD11111-1111-1111-1111-111111111111", 400.0, 1)],
         ),
-    ])
-    detalle = detalle_pagos_de_ppd(db, "PPD11111-1111-1111-1111-111111111111")
+    ], mi_rfc=MI_RFC)
+    detalle = detalle_pagos_de_ppd(db, "PPD11111-1111-1111-1111-111111111111", MI_RFC)
     assert [p["docto_num_parcialidad"] for p in detalle] == [1, 2]
 
 
@@ -341,8 +345,8 @@ def test_to_xlsx_genera_sheets_basicos(db):
             "PAGO1111-1111-1111-1111-111111111111",
             [("PPD11111-1111-1111-1111-111111111111", 1000.0, 1)],
         ),
-    ])
-    xlsx_bytes = to_xlsx(db)
+    ], mi_rfc=MI_RFC)
+    xlsx_bytes = to_xlsx(db, F_RFC)
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True)
     assert "Resumen" in wb.sheetnames
@@ -362,8 +366,8 @@ def test_to_xlsx_incluye_alertas_condicionales(db):
             "PAGO2222-2222-2222-2222-222222222222",
             [("FANTASMA-NOT-LOADED-IN-DB-XXXXXXXX", 500.0, 1)],
         ),
-    ])
-    xlsx_bytes = to_xlsx(db)
+    ], mi_rfc=MI_RFC)
+    xlsx_bytes = to_xlsx(db, F_RFC)
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True)
     assert "Incidencias PUE" in wb.sheetnames
