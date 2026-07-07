@@ -15,6 +15,8 @@ interface RenombrarBuilderProps {
   onChange: (partes: string[]) => void;
   separador: string;
   onSeparadorChange: (separador: string) => void;
+  /** RFC de la empresa activa; personaliza los ejemplos de RFC emisor. */
+  rfcEmpresa?: string;
 }
 
 /**
@@ -26,12 +28,14 @@ export function RenombrarBuilder({
   onChange,
   separador,
   onSeparadorChange,
+  rfcEmpresa,
 }: RenombrarBuilderProps) {
   return (
     <PartesBuilder
       items={partes}
       onChange={onChange}
       catalogo={PARTES_NOMBRE}
+      rfcEmpresa={rfcEmpresa}
       titulo="Partes del nombre"
       contador={(n) => `${n} ${n === 1 ? 'parte' : 'partes'} · de izquierda a derecha`}
       hint="Toca una parte para agregarla. Arrastra las filas para reordenar."
@@ -64,7 +68,11 @@ export function RenombrarBuilder({
       }
       preview={
         <VistaPrevia>
-          <NombrePreview partes={partes} separador={separador} />
+          <NombrePreview
+            partes={partes}
+            separador={separador}
+            rfcEmpresa={rfcEmpresa}
+          />
         </VistaPrevia>
       }
     />
@@ -74,9 +82,10 @@ export function RenombrarBuilder({
 interface NombrePreviewProps {
   partes: string[];
   separador: string;
+  rfcEmpresa?: string;
 }
 
-function NombrePreview({ partes, separador }: NombrePreviewProps) {
+function NombrePreview({ partes, separador, rfcEmpresa }: NombrePreviewProps) {
   if (partes.length === 0) {
     return (
       <div className="rounded-lg border border-dashed bg-card px-3 py-2.5 text-xs text-muted-foreground/70">
@@ -85,7 +94,7 @@ function NombrePreview({ partes, separador }: NombrePreviewProps) {
     );
   }
   const nombre = partes
-    .map((p) => valorSegmento(p, PARTES_NOMBRE))
+    .map((p) => valorSegmento(p, PARTES_NOMBRE, rfcEmpresa))
     .join(separador);
   return <NombreArchivo nombre={nombre} />;
 }

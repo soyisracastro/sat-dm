@@ -24,14 +24,18 @@ export function catalogoDe(
   return catalogo.find((c) => c.value === seg);
 }
 
-/** Valor de ejemplo que un segmento aporta a la vista previa. */
+/**
+ * Valor de ejemplo que un segmento aporta a la vista previa. El RFC de la
+ * empresa y el del emisor se personalizan con la empresa activa (el ejemplo
+ * típico es un CFDI emitido por ella); el receptor queda genérico.
+ */
 export function valorSegmento(
   seg: string,
   catalogo: SegmentoCatalogo[],
   rfcEmpresa?: string,
 ): string {
   if (esTexto(seg)) return seg.slice(PREFIJO_TEXTO.length) || 'Texto';
-  if (seg === 'rfc' && rfcEmpresa) return rfcEmpresa;
+  if ((seg === 'rfc' || seg === 'rfc_emisor') && rfcEmpresa) return rfcEmpresa;
   return catalogoDe(seg, catalogo)?.ejemplo ?? seg;
 }
 
@@ -104,6 +108,8 @@ interface PartesBuilderProps {
   extras?: React.ReactNode;
   /** Vista previa renderizada al final del bloque. */
   preview: React.ReactNode;
+  /** RFC de la empresa activa; personaliza los ejemplos de RFC. */
+  rfcEmpresa?: string;
 }
 
 export function PartesBuilder({
@@ -118,6 +124,7 @@ export function PartesBuilder({
   vacioTexto,
   extras,
   preview,
+  rfcEmpresa,
 }: PartesBuilderProps) {
   const { props, sobre, arrastrando } = useDndReorder(items, onChange);
   const usados = new Set(items.filter((s) => !esTexto(s)));
@@ -195,7 +202,7 @@ export function PartesBuilder({
                   />
                 ) : (
                   <span className="whitespace-nowrap rounded-md bg-secondary px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
-                    {entrada?.ejemplo ?? ''}
+                    {valorSegmento(seg, catalogo, rfcEmpresa)}
                   </span>
                 )}
                 <button

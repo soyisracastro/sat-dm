@@ -32,6 +32,7 @@ export function EstructuraCustomBuilder({
       items={niveles}
       onChange={onChange}
       catalogo={NIVELES_CUSTOM}
+      rfcEmpresa={rfcEmpresa}
       titulo="Niveles de carpeta"
       contador={(n) =>
         `${n} ${n === 1 ? 'nivel' : 'niveles'} · de afuera hacia adentro`

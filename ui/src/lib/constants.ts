@@ -169,31 +169,33 @@ export const SEPARADORES_NOMBRE = [
 // Rename patterns (from organizador.py PATRONES_NOMBRE)
 // ---------------------------------------------------------------------------
 
+// El ejemplo recibe el RFC de la empresa activa (los patrones con emisor lo
+// muestran personalizado; el ejemplo típico es un CFDI emitido por ella).
 export const PATRONES_NOMBRE = [
   {
     value: 'emisor_fecha_total',
     label: 'Emisor - Fecha - Total',
-    ejemplo: 'SAHA010125PV9_2026-05-07_1160.00_A1B2C3D4',
+    ejemplo: (rfc = 'SAHA010125PV9') => `${rfc}_2026-05-07_1160.00_A1B2C3D4`,
   },
   {
     value: 'receptor_fecha_total',
     label: 'Receptor - Fecha - Total',
-    ejemplo: 'XAXX010101000_2026-05-07_1160.00_A1B2C3D4',
+    ejemplo: () => 'XAXX010101000_2026-05-07_1160.00_A1B2C3D4',
   },
   {
     value: 'uuid',
     label: 'UUID',
-    ejemplo: 'A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6',
+    ejemplo: () => 'A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6',
   },
   {
     value: 'fecha_emisor_total',
     label: 'Fecha - Emisor - Total',
-    ejemplo: '2026-05-07_SAHA010125PV9_1160.00',
+    ejemplo: (rfc = 'SAHA010125PV9') => `2026-05-07_${rfc}_1160.00`,
   },
   {
     value: 'fecha_uuid',
     label: 'Fecha - UUID',
-    ejemplo: '2026-05-07_A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6',
+    ejemplo: () => '2026-05-07_A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6',
   },
 ] as const;
 

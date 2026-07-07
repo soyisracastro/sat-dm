@@ -451,13 +451,14 @@ export function OrganizadorForm({
                       onChange={cambiarPartes}
                       separador={separadorNombre}
                       onSeparadorChange={cambiarSeparador}
+                      rfcEmpresa={rfcActiva || undefined}
                     />
                   ) : (
                     <VistaPrevia>
                       <NombreArchivo
                         nombre={
                           PATRONES_NOMBRE.find((p) => p.value === renPatron)
-                            ?.ejemplo ?? ''
+                            ?.ejemplo(rfcActiva || undefined) ?? ''
                         }
                       />
                     </VistaPrevia>
