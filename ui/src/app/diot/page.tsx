@@ -15,6 +15,9 @@ import {
 } from '@/components/ui/dialog';
 import { Icon } from '@/components/ui/icon';
 import { CargarXmlDialog } from '@/components/diot/cargar-xml-dialog';
+import { DetalleDrawer } from '@/components/diot/detalle-drawer';
+import { DiotEmpty } from '@/components/diot/diot-empty';
+import { DiotStats } from '@/components/diot/diot-stats';
 import { ExportTxtButton } from '@/components/diot/export-txt-button';
 import { SelectorPeriodo } from '@/components/diot/selector-periodo';
 import { TablaDiot } from '@/components/diot/tabla-diot';
@@ -42,12 +45,19 @@ export default function DiotPage() {
   } = useDiot();
 
   const [confirmarPrellenado, setConfirmarPrellenado] = useState(false);
+  const [detalleIndex, setDetalleIndex] = useState<number | null>(null);
 
   // Re-prellenar pisa los renglones de origen CFDI. Si el último guardado fue
   // una edición manual, se confirma antes (los agregados a mano sobreviven).
   const prellenarConConfirmacion = () => {
     if (origen === 'manual' && filas.length > 0) setConfirmarPrellenado(true);
     else void prellenar();
+  };
+
+  // Al agregar un proveedor a mano, abre su detalle para capturarlo.
+  const agregarYAbrir = () => {
+    agregarFila();
+    setDetalleIndex(filas.length);
   };
 
   const sinEstado = !cargando && filas.length === 0;
@@ -83,7 +93,7 @@ export default function DiotPage() {
                 Prellenar desde comprobantes
               </Button>
               <CargarXmlDialog onCargado={() => void prellenar()} />
-              <Button variant="outline" size="sm" onClick={agregarFila} disabled={cargando}>
+              <Button variant="outline" size="sm" onClick={agregarYAbrir} disabled={cargando}>
                 <Icon icon="ph:plus-light" className="size-4" />
                 Agregar proveedor
               </Button>
@@ -127,46 +137,46 @@ export default function DiotPage() {
 
           {/* Tabla o empty-state */}
           {sinEstado ? (
-            <div className="rounded-lg border border-dashed p-10 text-center">
-              <Icon
-                icon="ph:file-text-light"
-                className="mx-auto size-10 text-muted-foreground"
-              />
-              <h3 className="mt-3 text-sm font-medium">Sin renglones para este periodo</h3>
-              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                Prellena desde los CFDIs recibidos que ya cargaste en Comprobantes, sube XMLs
-                aquí mismo, o captura los proveedores a mano.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                <Button size="sm" onClick={() => void prellenar()} disabled={prellenando}>
-                  <Icon
-                    icon={prellenando ? 'ph:circle-notch-light' : 'ph:sparkle-light'}
-                    className={prellenando ? 'size-4 animate-spin' : 'size-4'}
-                  />
-                  Prellenar desde comprobantes
-                </Button>
-                <CargarXmlDialog onCargado={() => void prellenar()} />
-              </div>
-            </div>
+            <DiotEmpty
+              onPrellenar={() => void prellenar()}
+              prellenando={prellenando}
+              onCargado={() => void prellenar()}
+            />
           ) : (
             !cargando && (
               <>
+                <DiotStats filas={filas} />
                 <TablaDiot
                   filas={filas}
                   catalogos={catalogos}
                   errores={errores}
                   advertencias={advertencias}
+                  activeIndex={detalleIndex}
                   onCampo={setCampo}
                   onEliminar={eliminarFila}
+                  onAbrirDetalle={setDetalleIndex}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Criterio del prellenado: CFDIs recibidos emitidos en el periodo (las notas de
-                  crédito van a devoluciones). Todo es editable antes de generar el TXT;
-                  verifica el archivo subiéndolo a la aplicación DIOT del SAT.
-                </p>
+                <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Icon icon="ph:info-light" className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    Criterio del prellenado: CFDIs recibidos emitidos en el periodo (las notas de
+                    crédito van a devoluciones). Todo es editable antes de generar el TXT; verifica
+                    el archivo subiéndolo a la aplicación DIOT del SAT.
+                  </span>
+                </div>
               </>
             )
           )}
+
+          {/* Detalle en panel lateral */}
+          <DetalleDrawer
+            index={detalleIndex}
+            filas={filas}
+            catalogos={catalogos}
+            errores={errores}
+            onCampo={setCampo}
+            onClose={() => setDetalleIndex(null)}
+          />
 
           {/* Confirmación de re-prellenado sobre ediciones manuales */}
           <Dialog open={confirmarPrellenado} onOpenChange={setConfirmarPrellenado}>
@@ -174,8 +184,8 @@ export default function DiotPage() {
               <DialogHeader>
                 <DialogTitle>¿Volver a prellenar el periodo?</DialogTitle>
                 <DialogDescription>
-                  Los renglones prellenados desde CFDIs se regenerarán y tus ajustes sobre
-                  ellos se perderán. Los proveedores que agregaste a mano se conservan.
+                  Los renglones prellenados desde CFDIs se regenerarán y tus ajustes sobre ellos
+                  se perderán. Los proveedores que agregaste a mano se conservan.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
