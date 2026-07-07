@@ -17,12 +17,42 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ESTRUCTURAS, PATRONES_NOMBRE } from '@/lib/constants';
+import { EstructuraCustomBuilder } from '@/components/organizador/estructura-custom-builder';
+import { useEmpresas } from '@/hooks/use-empresas';
+import {
+  ESTRUCTURAS,
+  ESTRUCTURA_CUSTOM,
+  NIVELES_CUSTOM,
+  NIVELES_REQUIEREN_RFC,
+  PATRONES_NOMBRE,
+} from '@/lib/constants';
 import type {
   OrganizadorRequest,
   RenombrarRequest,
   DeduplicarRequest,
 } from '@/lib/types';
+
+/** Clave de localStorage donde se recuerda la última estructura personalizada. */
+const NIVELES_STORAGE_KEY = 'organizador:estructura-custom';
+
+const NIVELES_DEFAULT = ['anio', 'mes', 'flujo'];
+
+/** Restaura los niveles guardados, descartando tokens que ya no existan. */
+function leerNivelesGuardados(): string[] | null {
+  try {
+    const raw = window.localStorage.getItem(NIVELES_STORAGE_KEY);
+    if (!raw) return null;
+    const { niveles } = JSON.parse(raw) as { niveles?: unknown };
+    if (!Array.isArray(niveles) || niveles.length === 0) return null;
+    const validos = niveles.filter(
+      (n): n is string =>
+        typeof n === 'string' && NIVELES_CUSTOM.some((t) => t.value === n),
+    );
+    return validos.length > 0 ? validos : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Selector de carpeta nativo del SO (solo en Electron); null en navegador. */
 function elegirCarpetaNativo(): Promise<string | null> | null {
@@ -100,6 +130,8 @@ export function OrganizadorForm({
 }: OrganizadorFormProps) {
   const { apiClient } = useServer();
 
+  const { empresas } = useEmpresas();
+
   // Organizar
   const [orgOrigen, setOrgOrigen] = useState('');
   const [orgDestino, setOrgDestino] = useState('');
@@ -108,6 +140,38 @@ export function OrganizadorForm({
   const [orgCopiar, setOrgCopiar] = useState(true);
   // Hasta que el usuario lo edita, destino sigue al origen (caso común: organizar in-place).
   const [destinoTouched, setDestinoTouched] = useState(false);
+
+  // Estructura personalizada: niveles del builder + RFC de la empresa (para
+  // los tokens "rfc" y "flujo"). Los niveles se restauran de localStorage.
+  const [nivelesCustom, setNivelesCustom] = useState<string[]>(NIVELES_DEFAULT);
+  const [orgRfc, setOrgRfc] = useState('');
+
+  const esCustom = orgEstructura === ESTRUCTURA_CUSTOM;
+  const requiereRfc =
+    esCustom && nivelesCustom.some((n) => NIVELES_REQUIEREN_RFC.includes(n));
+
+  useEffect(() => {
+    const guardados = leerNivelesGuardados();
+    if (guardados) setNivelesCustom(guardados);
+  }, []);
+
+  // Prefila el RFC con la empresa activa; editable y sin pisar lo escrito.
+  useEffect(() => {
+    const activa = empresas.find((e) => e.default);
+    if (activa) setOrgRfc((prev) => prev || activa.rfc);
+  }, [empresas]);
+
+  function cambiarNiveles(niveles: string[]) {
+    setNivelesCustom(niveles);
+    try {
+      window.localStorage.setItem(
+        NIVELES_STORAGE_KEY,
+        JSON.stringify({ niveles }),
+      );
+    } catch {
+      // localStorage lleno o bloqueado: el builder sigue funcionando en memoria.
+    }
+  }
 
   // Renombrar
   const [renDirectorio, setRenDirectorio] = useState('');
@@ -158,13 +222,26 @@ export function OrganizadorForm({
 
   const handleOrganizar = useCallback(() => {
     if (!orgOrigen || !orgDestino) return;
+    const rfc = orgRfc.trim().toUpperCase();
+    if (requiereRfc && !rfc) return;
     onOrganizar({
       origen: orgOrigen,
       destino: orgDestino,
-      estructura: orgEstructura,
+      estructura: esCustom ? nivelesCustom.join('/') : orgEstructura,
       copiar: orgCopiar,
+      ...(requiereRfc ? { rfc } : {}),
     });
-  }, [orgOrigen, orgDestino, orgEstructura, orgCopiar, onOrganizar]);
+  }, [
+    orgOrigen,
+    orgDestino,
+    orgEstructura,
+    orgCopiar,
+    esCustom,
+    nivelesCustom,
+    requiereRfc,
+    orgRfc,
+    onOrganizar,
+  ]);
 
   const handleRenombrar = useCallback(() => {
     if (!renDirectorio) return;
@@ -216,9 +293,35 @@ export function OrganizadorForm({
                         {e.label}
                       </SelectItem>
                     ))}
+                    <SelectItem value={ESTRUCTURA_CUSTOM}>
+                      Personalizada…
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {esCustom && (
+                <EstructuraCustomBuilder
+                  niveles={nivelesCustom}
+                  onChange={cambiarNiveles}
+                />
+              )}
+
+              {requiereRfc && (
+                <div className="space-y-2">
+                  <Label htmlFor="org-rfc">RFC de la empresa</Label>
+                  <Input
+                    id="org-rfc"
+                    placeholder="AAA010101AAA"
+                    value={orgRfc}
+                    onChange={(e) => setOrgRfc(e.target.value)}
+                    className="max-w-64 font-mono text-xs uppercase"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Se usa para clasificar cada CFDI como emitido o recibido.
+                  </p>
+                </div>
+              )}
 
               <DirectoryField
                 id="org-destino"
@@ -242,7 +345,12 @@ export function OrganizadorForm({
 
               <Button
                 onClick={handleOrganizar}
-                disabled={isLoading || !orgOrigen || !orgDestino}
+                disabled={
+                  isLoading ||
+                  !orgOrigen ||
+                  !orgDestino ||
+                  (requiereRfc && !orgRfc.trim())
+                }
               >
                 {isLoading ? 'Procesando...' : 'Organizar'}
               </Button>

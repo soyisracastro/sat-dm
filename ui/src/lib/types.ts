@@ -96,6 +96,8 @@ export interface OrganizadorRequest {
   destino: string;
   estructura: string;
   copiar: boolean;
+  /** RFC de la empresa; requerido si la estructura usa "rfc" o "flujo". */
+  rfc?: string;
 }
 
 export interface OrganizadorResult {

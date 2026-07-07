@@ -103,6 +103,28 @@ export const ESTRUCTURAS = [
   { value: 'plano', label: 'Plano (sin subcarpetas)' },
 ] as const;
 
+/** Valor sentinela del Select de estructura para "Personalizada…". */
+export const ESTRUCTURA_CUSTOM = 'custom';
+
+/**
+ * Variables disponibles como nivel de la estructura personalizada.
+ * `value` es el token que entiende el backend (organizador.py TOKENS);
+ * `ejemplo` alimenta la vista previa del builder.
+ */
+export const NIVELES_CUSTOM = [
+  { value: 'anio', label: 'Año', ejemplo: '2026' },
+  { value: 'mes', label: 'Mes', ejemplo: '05' },
+  { value: 'dia', label: 'Día', ejemplo: '15' },
+  { value: 'rfc', label: 'RFC de la empresa', ejemplo: 'CULL551116HM8' },
+  { value: 'rfc_emisor', label: 'RFC emisor', ejemplo: 'AAA010101AAA' },
+  { value: 'rfc_receptor', label: 'RFC receptor', ejemplo: 'BBB020202BBB' },
+  { value: 'flujo', label: 'Emitidos / Recibidos', ejemplo: 'Emitidos' },
+  { value: 'tipo', label: 'Tipo de comprobante', ejemplo: 'Ingreso' },
+] as const;
+
+/** Tokens de NIVELES_CUSTOM que requieren el RFC de la empresa. */
+export const NIVELES_REQUIEREN_RFC: string[] = ['rfc', 'flujo'];
+
 // ---------------------------------------------------------------------------
 // Rename patterns (from organizador.py PATRONES_NOMBRE)
 // ---------------------------------------------------------------------------

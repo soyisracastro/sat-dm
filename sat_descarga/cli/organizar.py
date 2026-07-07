@@ -19,27 +19,37 @@ def organizar_group():
 @click.option(
     "--estructura", "-e",
     default="rfc_emisor/anio/mes",
-    help="Estructura de carpetas (rfc_emisor/anio/mes, anio/mes, tipo/anio/mes, etc.)",
+    help=(
+        "Niveles de carpetas separados por '/' combinando: anio, mes, dia, "
+        "rfc, rfc_emisor, rfc_receptor, tipo, flujo — o 'plano'. "
+        "Ej: rfc/anio/mes/flujo/tipo"
+    ),
+)
+@click.option(
+    "--rfc",
+    default=None,
+    help="RFC de la empresa; requerido si la estructura usa 'rfc' o 'flujo'",
 )
 @click.option("--copiar", is_flag=True, help="Copiar en lugar de mover")
-def organizar_carpetas(origen, destino, estructura, copiar):
+def organizar_carpetas(origen, destino, estructura, rfc, copiar):
     """Organiza XMLs en carpetas basándose en su contenido."""
-    from sat_descarga.utils.organizador import organizar, ESTRUCTURAS
+    from sat_descarga.utils.organizador import organizar
 
     print_header("Organizador de XML en carpetas")
-
-    if estructura not in ESTRUCTURAS:
-        print_error(f"Estructura '{estructura}' no válida.")
-        click.echo(f"  Opciones: {', '.join(ESTRUCTURAS.keys())}")
-        return
 
     click.echo(f"  Origen: {origen}")
     click.echo(f"  Destino: {destino}")
     click.echo(f"  Estructura: {estructura}")
+    if rfc:
+        click.echo(f"  RFC empresa: {rfc}")
     click.echo(f"  Modo: {'copiar' if copiar else 'mover'}")
     click.echo()
 
-    result = organizar(origen, destino, estructura, copiar)
+    try:
+        result = organizar(origen, destino, estructura, copiar, rfc=rfc)
+    except ValueError as e:
+        print_error(str(e))
+        return
 
     print_success(f"Procesados: {result.archivos_procesados}")
     print_success(f"{'Copiados' if copiar else 'Movidos'}: {result.archivos_movidos}")

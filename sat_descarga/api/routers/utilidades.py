@@ -5,7 +5,7 @@ Endpoints: /metadata (Web Service, requiere FIEL), /validar (servicio público),
 /organizar, /renombrar, /deduplicar (operan sobre archivos locales).
 """
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -126,6 +126,8 @@ class OrganizarRequest(BaseModel):
     destino: str
     estructura: str = "rfc_emisor/anio/mes"
     copiar: bool = False
+    # RFC de la empresa; requerido si la estructura usa "rfc" o "flujo"
+    rfc: Optional[str] = None
 
 
 class RenombrarRequest(BaseModel):
@@ -144,7 +146,9 @@ def organizar_endpoint(req: OrganizarRequest):
     from ...utils.organizador import organizar
 
     try:
-        result = organizar(req.origen, req.destino, req.estructura, req.copiar)
+        result = organizar(
+            req.origen, req.destino, req.estructura, req.copiar, rfc=req.rfc
+        )
         return {
             "archivos_procesados": result.archivos_procesados,
             "archivos_movidos": result.archivos_movidos,
