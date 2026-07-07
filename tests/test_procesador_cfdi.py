@@ -22,6 +22,10 @@ from sat_descarga.procesador.reportes_cfdi import (
 )
 from sat_descarga.procesador.validaciones import validar, validar_y_anotar
 
+# Empresa dueña del buffer en los tests (el receptor de los fixtures).
+MI_RFC = "BBB020202BBB"
+F_RFC = {"mi_rfc": MI_RFC}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures: XMLs sintéticos representativos
@@ -250,8 +254,8 @@ def db(tmp_path):
 def test_db_agregar_dedupe_por_uuid(db):
     cfdi1 = validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))
     cfdi2 = validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))  # mismo UUID
-    r1 = db.agregar([cfdi1])
-    r2 = db.agregar([cfdi2])
+    r1 = db.agregar([cfdi1], mi_rfc=MI_RFC)
+    r2 = db.agregar([cfdi2], mi_rfc=MI_RFC)
     assert r1 == {"agregados": 1, "duplicados": 0}
     assert r2 == {"agregados": 0, "duplicados": 1}
     assert db.count() == 1
@@ -262,7 +266,7 @@ def test_db_listar_paginado(db):
     for i in range(5):
         xml = _cfdi_ingreso_xml(uuid=f"AAAAAAAA-1111-2222-3333-44444444444{i}")
         cfdis.append(validar_y_anotar(parse_cfdi(xml)))
-    db.agregar(cfdis)
+    db.agregar(cfdis, mi_rfc=MI_RFC)
     out = db.listar({}, page=1, page_size=3)
     assert out["total"] == 5
     assert len(out["items"]) == 3
@@ -272,7 +276,7 @@ def test_db_filtro_por_tipo(db):
     db.agregar([
         validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml())),
         validar_y_anotar(parse_cfdi(_cfdi_pago_xml())),
-    ])
+    ], mi_rfc=MI_RFC)
     out_i = db.listar({"tipo": "I"})
     out_p = db.listar({"tipo": "P"})
     assert out_i["total"] == 1
@@ -286,17 +290,30 @@ def test_db_filtros_get_set_persisten(db):
     assert f["tipo"] == "I"
 
 
-def test_db_borrar_limpia_todo(db):
-    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))])
-    db.filtros_set({"tipo": "I"})
-    assert db.count() == 1
-    db.borrar()
-    assert db.count() == 0
-    assert db.filtros_get() == {
+def test_db_borrar_limpia_solo_la_empresa(db):
+    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))], mi_rfc=MI_RFC)
+    db.filtros_set({"tipo": "I"}, key=f"actuales:{MI_RFC}")
+    # Otra empresa con su propio buffer y filtros — no debe tocarse.
+    db.agregar(
+        [validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml(
+            uuid="0TRAEMP1-1111-2222-3333-444444444444",
+            receptor_rfc="CCC030303CCC",
+        )))],
+        mi_rfc="CCC030303CCC",
+    )
+    db.filtros_set({"tipo": "P"}, key="actuales:CCC030303CCC")
+
+    assert db.count() == 2
+    db.borrar(MI_RFC)
+    assert db.count({"mi_rfc": MI_RFC}) == 0
+    assert db.filtros_get(key=f"actuales:{MI_RFC}") == {
         "desde": None, "hasta": None, "tipo": None, "direccion": None,
         "busqueda": None, "solo_con_errores": False,
         "monto_min": None, "monto_max": None,
     }
+    # La otra empresa sigue intacta.
+    assert db.count({"mi_rfc": "CCC030303CCC"}) == 1
+    assert db.filtros_get(key="actuales:CCC030303CCC") == {"tipo": "P"}
 
 
 def test_db_direccion_se_infiere_de_mi_rfc(db):
@@ -328,7 +345,7 @@ def test_db_direccion_fija_anula_inferencia(db):
 
 
 def test_db_actualizar_estado_sat(db):
-    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))])
+    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))], mi_rfc=MI_RFC)
     uuid = "AAAAAAAA-1111-2222-3333-444444444444"
     db.actualizar_estado_sat(uuid, "Vigente")
     items = db.listar()["items"]
@@ -348,7 +365,7 @@ def test_stats_generales(db):
             uuid="BBBBBBBB-1111-2222-3333-444444444444",
             total=2320.0, sub_total=2000.0, iva=320.0,
         ))),
-    ])
+    ], mi_rfc=MI_RFC)
     s = stats_generales(db)
     assert s["total_comprobantes"] == 2
     assert s["monto_total"] == 1160.0 + 2320.0
@@ -366,7 +383,7 @@ def test_totales_por_mes(db):
             uuid="22222222-1111-2222-3333-444444444444",
             fecha="2026-05-15T10:00:00",
         ))),
-    ])
+    ], mi_rfc=MI_RFC)
     out = totales_por_mes(db)
     meses = {r["mes"] for r in out}
     assert meses == {"2026-04", "2026-05"}
@@ -383,7 +400,7 @@ def test_top_contrapartes(db):
             emisor_rfc="CCC030303CCC", emisor_nombre="EMP2",
             total=5000.0, sub_total=4310.34, iva=689.66,
         ))),
-    ])
+    ], mi_rfc=MI_RFC)
     out = top_contrapartes(db, n=5)
     # EMP2 tiene más monto → primero
     assert out["emisores"][0]["rfc"] == "CCC030303CCC"
@@ -397,7 +414,7 @@ def test_integridad_lista_solo_con_warnings(db):
             uuid="22222222-1111-2222-3333-444444444444",
             total=9999.0,  # monto incoherente
         ))),
-    ])
+    ], mi_rfc=MI_RFC)
     out = integridad(db)
     assert len(out) == 1
     assert out[0]["uuid"] == "22222222-1111-2222-3333-444444444444"
@@ -409,7 +426,7 @@ def test_integridad_lista_solo_con_warnings(db):
 
 
 def test_to_csv_tiene_bom_y_encabezados(db):
-    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))])
+    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))], mi_rfc=MI_RFC)
     csv_bytes = to_csv(db)
     # BOM UTF-8 al inicio
     assert csv_bytes.startswith(b"\xef\xbb\xbf")
@@ -419,7 +436,7 @@ def test_to_csv_tiene_bom_y_encabezados(db):
 
 
 def test_to_xlsx_genera_dos_sheets(db):
-    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))])
+    db.agregar([validar_y_anotar(parse_cfdi(_cfdi_ingreso_xml()))], mi_rfc=MI_RFC)
     xlsx_bytes = to_xlsx(db)
     # Verificar leyéndolo de vuelta
     from openpyxl import load_workbook

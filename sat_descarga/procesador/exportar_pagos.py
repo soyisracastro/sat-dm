@@ -125,7 +125,7 @@ def to_xlsx(db: ProcesadorDB, filtros: Optional[dict] = None) -> bytes:
         for f in facturas:
             if f["num_pagos"] == 0:
                 continue
-            for p in rep.detalle_pagos_de_ppd(db, f["uuid"]):
+            for p in rep.detalle_pagos_de_ppd(db, f["uuid"], (filtros or {}).get("mi_rfc")):
                 ws.append([
                     f["uuid"], f["folio"], f["total"],
                     p["cfdi_pago_uuid"], p["cfdi_pago_fecha_pago"],

@@ -114,6 +114,9 @@ def to_xlsx(
     ws_conceptos.append(_header_row(ws_conceptos, headers_c, font=header_font, fill=header_fill))
 
     if uuids_cargados:
+        # El mismo uuid puede vivir bajo dos empresas — acotar al dueño
+        # para no duplicar conceptos de la otra empresa en el export.
+        mi_rfc = (filtros or {}).get("mi_rfc") or ""
         with db.cursor() as cur:
             # Chunks por límite SQLite de placeholders (999 por default)
             for chunk in _chunks(uuids_cargados, 500):
@@ -123,9 +126,9 @@ def to_xlsx(
                     SELECT cfdi_uuid, clave_prod_serv, descripcion, cantidad,
                            clave_unidad, unidad, valor_unitario, importe, descuento
                     FROM conceptos
-                    WHERE cfdi_uuid IN ({placeholders})
+                    WHERE mi_rfc = ? AND cfdi_uuid IN ({placeholders})
                     """,
-                    chunk,
+                    (mi_rfc, *chunk),
                 )
                 for row in cur.fetchall():
                     ws_conceptos.append([row[k] for k, _ in _COLS_CONCEPTO])
@@ -161,7 +164,7 @@ def to_csv(
         writer.writerow(headers)
         for cfdi in db.iter_all(filtros):
             base = [cfdi.get(key, "") for key, _ in _COLS_CFDI]
-            conceptos = db.conceptos_de(cfdi["uuid"])
+            conceptos = db.conceptos_de(cfdi["uuid"], cfdi["mi_rfc"])
             if not conceptos:
                 writer.writerow(base + [""] * (len(_COLS_CONCEPTO) - 1))
             else:

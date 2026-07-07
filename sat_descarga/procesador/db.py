@@ -63,6 +63,29 @@ def schema_version_actual() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Dueño del buffer (mi_rfc)
+# ---------------------------------------------------------------------------
+
+# Mismo shape que valida calculadoras/store.py: 12-13 caracteres de RFC.
+_RFC_RE = re.compile(r"^[A-ZÑ&0-9]{12,13}$")
+
+
+def normalizar_mi_rfc(rfc: Optional[str]) -> str:
+    """
+    Normaliza (strip + upper) y valida el RFC dueño del buffer.
+
+    El RFC forma parte de la PK de `cfdis` y de las keys de la tabla
+    `filtros`; validar el shape aquí evita basura en la DB y cualquier
+    intento de inyección vía el parámetro. Levanta ValueError si no es
+    un RFC válido (no hay bucket general: el procesador exige empresa).
+    """
+    limpio = (rfc or "").strip().upper()
+    if not _RFC_RE.match(limpio):
+        raise ValueError(f"RFC inválido para el procesador: {rfc!r}")
+    return limpio
+
+
+# ---------------------------------------------------------------------------
 # Filtros (estructura compartida con la UI)
 # ---------------------------------------------------------------------------
 
@@ -164,12 +187,93 @@ class ProcesadorDB:
                     """,
                     (str(version),),
                 )
-            # Hooks post-migración con código Python (cuando el SQL puro no
-            # alcanza para la transformación).
-            if version == 4:
-                self._repoblar_pagos_relaciones()
-            if version == 5:
-                self._repoblar_nomina()
+
+        # Hooks post-migración con código Python (cuando el SQL puro no
+        # alcanza para la transformación). Corren DIFERIDOS al final del
+        # batch, con el schema ya en la versión target: los helpers de
+        # inserción escriben la columna `mi_rfc` (007), que no existe en
+        # los schemas intermedios (una DB v3 que migra a v7 tronaría si
+        # el hook 4 corriera justo después de su migración).
+        aplicadas = {v for v, _ in pendientes}
+        if 4 in aplicadas:
+            self._repoblar_pagos_relaciones()
+        if 5 in aplicadas:
+            self._repoblar_nomina()
+        if 7 in aplicadas:
+            self._asignar_dueno_legacy()
+
+    def _asignar_dueno_legacy(self) -> None:
+        """
+        Tras la migración 007, asigna dueño (`mi_rfc`) a las filas cargadas
+        antes del aislamiento por empresa. Si el catálogo tiene empresa
+        default, el buffer legacy es suyo (caso típico: una sola empresa);
+        si no hay default, se purga — el buffer es una caché re-cargable
+        desde los XMLs en disco. Idempotente: solo toca filas con mi_rfc=''.
+        """
+        try:
+            default = (config_store.get_default() or "").strip().upper()
+        except Exception:
+            default = ""
+
+        tablas = [
+            "cfdis",
+            "conceptos",
+            "pagos_relaciones",
+            "nomina_recibos",
+            "nomina_conceptos",
+        ]
+        keys_filtros = ["actuales", "pagos_actuales", "nomina_actuales"]
+
+        with self._lock, self._conn:
+            if default:
+                # FKs compuestas (uuid, mi_rfc): diferir la verificación al
+                # COMMIT para poder actualizar padre e hijas en cualquier orden.
+                self._conn.execute("PRAGMA defer_foreign_keys = ON")
+                tocadas = 0
+                for t in tablas:
+                    cur = self._conn.execute(
+                        f"UPDATE {t} SET mi_rfc = ? WHERE mi_rfc = ''",
+                        (default,),
+                    )
+                    tocadas += cur.rowcount or 0
+                for key in keys_filtros:
+                    row = self._conn.execute(
+                        "SELECT value FROM filtros WHERE key = ?", (key,)
+                    ).fetchone()
+                    if row is not None:
+                        self._conn.execute(
+                            """
+                            INSERT INTO filtros (key, value) VALUES (?, ?)
+                            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                            """,
+                            (f"{key}:{default}", row[0]),
+                        )
+                        self._conn.execute(
+                            "DELETE FROM filtros WHERE key = ?", (key,)
+                        )
+                if tocadas:
+                    logger.info(
+                        "[procesador] migración 007: %d filas legacy asignadas a %s",
+                        tocadas,
+                        default,
+                    )
+            else:
+                purgadas = 0
+                for t in reversed(tablas):  # hijas primero (FK)
+                    cur = self._conn.execute(
+                        f"DELETE FROM {t} WHERE mi_rfc = ''"
+                    )
+                    purgadas += cur.rowcount or 0
+                self._conn.execute(
+                    "DELETE FROM filtros WHERE key IN (?, ?, ?)",
+                    tuple(keys_filtros),
+                )
+                if purgadas:
+                    logger.info(
+                        "[procesador] migración 007: %d filas legacy purgadas "
+                        "(sin empresa default en el catálogo)",
+                        purgadas,
+                    )
 
     def _repoblar_pagos_relaciones(self) -> None:
         """
@@ -177,16 +281,22 @@ class ProcesadorDB:
         en `raw_json`) e inserta sus `DoctoRelacionado` en la nueva tabla
         `pagos_relaciones`. Idempotente: usa INSERT OR IGNORE indirecto al
         verificar duplicados por (cfdi_pago_uuid, docto_uuid, docto_num_parcialidad).
+
+        Corre al final del batch de migraciones (schema ya en la versión
+        target): las hijas heredan el `mi_rfc` de su fila padre en `cfdis`
+        (en el batch legacy es '' y `_asignar_dueno_legacy` les pone dueño
+        después; post-007 conserva el dueño real).
         """
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "SELECT uuid, raw_json FROM cfdis WHERE tipo = 'P'"
+                "SELECT uuid, mi_rfc, raw_json FROM cfdis WHERE tipo = 'P'"
             )
             filas_p = cur.fetchall()
 
             insertadas = 0
             for row in filas_p:
                 uuid_p = row["uuid"]
+                dueno = row["mi_rfc"]
                 try:
                     raw = json.loads(row["raw_json"] or "{}")
                 except (json.JSONDecodeError, TypeError):
@@ -197,13 +307,14 @@ class ProcesadorDB:
 
                 # ¿Ya hay relaciones para este CFDI? Si sí, lo saltamos.
                 check = self._conn.execute(
-                    "SELECT 1 FROM pagos_relaciones WHERE cfdi_pago_uuid = ? LIMIT 1",
-                    (uuid_p,),
+                    "SELECT 1 FROM pagos_relaciones "
+                    "WHERE cfdi_pago_uuid = ? AND mi_rfc = ? LIMIT 1",
+                    (uuid_p, dueno),
                 )
                 if check.fetchone():
                     continue
 
-                count = self._insertar_pagos_relaciones(uuid_p, dp)
+                count = self._insertar_pagos_relaciones(uuid_p, dp, mi_rfc=dueno)
                 insertadas += count
 
             if insertadas:
@@ -224,13 +335,14 @@ class ProcesadorDB:
         """
         with self._lock, self._conn:
             cur = self._conn.execute(
-                "SELECT uuid, raw_json FROM cfdis WHERE tipo = 'N'"
+                "SELECT uuid, mi_rfc, raw_json FROM cfdis WHERE tipo = 'N'"
             )
             filas_n = cur.fetchall()
 
             insertadas = 0
             for row in filas_n:
                 uuid_n = row["uuid"]
+                dueno = row["mi_rfc"]
                 try:
                     raw = json.loads(row["raw_json"] or "{}")
                 except (json.JSONDecodeError, TypeError):
@@ -241,13 +353,14 @@ class ProcesadorDB:
 
                 # ¿Ya hay recibo para este CFDI? Idempotencia.
                 check = self._conn.execute(
-                    "SELECT 1 FROM nomina_recibos WHERE cfdi_uuid = ? LIMIT 1",
-                    (uuid_n,),
+                    "SELECT 1 FROM nomina_recibos "
+                    "WHERE cfdi_uuid = ? AND mi_rfc = ? LIMIT 1",
+                    (uuid_n, dueno),
                 )
                 if check.fetchone():
                     continue
 
-                self._insertar_nomina(uuid_n, dn)
+                self._insertar_nomina(uuid_n, dn, mi_rfc=dueno)
                 insertadas += 1
 
             if insertadas:
@@ -256,10 +369,13 @@ class ProcesadorDB:
                     insertadas,
                 )
 
-    def _insertar_nomina(self, cfdi_uuid: str, datos: "DatosNomina | dict") -> None:
+    def _insertar_nomina(
+        self, cfdi_uuid: str, datos: "DatosNomina | dict", mi_rfc: str = ""
+    ) -> None:
         """
         Inserta una fila en `nomina_recibos` y N filas en `nomina_conceptos`
         a partir del dict o dataclass `datos`. Espejo de `_insertar_pagos_relaciones`.
+        El default mi_rfc='' es para el hook `_repoblar_nomina` (filas legacy).
         """
         if isinstance(datos, dict):
             d = datos
@@ -273,7 +389,7 @@ class ProcesadorDB:
         self._conn.execute(
             """
             INSERT INTO nomina_recibos (
-                cfdi_uuid, registro_patronal, curp, nss, num_empleado, puesto,
+                cfdi_uuid, mi_rfc, registro_patronal, curp, nss, num_empleado, puesto,
                 departamento, tipo_contrato, tipo_regimen, tipo_jornada,
                 periodicidad_pago, fecha_inicio_rel_laboral, antiguedad,
                 salario_base_cot_apor, salario_diario_integrado, riesgo_trabajo,
@@ -281,10 +397,11 @@ class ProcesadorDB:
                 tipo_nomina, fecha_pago, fecha_inicial_pago, fecha_final_pago,
                 num_dias_pagados, total_percepciones, total_deducciones, total_otros_pagos
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, ?, ?, ?, ?, ?, ?, ?)
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cfdi_uuid,
+                mi_rfc,
                 d.get("registro_patronal") or "",
                 d.get("curp") or "",
                 d.get("nss") or "",
@@ -319,12 +436,13 @@ class ProcesadorDB:
             self._conn.execute(
                 """
                 INSERT INTO nomina_conceptos (
-                    cfdi_uuid, clase, tipo_concepto, clave_interna, concepto,
+                    cfdi_uuid, mi_rfc, clase, tipo_concepto, clave_interna, concepto,
                     importe_gravado, importe_exento, importe, subsidio_causado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cfdi_uuid,
+                    mi_rfc,
                     c.get("clase") or "",
                     c.get("tipo_concepto") or "",
                     c.get("clave_interna") or "",
@@ -336,10 +454,13 @@ class ProcesadorDB:
                 ),
             )
 
-    def _insertar_pagos_relaciones(self, cfdi_pago_uuid: str, datos_pago: dict) -> int:
+    def _insertar_pagos_relaciones(
+        self, cfdi_pago_uuid: str, datos_pago: dict, mi_rfc: str = ""
+    ) -> int:
         """
         Inserta filas en `pagos_relaciones` a partir del dict `datos_pago`
         (forma serializada de `DatosPago`). Devuelve el conteo insertado.
+        El default mi_rfc='' es para el hook `_repoblar_pagos_relaciones`.
         """
         docs = datos_pago.get("documentos_relacionados") or []
         if not docs:
@@ -350,16 +471,17 @@ class ProcesadorDB:
             self._conn.execute(
                 """
                 INSERT INTO pagos_relaciones (
-                    cfdi_pago_uuid, cfdi_pago_fecha_pago, cfdi_pago_monto,
+                    cfdi_pago_uuid, mi_rfc, cfdi_pago_fecha_pago, cfdi_pago_monto,
                     cfdi_pago_forma, cfdi_pago_moneda,
                     docto_uuid, docto_serie, docto_folio,
                     docto_metodo_pago, docto_num_parcialidad,
                     docto_imp_saldo_ant, docto_imp_pagado, docto_imp_saldo_insoluto,
                     docto_moneda
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cfdi_pago_uuid,
+                    mi_rfc,
                     datos_pago.get("fecha_pago") or "",
                     float(datos_pago.get("monto_pago") or 0.0),
                     datos_pago.get("forma_de_pago") or "",
@@ -385,18 +507,23 @@ class ProcesadorDB:
     def agregar(
         self,
         cfdis: list[CfdiData],
-        mi_rfc: Optional[str] = None,
+        mi_rfc: str,
         direccion_fija: Optional[str] = None,
     ) -> dict[str, int]:
         """
-        Inserta CFDIs con `INSERT OR IGNORE` (deduplicación por UUID).
+        Inserta CFDIs bajo la empresa `mi_rfc` (deduplicación por UUID
+        POR EMPRESA: el mismo CFDI puede vivir bajo dos RFCs del catálogo).
+
+        `mi_rfc` es obligatorio — levanta ValueError si falta o es inválido.
 
         Calcula la columna `direccion`:
         - Si `direccion_fija` se da ('E' o 'R'), se aplica a todos los CFDIs
           (caso "cargar desde empresa" donde ya sabemos la subcarpeta).
-        - Si no, y se da `mi_rfc`, compara emisor/receptor para inferir.
-        - Si nada, queda NULL.
+        - Si no, compara emisor/receptor contra `mi_rfc` para inferir
+          (autofactura emisor==receptor==mi_rfc queda como 'E').
+        - Si el CFDI no menciona a `mi_rfc`, queda NULL.
         """
+        mi_rfc = normalizar_mi_rfc(mi_rfc)
         agregados = 0
         duplicados = 0
         ahora = datetime.now(timezone.utc).isoformat()
@@ -407,29 +534,31 @@ class ProcesadorDB:
                     duplicados += 1
                     continue
 
-                # ¿Ya existe? `INSERT OR IGNORE` no nos da forma simple de saberlo
-                # post-hoc en sqlite3, así que verificamos antes.
+                # ¿Ya existe bajo esta empresa? `INSERT OR IGNORE` no nos da
+                # forma simple de saberlo post-hoc en sqlite3, así que
+                # verificamos antes.
                 cur = self._conn.execute(
-                    "SELECT 1 FROM cfdis WHERE uuid = ?", (cfdi.uuid,)
+                    "SELECT 1 FROM cfdis WHERE uuid = ? AND mi_rfc = ?",
+                    (cfdi.uuid, mi_rfc),
                 )
                 if cur.fetchone() is not None:
                     duplicados += 1
                     continue
 
                 # Calcular `direccion`: explícita > inferida (vs mi_rfc) > NULL.
+                # strip+upper: hay XMLs con el RFC en minúsculas o con espacios.
                 direccion: Optional[str] = None
                 if direccion_fija in ("E", "R"):
                     direccion = direccion_fija
-                elif mi_rfc:
-                    if cfdi.emisor_rfc and cfdi.emisor_rfc.upper() == mi_rfc.upper():
-                        direccion = "E"
-                    elif cfdi.receptor_rfc and cfdi.receptor_rfc.upper() == mi_rfc.upper():
-                        direccion = "R"
+                elif cfdi.emisor_rfc and cfdi.emisor_rfc.strip().upper() == mi_rfc:
+                    direccion = "E"
+                elif cfdi.receptor_rfc and cfdi.receptor_rfc.strip().upper() == mi_rfc:
+                    direccion = "R"
 
                 self._conn.execute(
                     """
                     INSERT INTO cfdis (
-                        uuid, file_name, version, tipo, fecha, fecha_timbrado,
+                        uuid, mi_rfc, file_name, version, tipo, fecha, fecha_timbrado,
                         serie, folio,
                         emisor_rfc, emisor_nombre, emisor_regimen_fiscal,
                         receptor_rfc, receptor_nombre, receptor_uso_cfdi,
@@ -438,11 +567,11 @@ class ProcesadorDB:
                         forma_pago, metodo_pago, moneda, tipo_cambio, lugar_expedicion,
                         direccion, estado_sat, validado_en,
                         raw_json, warnings_json, cargado_en
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        cfdi.uuid, cfdi.file_name, cfdi.version, cfdi.tipo_comprobante,
+                        cfdi.uuid, mi_rfc, cfdi.file_name, cfdi.version, cfdi.tipo_comprobante,
                         cfdi.fecha_emision, cfdi.fecha_timbrado,
                         cfdi.serie, cfdi.folio,
                         cfdi.emisor_rfc, cfdi.emisor_nombre, cfdi.emisor_regimen_fiscal,
@@ -463,12 +592,13 @@ class ProcesadorDB:
                     self._conn.execute(
                         """
                         INSERT INTO conceptos (
-                            cfdi_uuid, clave_prod_serv, descripcion, cantidad,
+                            cfdi_uuid, mi_rfc, clave_prod_serv, descripcion, cantidad,
                             clave_unidad, unidad, valor_unitario, importe, descuento
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             cfdi.uuid,
+                            mi_rfc,
                             concepto.clave_prod_serv, concepto.descripcion,
                             concepto.cantidad, concepto.clave_unidad, concepto.unidad,
                             concepto.valor_unitario, concepto.importe, concepto.descuento,
@@ -479,7 +609,7 @@ class ProcesadorDB:
                 # `nomina_recibos` y `nomina_conceptos` para que los reportes
                 # del procesador de Nómina sean SQL puro.
                 if cfdi.tipo_comprobante == "N" and cfdi.datos_nomina is not None:
-                    self._insertar_nomina(cfdi.uuid, cfdi.datos_nomina)
+                    self._insertar_nomina(cfdi.uuid, cfdi.datos_nomina, mi_rfc=mi_rfc)
 
                 # Si es CFDI tipo P con datos_pago, además normaliza sus
                 # DoctoRelacionado a la tabla `pagos_relaciones` para que el
@@ -506,21 +636,27 @@ class ProcesadorDB:
                             "moneda_pago": dp_dict.get("moneda_pago", ""),
                             "documentos_relacionados": docs_dict,
                         },
+                        mi_rfc=mi_rfc,
                     )
 
                 agregados += 1
 
         return {"agregados": agregados, "duplicados": duplicados}
 
-    def borrar(self) -> None:
-        """Vacía todas las tablas del procesador."""
+    def borrar(self, mi_rfc: str) -> None:
+        """Vacía el buffer y los filtros de UNA empresa (no toca las demás)."""
+        mi_rfc = normalizar_mi_rfc(mi_rfc)
         with self._lock, self._conn:
-            self._conn.execute("DELETE FROM conceptos")
-            self._conn.execute("DELETE FROM pagos_relaciones")
-            self._conn.execute("DELETE FROM nomina_conceptos")
-            self._conn.execute("DELETE FROM nomina_recibos")
-            self._conn.execute("DELETE FROM cfdis")
-            self._conn.execute("DELETE FROM filtros")
+            # El ON DELETE CASCADE de las FKs compuestas limpia las 4 hijas.
+            self._conn.execute("DELETE FROM cfdis WHERE mi_rfc = ?", (mi_rfc,))
+            self._conn.execute(
+                "DELETE FROM filtros WHERE key IN (?, ?, ?)",
+                (
+                    f"actuales:{mi_rfc}",
+                    f"pagos_actuales:{mi_rfc}",
+                    f"nomina_actuales:{mi_rfc}",
+                ),
+            )
 
     def count(self, filtros: Optional[CfdiFiltros] = None) -> int:
         sql, params = _construir_where(filtros)
@@ -561,15 +697,15 @@ class ProcesadorDB:
                 for r in rows:
                     yield _row_to_dict(r)
 
-    def conceptos_de(self, cfdi_uuid: str) -> list[dict]:
+    def conceptos_de(self, cfdi_uuid: str, mi_rfc: str) -> list[dict]:
         with self._lock:
             cur = self._conn.execute(
                 """
                 SELECT clave_prod_serv, descripcion, cantidad, clave_unidad, unidad,
                        valor_unitario, importe, descuento
-                FROM conceptos WHERE cfdi_uuid = ?
+                FROM conceptos WHERE cfdi_uuid = ? AND mi_rfc = ?
                 """,
-                (cfdi_uuid,),
+                (cfdi_uuid, normalizar_mi_rfc(mi_rfc)),
             )
             return [dict(r) for r in cur.fetchall()]
 
@@ -578,6 +714,11 @@ class ProcesadorDB:
     # ------------------------------------------------------------------
 
     def actualizar_estado_sat(self, uuid: str, estado: str) -> None:
+        """Actualiza el estatus SAT de un uuid en TODAS las empresas.
+
+        Intencional: el estatus es verdad global del comprobante; si el mismo
+        CFDI vive bajo dos RFCs del catálogo, refrescar ambas copias es correcto.
+        """
         ahora = datetime.now(timezone.utc).isoformat()
         with self._lock, self._conn:
             self._conn.execute(
@@ -585,12 +726,15 @@ class ProcesadorDB:
                 (estado, ahora, uuid),
             )
 
-    def uuids_sin_validar(self, limit: Optional[int] = None) -> list[str]:
-        sql = "SELECT uuid FROM cfdis WHERE estado_sat IS NULL"
+    def uuids_sin_validar(
+        self, mi_rfc: str, limit: Optional[int] = None
+    ) -> list[str]:
+        sql = "SELECT uuid FROM cfdis WHERE estado_sat IS NULL AND mi_rfc = ?"
         if limit is not None:
             sql += f" LIMIT {int(limit)}"
         with self._lock:
-            return [r[0] for r in self._conn.execute(sql).fetchall()]
+            cur = self._conn.execute(sql, (normalizar_mi_rfc(mi_rfc),))
+            return [r[0] for r in cur.fetchall()]
 
     # ------------------------------------------------------------------
     # Listas negras del SAT (Art. 69 y 69-B)
@@ -598,24 +742,29 @@ class ProcesadorDB:
 
     def rfcs_sin_validar_listas(
         self,
+        mi_rfc: str,
         ttl_days: int = 30,
         force_refresh: bool = False,
     ) -> list[str]:
-        """RFCs únicos (emisor + receptor) que necesitan revalidación.
+        """RFCs únicos (emisor + receptor) del buffer de UNA empresa que
+        necesitan revalidación.
 
         Las listas del SAT se actualizan mensualmente (cron del día 5); un TTL
         de 30 días evita pegarle al endpoint sin valor agregado. Si
         `force_refresh` es True, devuelve todos los RFCs del buffer.
         """
+        dueno = normalizar_mi_rfc(mi_rfc)
         if force_refresh:
             sql = (
                 "SELECT DISTINCT rfc FROM ("
-                "  SELECT emisor_rfc AS rfc FROM cfdis WHERE emisor_rfc IS NOT NULL AND emisor_rfc != ''"
+                "  SELECT emisor_rfc AS rfc FROM cfdis"
+                "  WHERE emisor_rfc IS NOT NULL AND emisor_rfc != '' AND mi_rfc = ?"
                 "  UNION"
-                "  SELECT receptor_rfc AS rfc FROM cfdis WHERE receptor_rfc IS NOT NULL AND receptor_rfc != ''"
+                "  SELECT receptor_rfc AS rfc FROM cfdis"
+                "  WHERE receptor_rfc IS NOT NULL AND receptor_rfc != '' AND mi_rfc = ?"
                 ")"
             )
-            params: tuple = ()
+            params: tuple = (dueno, dueno)
         else:
             # Un RFC necesita revalidación si CUALQUIER CFDI donde aparece
             # tiene `validado_listas_en` NULL o más viejo que el TTL. Usamos
@@ -626,15 +775,17 @@ class ProcesadorDB:
             sql = """
                 SELECT DISTINCT rfc FROM (
                   SELECT emisor_rfc AS rfc, validado_listas_en AS validado
-                  FROM cfdis WHERE emisor_rfc IS NOT NULL AND emisor_rfc != ''
+                  FROM cfdis
+                  WHERE emisor_rfc IS NOT NULL AND emisor_rfc != '' AND mi_rfc = ?
                   UNION ALL
                   SELECT receptor_rfc AS rfc, validado_listas_en AS validado
-                  FROM cfdis WHERE receptor_rfc IS NOT NULL AND receptor_rfc != ''
+                  FROM cfdis
+                  WHERE receptor_rfc IS NOT NULL AND receptor_rfc != '' AND mi_rfc = ?
                 )
                 GROUP BY rfc
                 HAVING MIN(COALESCE(validado, '')) < ?
             """
-            params = (limite,)
+            params = (dueno, dueno, limite)
         with self._lock:
             return [r[0] for r in self._conn.execute(sql, params).fetchall()]
 
@@ -648,6 +799,10 @@ class ProcesadorDB:
         ese RFC aparezca como emisor y/o receptor. Devuelve filas tocadas
         (puede ser > total de CFDIs porque un CFDI cuyo emisor y receptor
         son el mismo RFC se actualiza una vez por lado).
+
+        Intencional que NO filtre por `mi_rfc`: el veredicto de listas negras
+        es verdad global del RFC; refrescar sus filas en todas las empresas
+        del catálogo es correcto (y ahorra revalidaciones por el TTL).
         """
         ahora = datetime.now(timezone.utc).isoformat()
         with self._lock, self._conn:
@@ -785,11 +940,11 @@ class ProcesadorDB:
 
     def filtros_get(self, key: str = "actuales") -> dict:
         """
-        Lee los filtros persistidos para un procesador. `key` distingue cada
-        uno: 'actuales' (CFDI), 'pagos_actuales' (Pagos), etc.
-        Si no hay nada guardado o el JSON es inválido devuelve `filtros_vacios()`
-        para el de CFDI; para otros procesadores devuelve `{}` (el caller hace
-        merge con su propio default).
+        Lee los filtros persistidos para un procesador. `key` distingue
+        procesador Y empresa: 'actuales:{RFC}' (CFDI), 'pagos_actuales:{RFC}'
+        (Pagos), etc. Si no hay nada guardado o el JSON es inválido devuelve
+        `filtros_vacios()` para el de CFDI; para otros procesadores devuelve
+        `{}` (el caller hace merge con su propio default).
         """
         with self._lock:
             cur = self._conn.execute(
@@ -797,11 +952,11 @@ class ProcesadorDB:
             )
             row = cur.fetchone()
         if row is None:
-            return filtros_vacios() if key == "actuales" else {}
+            return filtros_vacios() if key.startswith("actuales") else {}
         try:
             return json.loads(row[0])
         except (json.JSONDecodeError, TypeError):
-            return filtros_vacios() if key == "actuales" else {}
+            return filtros_vacios() if key.startswith("actuales") else {}
 
     def filtros_set(self, filtros: dict, key: str = "actuales") -> None:
         payload = json.dumps(filtros, ensure_ascii=False)
@@ -871,6 +1026,14 @@ def _construir_where(filtros: Optional[CfdiFiltros]) -> tuple[str, tuple]:
 
     clauses: list[str] = []
     params: list[Any] = []
+
+    # Dueño del buffer. Viaja DENTRO del dict de filtros que arma el router
+    # (no se persiste en la tabla `filtros`); con esto todas las queries que
+    # pasan por aquí quedan acotadas a la empresa activa.
+    mi_rfc = filtros.get("mi_rfc")
+    if mi_rfc:
+        clauses.append("mi_rfc = ?")
+        params.append(normalizar_mi_rfc(mi_rfc))
 
     desde = filtros.get("desde")
     hasta = filtros.get("hasta")

@@ -149,10 +149,19 @@ def _recopilar_rfcs(
             contenido = f.read()
         return [r.strip().upper() for r in _RFC_SPLIT.split(contenido) if r.strip()]
 
-    # desde-procesador
+    # desde-procesador — el buffer está aislado por empresa: usamos la default.
+    from . import config_store
     from ..procesador import abrir_db
+
+    empresa = config_store.get_default()
+    if not empresa:
+        raise click.UsageError(
+            "--desde-procesador requiere una empresa default en el catálogo "
+            "(el buffer del procesador se aísla por empresa). "
+            "Configúrala con `sat-dm empresas`."
+        )
     db = abrir_db()
-    return db.rfcs_sin_validar_listas(force_refresh=force_refresh)
+    return db.rfcs_sin_validar_listas(empresa, force_refresh=force_refresh)
 
 
 def _exportar_csv(matches, salida: str) -> None:

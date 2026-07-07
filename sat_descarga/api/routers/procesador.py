@@ -8,11 +8,11 @@ Endpoints: /procesador/cfdi/*, /procesador/pagos/*, /procesador/nomina/* y
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..state import _session, _descargas_base
+from ..state import _descargas_base
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +22,14 @@ router = APIRouter()
 # Procesador de comprobantes — CFDI
 # ---------------------------------------------------------------------------
 #
-# Buffer persistente en SQLite (~/.sat-descarga/procesador.db). El usuario
-# carga XMLs explícitamente (drag&drop / examinar carpeta / desde empresa);
-# no se autoescanea el filesystem. Lo cargado se queda hasta que el usuario
-# pulse "Borrar". Filtros también persisten para que la sesión se recupere
-# al reabrir la app. Ver el plan en /Users/isca/.claude/plans para detalle.
+# Buffer persistente en SQLite (~/.sat-descarga/procesador.db), AISLADO POR
+# EMPRESA: cada fila tiene dueño (mi_rfc) y todos los endpoints exigen el RFC
+# explícito desde el cliente — sin empresa activa no hay procesador (no hay
+# bucket general). El usuario carga XMLs explícitamente (drag&drop / examinar
+# carpeta / desde empresa); no se autoescanea el filesystem. Lo cargado se
+# queda hasta que el usuario pulse "Borrar" (que solo vacía SU empresa).
+# Filtros también persisten por empresa para que la sesión se recupere al
+# reabrir la app o al regresar a la empresa (A→B→A).
 
 
 class CargarDesdeEmpresaRequest(BaseModel):
@@ -40,11 +43,13 @@ class CargarDesdeEmpresaRequest(BaseModel):
 
 
 class ValidarSatRequest(BaseModel):
+    rfc: str
     # Si se omite, valida solo los CFDIs del buffer sin estado_sat asignado.
     uuids: Optional[List[str]] = None
 
 
 class ProcesadorFiltrosRequest(BaseModel):
+    rfc: str  # empresa dueña — NO se persiste dentro de los filtros
     desde: Optional[str] = None
     hasta: Optional[str] = None
     tipo: Optional[str] = None
@@ -56,6 +61,7 @@ class ProcesadorFiltrosRequest(BaseModel):
 
 
 def _filtros_de_query(
+    mi_rfc: str,
     desde: Optional[str],
     hasta: Optional[str],
     tipo: Optional[str],
@@ -66,8 +72,9 @@ def _filtros_de_query(
     direccion: Optional[str] = None,
     emisor_lista_negra: Optional[str] = None,
 ) -> dict:
-    """Construye el dict de filtros para `procesador.db`."""
+    """Construye el dict de filtros para `procesador.db` (acotado al dueño)."""
     return {
+        "mi_rfc": mi_rfc,
         "desde": desde,
         "hasta": hasta,
         "tipo": tipo,
@@ -80,27 +87,64 @@ def _filtros_de_query(
     }
 
 
-def _rfc_activo() -> Optional[str]:
-    """Devuelve el RFC de la empresa activa (sesión FIEL o catálogo)."""
-    rfc = _session.get("rfc") if isinstance(_session, dict) else None
-    if rfc:
-        return rfc
+def _rfc_requerido(rfc: Optional[str], *, del_catalogo: bool = False) -> str:
+    """Normaliza y valida el RFC dueño del buffer; 400 si es inválido.
+
+    No hay fallback a la "empresa activa" del agente: el RFC viaja SIEMPRE
+    explícito desde el cliente (mismo contrato que las calculadoras) para que
+    un desfase entre la UI y la sesión del agente jamás mezcle empresas.
+    Con `del_catalogo=True` además exige que sea una empresa registrada
+    (se usa en las vías de carga, donde se escriben datos nuevos).
+    """
+    from ...procesador.db import normalizar_mi_rfc
+
     try:
+        limpio = normalizar_mi_rfc(rfc)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="RFC inválido o faltante. Activa una empresa para usar el procesador.",
+        )
+    if del_catalogo:
         from ...cli import config_store
-        return config_store.get_default()
-    except Exception:
-        return None
+
+        if limpio not in config_store.load_empresas().get("empresas", {}):
+            raise HTTPException(
+                status_code=400,
+                detail=f"La empresa {limpio} no está registrada en el catálogo.",
+            )
+    return limpio
+
+
+def _pertenece_a(cfdi, mi_rfc: str) -> bool:
+    """¿El CFDI menciona a la empresa como emisor O receptor?
+
+    Es la restricción de la vía "Examinar": solo se aceptan comprobantes de
+    la empresa activa (emitidos o recibidos, incluso descargados con otro
+    software). strip+upper porque hay XMLs con el RFC en minúsculas.
+    """
+    lados = {
+        (cfdi.emisor_rfc or "").strip().upper(),
+        (cfdi.receptor_rfc or "").strip().upper(),
+    }
+    return mi_rfc in lados
 
 
 @router.post("/procesador/cfdi/cargar")
-async def procesador_cargar(files: List[UploadFile] = File(...)):
+async def procesador_cargar(
+    files: List[UploadFile] = File(...),
+    rfc: str = Form(...),
+):
     """
-    Recibe `.xml` por multipart y los agrega al buffer del procesador.
-    Hasta `MAX_BATCH_SIZE` archivos por request.
+    Recibe `.xml` por multipart y los agrega al buffer de la empresa `rfc`.
+    Hasta `MAX_BATCH_SIZE` archivos por request. Los XML que no correspondan
+    al RFC (ni emisor ni receptor) se OMITEN y se reporta el conteo.
     """
     from ...procesador import abrir_db, parse_cfdi, MAX_BATCH_SIZE
     from ...procesador.cfdi_parser import CfdiParseError
     from ...procesador.validaciones import validar_y_anotar
+
+    mi_rfc = _rfc_requerido(rfc, del_catalogo=True)
 
     if len(files) > MAX_BATCH_SIZE:
         raise HTTPException(
@@ -111,11 +155,15 @@ async def procesador_cargar(files: List[UploadFile] = File(...)):
     db = abrir_db()
     parseados = []
     errores: list[dict] = []
+    omitidos_rfc = 0
 
     for f in files:
         try:
             contenido = await f.read()
             cfdi = parse_cfdi(contenido, file_name=f.filename or "")
+            if not _pertenece_a(cfdi, mi_rfc):
+                omitidos_rfc += 1
+                continue
             validar_y_anotar(cfdi)
             parseados.append(cfdi)
         except CfdiParseError as e:
@@ -124,11 +172,13 @@ async def procesador_cargar(files: List[UploadFile] = File(...)):
             logger.exception("[procesador] error parseando %s", f.filename)
             errores.append({"filename": f.filename, "mensaje": str(e)})
 
-    # Drag&drop: la dirección se infiere comparando con el RFC activo.
-    resultado = db.agregar(parseados, mi_rfc=_rfc_activo())
+    # Drag&drop: la dirección se infiere comparando con el RFC dueño
+    # (autofactura emisor==receptor==rfc queda como 'E').
+    resultado = db.agregar(parseados, mi_rfc=mi_rfc)
     return {
         "agregados": resultado["agregados"],
         "duplicados": resultado["duplicados"],
+        "omitidos_rfc": omitidos_rfc,
         "errores": errores,
     }
 
@@ -137,16 +187,24 @@ async def procesador_cargar(files: List[UploadFile] = File(...)):
 def procesador_cargar_desde_empresa(req: CargarDesdeEmpresaRequest):
     """
     Escanea `descargas/cfdi/<RFC>/.../*.xml` filtrando por fecha (opcional)
-    y agrega los CFDIs encontrados al buffer.
+    y agrega los CFDIs encontrados al buffer de esa empresa.
     """
     from ...procesador import abrir_db, parse_cfdi
     from ...procesador.cfdi_parser import CfdiParseError
     from ...procesador.validaciones import validar_y_anotar
     from ...core import paths
 
-    base = paths.dir_cfdi_base(req.rfc, salida_base=_descargas_base())
+    mi_rfc = _rfc_requerido(req.rfc, del_catalogo=True)
+
+    base = paths.dir_cfdi_base(mi_rfc, salida_base=_descargas_base())
     if not base.exists():
-        return {"agregados": 0, "duplicados": 0, "errores": [], "archivos_encontrados": 0}
+        return {
+            "agregados": 0,
+            "duplicados": 0,
+            "omitidos_rfc": 0,
+            "errores": [],
+            "archivos_encontrados": 0,
+        }
 
     # Filtrar por subcarpeta según el tipo solicitado. Si el caller omite
     # `tipo`, escanea ambos (uso programático futuro).
@@ -165,6 +223,7 @@ def procesador_cargar_desde_empresa(req: CargarDesdeEmpresaRequest):
     db = abrir_db()
     parseados = []
     errores: list[dict] = []
+    omitidos_rfc = 0
 
     desde = req.desde or ""
     hasta = req.hasta + "T23:59:59" if req.hasta else ""
@@ -177,6 +236,11 @@ def procesador_cargar_desde_empresa(req: CargarDesdeEmpresaRequest):
             if desde and cfdi.fecha_emision and cfdi.fecha_emision < desde:
                 continue
             if hasta and cfdi.fecha_emision and cfdi.fecha_emision > hasta:
+                continue
+            # Defensa extra: la carpeta de descargas puede contener XMLs
+            # movidos a mano que no son de esta empresa.
+            if not _pertenece_a(cfdi, mi_rfc):
+                omitidos_rfc += 1
                 continue
             validar_y_anotar(cfdi)
             parseados.append(cfdi)
@@ -191,12 +255,13 @@ def procesador_cargar_desde_empresa(req: CargarDesdeEmpresaRequest):
     # respaldo si `tipo` viene en None.
     resultado = db.agregar(
         parseados,
-        mi_rfc=req.rfc,
+        mi_rfc=mi_rfc,
         direccion_fija=req.tipo if req.tipo in ("E", "R") else None,
     )
     return {
         "agregados": resultado["agregados"],
         "duplicados": resultado["duplicados"],
+        "omitidos_rfc": omitidos_rfc,
         "errores": errores,
         "archivos_encontrados": len(xmls),
     }
@@ -212,27 +277,29 @@ def procesador_validar_sat(req: ValidarSatRequest):
     from ...procesador import abrir_db
     from ...utils.validacion import validar_masivo
 
+    mi_rfc = _rfc_requerido(req.rfc)
     db = abrir_db()
 
     if req.uuids:
         uuids = req.uuids
     else:
-        uuids = db.uuids_sin_validar()
+        uuids = db.uuids_sin_validar(mi_rfc)
 
     if not uuids:
         return {"validados": 0, "vigentes": 0, "cancelados": 0,
                 "no_encontrados": 0, "errores": 0}
 
-    # Construye payloads para validar_masivo
+    # Construye payloads para validar_masivo. Acotado al dueño: el mismo
+    # uuid puede vivir bajo dos empresas y no queremos validarlo doble.
     payloads = []
     with db.cursor() as cur:
         placeholders = ",".join("?" for _ in uuids)
         cur.execute(
             f"""
             SELECT uuid, emisor_rfc, receptor_rfc, total
-            FROM cfdis WHERE uuid IN ({placeholders})
+            FROM cfdis WHERE mi_rfc = ? AND uuid IN ({placeholders})
             """,
-            uuids,
+            (mi_rfc, *uuids),
         )
         for r in cur.fetchall():
             payloads.append({
@@ -264,6 +331,7 @@ def procesador_validar_sat(req: ValidarSatRequest):
 
 @router.get("/procesador/cfdi")
 def procesador_listar(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     tipo: Optional[str] = None,
@@ -276,9 +344,10 @@ def procesador_listar(
     page: int = 1,
     page_size: int = 50,
 ):
-    """Lista paginada del buffer del procesador con filtros."""
+    """Lista paginada del buffer de la empresa con filtros."""
     from ...procesador import abrir_db
     filtros = _filtros_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
         direccion, emisor_lista_negra,
     )
@@ -288,6 +357,7 @@ def procesador_listar(
 
 @router.get("/procesador/cfdi/stats")
 def procesador_stats(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     tipo: Optional[str] = None,
@@ -301,6 +371,7 @@ def procesador_stats(
     from ...procesador import abrir_db
     from ...procesador.reportes_cfdi import stats_generales
     filtros = _filtros_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
     )
     return stats_generales(abrir_db(), filtros)
@@ -309,6 +380,7 @@ def procesador_stats(
 @router.get("/procesador/cfdi/reporte/{nombre}")
 def procesador_reporte(
     nombre: str,
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     tipo: Optional[str] = None,
@@ -323,6 +395,7 @@ def procesador_reporte(
     from ...procesador import reportes_cfdi as rep
 
     filtros = _filtros_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
     )
     db = abrir_db()
@@ -336,29 +409,32 @@ def procesador_reporte(
 
 
 @router.get("/procesador/cfdi/filtros")
-def procesador_filtros_get():
+def procesador_filtros_get(rfc: str):
     from ...procesador import abrir_db
-    return abrir_db().filtros_get()
+    return abrir_db().filtros_get(key=f"actuales:{_rfc_requerido(rfc)}")
 
 
 @router.put("/procesador/cfdi/filtros")
 def procesador_filtros_set(req: ProcesadorFiltrosRequest):
     from ...procesador import abrir_db
+    mi_rfc = _rfc_requerido(req.rfc)
     db = abrir_db()
-    db.filtros_set(req.dict())
+    # `rfc` es la key, no un filtro — no se persiste dentro del JSON.
+    db.filtros_set(req.model_dump(exclude={"rfc"}), key=f"actuales:{mi_rfc}")
     return {"ok": True}
 
 
 @router.delete("/procesador/cfdi")
-def procesador_borrar():
-    """Vacía el buffer completo (CFDIs + filtros)."""
+def procesador_borrar(rfc: str):
+    """Vacía el buffer y los filtros de UNA empresa (las demás no se tocan)."""
     from ...procesador import abrir_db
-    abrir_db().borrar()
+    abrir_db().borrar(_rfc_requerido(rfc))
     return {"ok": True}
 
 
 @router.get("/procesador/cfdi/exportar")
 def procesador_exportar(
+    rfc: str,
     formato: str = "xlsx",
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
@@ -374,6 +450,7 @@ def procesador_exportar(
     from ...procesador.exportar import to_csv, to_xlsx
 
     filtros = _filtros_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
     )
     db = abrir_db()
@@ -411,6 +488,7 @@ class ListasNegrasConsultarRequest(BaseModel):
 
 
 class ValidarListasNegrasRequest(BaseModel):
+    rfc: str
     # Si se omite, valida todos los RFCs del buffer cuya última validación
     # esté fuera del TTL (30 días). `force_refresh=true` ignora el TTL.
     uuids: Optional[List[str]] = None
@@ -494,25 +572,28 @@ def procesador_validar_listas_negras(req: ValidarListasNegrasRequest):
     from ...procesador import abrir_db
     import json as _json
 
+    mi_rfc = _rfc_requerido(req.rfc)
     db = abrir_db()
 
     if req.uuids:
-        # RFCs únicos de los CFDIs solicitados (ambos lados).
+        # RFCs únicos de los CFDIs solicitados (ambos lados, de esta empresa).
         with db.cursor() as cur:
             placeholders = ",".join("?" for _ in req.uuids)
             cur.execute(
                 f"""
                 SELECT DISTINCT rfc FROM (
-                  SELECT emisor_rfc AS rfc FROM cfdis WHERE uuid IN ({placeholders})
+                  SELECT emisor_rfc AS rfc FROM cfdis
+                  WHERE mi_rfc = ? AND uuid IN ({placeholders})
                   UNION
-                  SELECT receptor_rfc AS rfc FROM cfdis WHERE uuid IN ({placeholders})
+                  SELECT receptor_rfc AS rfc FROM cfdis
+                  WHERE mi_rfc = ? AND uuid IN ({placeholders})
                 ) WHERE rfc IS NOT NULL AND rfc != ''
                 """,
-                (*req.uuids, *req.uuids),
+                (mi_rfc, *req.uuids, mi_rfc, *req.uuids),
             )
             rfcs = [r[0] for r in cur.fetchall()]
     else:
-        rfcs = db.rfcs_sin_validar_listas(force_refresh=req.force_refresh)
+        rfcs = db.rfcs_sin_validar_listas(mi_rfc, force_refresh=req.force_refresh)
 
     if not rfcs:
         return {
@@ -554,6 +635,7 @@ def procesador_validar_listas_negras(req: ValidarListasNegrasRequest):
 
 @router.get("/procesador/cfdi/listas-negras/stats")
 def procesador_listas_negras_stats(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     tipo: Optional[str] = None,
@@ -568,6 +650,7 @@ def procesador_listas_negras_stats(
     from ...procesador import abrir_db
 
     filtros = _filtros_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
     )
     return abrir_db().stats_listas_negras(filtros)
@@ -575,6 +658,7 @@ def procesador_listas_negras_stats(
 
 @router.get("/procesador/cfdi/listas-negras/por-emisor")
 def procesador_listas_negras_por_emisor(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     tipo: Optional[str] = None,
@@ -593,6 +677,7 @@ def procesador_listas_negras_por_emisor(
     from ...procesador import abrir_db
 
     filtros = _filtros_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
         direccion, emisor_lista_negra,
     )
@@ -610,6 +695,7 @@ def procesador_listas_negras_por_emisor(
 
 
 class PagosFiltrosRequest(BaseModel):
+    rfc: str  # empresa dueña — NO se persiste dentro de los filtros
     desde: Optional[str] = None
     hasta: Optional[str] = None
     busqueda: Optional[str] = None
@@ -618,15 +704,17 @@ class PagosFiltrosRequest(BaseModel):
 
 
 def _filtros_pagos_de_query(
+    mi_rfc: str,
     desde: Optional[str],
     hasta: Optional[str],
     busqueda: Optional[str],
 ) -> dict:
-    return {"desde": desde, "hasta": hasta, "busqueda": busqueda}
+    return {"mi_rfc": mi_rfc, "desde": desde, "hasta": hasta, "busqueda": busqueda}
 
 
 @router.get("/procesador/pagos")
 def procesador_pagos_listar(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
@@ -638,7 +726,7 @@ def procesador_pagos_listar(
     from ...procesador import abrir_db
     from ...procesador import reportes_pagos as rep
 
-    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    filtros = _filtros_pagos_de_query(_rfc_requerido(rfc), desde, hasta, busqueda)
     status_list = [s for s in (status or "").split(",") if s] or None
     return rep.facturas_ppd(
         abrir_db(), filtros, status_in=status_list, page=page, page_size=page_size,
@@ -647,27 +735,33 @@ def procesador_pagos_listar(
 
 @router.get("/procesador/pagos/stats")
 def procesador_pagos_stats(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
 ):
     from ...procesador import abrir_db
     from ...procesador.reportes_pagos import stats_pagos
-    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    filtros = _filtros_pagos_de_query(_rfc_requerido(rfc), desde, hasta, busqueda)
     return stats_pagos(abrir_db(), filtros)
 
 
 @router.get("/procesador/pagos/factura/{uuid}/pagos")
-def procesador_pagos_detalle_factura(uuid: str):
-    """Drilldown: pagos asociados a una factura PPD específica."""
+def procesador_pagos_detalle_factura(uuid: str, rfc: str):
+    """Drilldown: pagos asociados a una factura PPD específica (el uuid ya
+    no es único — puede vivir bajo dos empresas)."""
     from ...procesador import abrir_db
     from ...procesador.reportes_pagos import detalle_pagos_de_ppd
-    return {"uuid": uuid, "items": detalle_pagos_de_ppd(abrir_db(), uuid)}
+    return {
+        "uuid": uuid,
+        "items": detalle_pagos_de_ppd(abrir_db(), uuid, _rfc_requerido(rfc)),
+    }
 
 
 @router.get("/procesador/pagos/reporte/{nombre}")
 def procesador_pagos_reporte(
     nombre: str,
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
@@ -676,7 +770,7 @@ def procesador_pagos_reporte(
     from ...procesador import abrir_db
     from ...procesador import reportes_pagos as rep
 
-    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    filtros = _filtros_pagos_de_query(_rfc_requerido(rfc), desde, hasta, busqueda)
     db = abrir_db()
     if nombre == "analisis-fechas":
         return {"reporte": "analisis-fechas", "items": rep.analisis_fechas(db, filtros)}
@@ -688,9 +782,9 @@ def procesador_pagos_reporte(
 
 
 @router.get("/procesador/pagos/filtros")
-def procesador_pagos_filtros_get():
+def procesador_pagos_filtros_get(rfc: str):
     from ...procesador import abrir_db
-    f = abrir_db().filtros_get(key="pagos_actuales")
+    f = abrir_db().filtros_get(key=f"pagos_actuales:{_rfc_requerido(rfc)}")
     # Default explicito si nunca se han guardado.
     return f or {
         "desde": None, "hasta": None, "busqueda": None,
@@ -701,12 +795,14 @@ def procesador_pagos_filtros_get():
 @router.put("/procesador/pagos/filtros")
 def procesador_pagos_filtros_set(req: PagosFiltrosRequest):
     from ...procesador import abrir_db
-    abrir_db().filtros_set(req.dict(), key="pagos_actuales")
+    mi_rfc = _rfc_requerido(req.rfc)
+    abrir_db().filtros_set(req.model_dump(exclude={"rfc"}), key=f"pagos_actuales:{mi_rfc}")
     return {"ok": True}
 
 
 @router.get("/procesador/pagos/exportar")
 def procesador_pagos_exportar(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
@@ -714,7 +810,7 @@ def procesador_pagos_exportar(
     """XLSX multi-sheet del procesador de Pagos."""
     from ...procesador import abrir_db
     from ...procesador.exportar_pagos import to_xlsx
-    filtros = _filtros_pagos_de_query(desde, hasta, busqueda)
+    filtros = _filtros_pagos_de_query(_rfc_requerido(rfc), desde, hasta, busqueda)
     data = to_xlsx(abrir_db(), filtros)
     return StreamingResponse(
         iter([data]),
@@ -735,6 +831,7 @@ def procesador_pagos_exportar(
 
 
 class NominaFiltrosRequest(BaseModel):
+    rfc: str  # empresa dueña — NO se persiste dentro de los filtros
     desde: Optional[str] = None
     hasta: Optional[str] = None
     busqueda: Optional[str] = None
@@ -744,6 +841,7 @@ class NominaFiltrosRequest(BaseModel):
 
 
 def _filtros_nomina_de_query(
+    mi_rfc: str,
     desde: Optional[str],
     hasta: Optional[str],
     busqueda: Optional[str],
@@ -752,6 +850,7 @@ def _filtros_nomina_de_query(
     solo_con_errores: bool,
 ) -> dict:
     return {
+        "mi_rfc": mi_rfc,
         "desde": desde,
         "hasta": hasta,
         "busqueda": busqueda,
@@ -763,6 +862,7 @@ def _filtros_nomina_de_query(
 
 @router.get("/procesador/nomina")
 def procesador_nomina_listar(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
@@ -777,6 +877,7 @@ def procesador_nomina_listar(
     from ...procesador.reportes_nomina import listar_recibos
 
     filtros = _filtros_nomina_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
     )
     return listar_recibos(abrir_db(), filtros, page=page, page_size=page_size)
@@ -784,6 +885,7 @@ def procesador_nomina_listar(
 
 @router.get("/procesador/nomina/stats")
 def procesador_nomina_stats(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
@@ -795,22 +897,28 @@ def procesador_nomina_stats(
     from ...procesador.reportes_nomina import stats_nomina
 
     filtros = _filtros_nomina_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
     )
     return stats_nomina(abrir_db(), filtros)
 
 
 @router.get("/procesador/nomina/recibo/{uuid}/conceptos")
-def procesador_nomina_conceptos_de_recibo(uuid: str):
-    """Drilldown: conceptos de un recibo de nómina ordenados por clase."""
+def procesador_nomina_conceptos_de_recibo(uuid: str, rfc: str):
+    """Drilldown: conceptos de un recibo de nómina ordenados por clase (el
+    uuid ya no es único — puede vivir bajo dos empresas)."""
     from ...procesador import abrir_db
     from ...procesador.reportes_nomina import conceptos_de_recibo
-    return {"uuid": uuid, "items": conceptos_de_recibo(abrir_db(), uuid)}
+    return {
+        "uuid": uuid,
+        "items": conceptos_de_recibo(abrir_db(), uuid, _rfc_requerido(rfc)),
+    }
 
 
 @router.get("/procesador/nomina/reporte/{nombre}")
 def procesador_nomina_reporte(
     nombre: str,
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
@@ -823,6 +931,7 @@ def procesador_nomina_reporte(
     from ...procesador import reportes_nomina as rep
 
     filtros = _filtros_nomina_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
     )
     db = abrir_db()
@@ -836,9 +945,9 @@ def procesador_nomina_reporte(
 
 
 @router.get("/procesador/nomina/filtros")
-def procesador_nomina_filtros_get():
+def procesador_nomina_filtros_get(rfc: str):
     from ...procesador import abrir_db
-    f = abrir_db().filtros_get(key="nomina_actuales")
+    f = abrir_db().filtros_get(key=f"nomina_actuales:{_rfc_requerido(rfc)}")
     return f or {
         "desde": None, "hasta": None, "busqueda": None,
         "tipo_nomina": None, "periodicidad": None, "solo_con_errores": False,
@@ -848,12 +957,14 @@ def procesador_nomina_filtros_get():
 @router.put("/procesador/nomina/filtros")
 def procesador_nomina_filtros_set(req: NominaFiltrosRequest):
     from ...procesador import abrir_db
-    abrir_db().filtros_set(req.dict(), key="nomina_actuales")
+    mi_rfc = _rfc_requerido(req.rfc)
+    abrir_db().filtros_set(req.model_dump(exclude={"rfc"}), key=f"nomina_actuales:{mi_rfc}")
     return {"ok": True}
 
 
 @router.get("/procesador/nomina/exportar")
 def procesador_nomina_exportar(
+    rfc: str,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     busqueda: Optional[str] = None,
@@ -866,6 +977,7 @@ def procesador_nomina_exportar(
     from ...procesador.exportar_nomina import to_xlsx
 
     filtros = _filtros_nomina_de_query(
+        _rfc_requerido(rfc),
         desde, hasta, busqueda, tipo_nomina, periodicidad, solo_con_errores,
     )
     data = to_xlsx(abrir_db(), filtros)
