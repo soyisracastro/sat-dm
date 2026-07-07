@@ -216,6 +216,20 @@ def test_prellenar_agrupa_por_proveedor_y_mapea_tasas(db):
     assert alfa["num_cfdis"] == 2
 
 
+def test_prellenar_capa_acreditable_al_iva_pagado_del_sat(db):
+    # Caso real (carga masiva rechazada 2026-07): las bases suman 2458.62 → 2459
+    # y el IVA suma 393.62 → 394, pero la aplicación del SAT deriva el "IVA
+    # pagado" de los enteros declarados: round(2459 × 0.16) = 393. Sin cap, el
+    # acreditable queda 1 peso arriba y el SAT rechaza el archivo.
+    _cargar(db, [
+        _xml("C1", traslados='<cfdi:Traslado Base="1229.31" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="196.81"/>'),
+        _xml("C2", traslados='<cfdi:Traslado Base="1229.31" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="196.81"/>'),
+    ])
+    (fila,) = prellenar_desde_procesador(MI_RFC, "2026-05", db=db)["filas"]
+    assert fila["valor_16"] == 2459          # 2458.62 redondeado
+    assert fila["acred_excl_16"] == 393      # 393.62 → 394, capado a round(2459×0.16)
+
+
 def test_prellenar_egresos_van_a_devoluciones_no_a_negativos(db):
     _cargar(db, [
         _xml("I1"),
@@ -335,6 +349,9 @@ def test_validar_fila_correcta_sin_errores():
     ({"manifiesto": ""}, "manifiesto"),
     ({"valor_16": -5}, "valor_16"),                 # negativo
     ({"dev_16": 2000}, "dev_16"),                   # devoluciones > valor
+    ({"acred_excl_16": 161}, "acred_excl_16"),      # acreditable > round(1000×0.16)
+    ({"acred_prop_16": 1}, "acred_excl_16"),        # excl+prop (160+1) > 160
+    ({"acred_excl_rf_norte": 5}, "acred_excl_rf_norte"),  # sin valor RF norte
 ])
 def test_validar_errores(cambios, campo):
     res = validar_filas([_fila_ok(**cambios)])

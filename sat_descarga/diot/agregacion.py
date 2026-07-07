@@ -28,6 +28,17 @@ def _redondear(x: float) -> int:
     return int(round(x))
 
 
+def _acreditable(iva_neto: float, valor: int, dev: int, tasa: float) -> int:
+    """IVA acreditable de una categoría: neto, piso en 0 y capado al tope del SAT.
+
+    La aplicación DIOT valida acreditable ≤ round((valor − dev) × tasa) sobre
+    los ENTEROS declarados; ver "Validaciones de la aplicación" en
+    docs/diot-2025.md.
+    """
+    tope = _redondear(max(0, valor - dev) * tasa)
+    return min(max(0, _redondear(iva_neto)), tope)
+
+
 def _rango_del_periodo(periodo: str) -> tuple[str, str]:
     anio, mes = int(periodo[:4]), int(periodo[5:7])
     ultimo_dia = calendar.monthrange(anio, mes)[1]
@@ -133,21 +144,31 @@ def prellenar_desde_procesador(mi_rfc: str, periodo: str, db=None) -> dict:
         total_sin_desglose += acc.sin_desglose
         tercero = _tipo_tercero_para(rfc)
 
+        # Valores de actos por tasa. Asunción v1: todo el 8% va a región
+        # fronteriza NORTE (el CFDI no distingue norte/sur); editable.
+        valor_16 = _redondear(acc.base16_i)
+        dev_16 = _redondear(acc.base16_e)
+        valor_rf_norte = _redondear(acc.base8_i)
+        dev_rf_norte = _redondear(acc.base8_e)
+
         fila = fila_vacia()
         fila.update(
             tipo_tercero=tercero,
             tipo_operacion=OPERACION_DEFAULT[tercero],
             rfc=rfc if tercero != "05" or _RFC_RE.match(rfc) else "",
-            # Valores de actos por tasa. Asunción v1: todo el 8% va a región
-            # fronteriza NORTE (el CFDI no distingue norte/sur); editable.
-            valor_16=_redondear(acc.base16_i),
-            dev_16=_redondear(acc.base16_e),
-            valor_rf_norte=_redondear(acc.base8_i),
-            dev_rf_norte=_redondear(acc.base8_e),
-            # IVA acreditable: neto de notas de crédito, piso en 0 (si E > I
-            # las validaciones lo señalan como advertencia).
-            acred_excl_16=max(0, _redondear(acc.iva16_i - acc.iva16_e)),
-            acred_excl_rf_norte=max(0, _redondear(acc.iva8_i - acc.iva8_e)),
+            valor_16=valor_16,
+            dev_16=dev_16,
+            valor_rf_norte=valor_rf_norte,
+            dev_rf_norte=dev_rf_norte,
+            # IVA acreditable: neto de notas de crédito, piso en 0 y CAPADO al
+            # "IVA pagado" que la aplicación del SAT deriva de los enteros
+            # declarados — round((valor − dev) × tasa). Sin el cap, redondear
+            # bases e IVA por separado puede quedar 1 peso arriba y el SAT
+            # rechaza la carga (confirmado con un archivo real, docs/diot-2025.md).
+            acred_excl_16=_acreditable(acc.iva16_i - acc.iva16_e, valor_16, dev_16, 0.16),
+            acred_excl_rf_norte=_acreditable(
+                acc.iva8_i - acc.iva8_e, valor_rf_norte, dev_rf_norte, 0.08
+            ),
             # Adicionales (netos, piso en 0).
             tasa_0=max(0, _redondear(acc.base0_i - acc.base0_e)),
             exentos=max(0, _redondear(acc.exento_i - acc.exento_e)),
