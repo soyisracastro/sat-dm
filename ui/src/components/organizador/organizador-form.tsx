@@ -141,25 +141,19 @@ export function OrganizadorForm({
   // Hasta que el usuario lo edita, destino sigue al origen (caso común: organizar in-place).
   const [destinoTouched, setDestinoTouched] = useState(false);
 
-  // Estructura personalizada: niveles del builder + RFC de la empresa (para
-  // los tokens "rfc" y "flujo"). Los niveles se restauran de localStorage.
+  // Estructura personalizada: niveles del builder, restaurados de localStorage.
+  // Los tokens "rfc" y "flujo" se resuelven contra la empresa activa.
   const [nivelesCustom, setNivelesCustom] = useState<string[]>(NIVELES_DEFAULT);
-  const [orgRfc, setOrgRfc] = useState('');
 
   const esCustom = orgEstructura === ESTRUCTURA_CUSTOM;
   const requiereRfc =
     esCustom && nivelesCustom.some((n) => NIVELES_REQUIEREN_RFC.includes(n));
+  const rfcActiva = empresas.find((e) => e.default)?.rfc ?? '';
 
   useEffect(() => {
     const guardados = leerNivelesGuardados();
     if (guardados) setNivelesCustom(guardados);
   }, []);
-
-  // Prefila el RFC con la empresa activa; editable y sin pisar lo escrito.
-  useEffect(() => {
-    const activa = empresas.find((e) => e.default);
-    if (activa) setOrgRfc((prev) => prev || activa.rfc);
-  }, [empresas]);
 
   function cambiarNiveles(niveles: string[]) {
     setNivelesCustom(niveles);
@@ -222,14 +216,13 @@ export function OrganizadorForm({
 
   const handleOrganizar = useCallback(() => {
     if (!orgOrigen || !orgDestino) return;
-    const rfc = orgRfc.trim().toUpperCase();
-    if (requiereRfc && !rfc) return;
+    if (requiereRfc && !rfcActiva) return;
     onOrganizar({
       origen: orgOrigen,
       destino: orgDestino,
       estructura: esCustom ? nivelesCustom.join('/') : orgEstructura,
       copiar: orgCopiar,
-      ...(requiereRfc ? { rfc } : {}),
+      ...(requiereRfc ? { rfc: rfcActiva } : {}),
     });
   }, [
     orgOrigen,
@@ -239,7 +232,7 @@ export function OrganizadorForm({
     esCustom,
     nivelesCustom,
     requiereRfc,
-    orgRfc,
+    rfcActiva,
     onOrganizar,
   ]);
 
@@ -304,23 +297,24 @@ export function OrganizadorForm({
                 <EstructuraCustomBuilder
                   niveles={nivelesCustom}
                   onChange={cambiarNiveles}
+                  rfcEmpresa={rfcActiva || undefined}
                 />
               )}
 
               {requiereRfc && (
-                <div className="space-y-2">
-                  <Label htmlFor="org-rfc">RFC de la empresa</Label>
-                  <Input
-                    id="org-rfc"
-                    placeholder="AAA010101AAA"
-                    value={orgRfc}
-                    onChange={(e) => setOrgRfc(e.target.value)}
-                    className="max-w-64 font-mono text-xs uppercase"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Se usa para clasificar cada CFDI como emitido o recibido.
-                  </p>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  {rfcActiva ? (
+                    <>
+                      Los CFDIs se clasificarán como emitidos o recibidos de la
+                      empresa activa:{' '}
+                      <span className="font-mono text-foreground">
+                        {rfcActiva}
+                      </span>
+                    </>
+                  ) : (
+                    'Necesitas una empresa activa para usar RFC de la empresa o Emitidos/Recibidos.'
+                  )}
+                </p>
               )}
 
               <DirectoryField
@@ -349,7 +343,7 @@ export function OrganizadorForm({
                   isLoading ||
                   !orgOrigen ||
                   !orgDestino ||
-                  (requiereRfc && !orgRfc.trim())
+                  (requiereRfc && !rfcActiva)
                 }
               >
                 {isLoading ? 'Procesando...' : 'Organizar'}

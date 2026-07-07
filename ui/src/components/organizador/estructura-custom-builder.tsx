@@ -18,6 +18,8 @@ interface EstructuraCustomBuilderProps {
   /** Tokens en orden, de la carpeta raíz hacia adentro. */
   niveles: string[];
   onChange: (niveles: string[]) => void;
+  /** RFC de la empresa activa; se muestra en la vista previa del token "rfc". */
+  rfcEmpresa?: string;
 }
 
 /**
@@ -28,6 +30,7 @@ interface EstructuraCustomBuilderProps {
 export function EstructuraCustomBuilder({
   niveles,
   onChange,
+  rfcEmpresa,
 }: EstructuraCustomBuilderProps) {
   function cambiar(idx: number, valor: string) {
     onChange(niveles.map((n, i) => (i === idx ? valor : n)));
@@ -54,7 +57,10 @@ export function EstructuraCustomBuilder({
   }
 
   const preview = niveles
-    .map((v) => NIVELES_CUSTOM.find((n) => n.value === v)?.ejemplo ?? v)
+    .map((v) => {
+      if (v === 'rfc' && rfcEmpresa) return rfcEmpresa;
+      return NIVELES_CUSTOM.find((n) => n.value === v)?.ejemplo ?? v;
+    })
     .join('/');
 
   return (
