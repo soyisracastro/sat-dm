@@ -67,6 +67,9 @@ import type {
   CalculadoraGuardado,
   CalculadoraGuardadoRequest,
   IndicadoresCalculadoras,
+  EstadoDiot,
+  FilaDiot,
+  CatalogosDiot,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -1140,6 +1143,52 @@ export class SatApiClient {
       headers: { 'Content-Type': 'application/json', ...this.tokenHeaders() },
       body: JSON.stringify({ calculadora, inputs, rfc: rfc ?? null }),
     });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Error al exportar: ${r.status} ${text}`);
+    }
+    return await r.blob();
+  }
+
+  // -----------------------------------------------------------------------
+  // DIOT 2025 (carga masiva)
+  // -----------------------------------------------------------------------
+  //
+  // Estado editable por empresa Y periodo (YYYY-MM). El prellenado lee el
+  // buffer del procesador; los XMLs entran por `procesadorCargar`.
+
+  /** Estado guardado del periodo (filas + validaciones server-side). */
+  async diotEstado(rfc: string, periodo: string): Promise<EstadoDiot> {
+    const qs = new URLSearchParams({ rfc, periodo });
+    return this.request<EstadoDiot>(`/diot/estado?${qs}`);
+  }
+
+  /** Guarda la tabla completa del periodo (full-replace). */
+  async diotGuardar(rfc: string, periodo: string, filas: FilaDiot[]): Promise<EstadoDiot> {
+    return this.request<EstadoDiot>('/diot/estado', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rfc, periodo, filas }),
+    });
+  }
+
+  /** Prellena desde el buffer del procesador (conserva renglones manuales). */
+  async diotPrellenar(rfc: string, periodo: string): Promise<EstadoDiot> {
+    return this.post<EstadoDiot>('/diot/prellenar', { rfc, periodo });
+  }
+
+  /** Catálogos oficiales (tipo de tercero/operación, países, campos). */
+  async diotCatalogos(): Promise<CatalogosDiot> {
+    return this.request<CatalogosDiot>('/diot/catalogos');
+  }
+
+  /**
+   * Descarga el TXT de carga masiva del periodo como Blob.
+   * Premium: el gating vive en la UI (`license.premium_features_unlocked`).
+   */
+  async diotExportar(rfc: string, periodo: string): Promise<Blob> {
+    const qs = new URLSearchParams({ rfc, periodo });
+    const r = await fetch(this.url(`/diot/exportar?${qs}`), { headers: this.tokenHeaders() });
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Error al exportar: ${r.status} ${text}`);

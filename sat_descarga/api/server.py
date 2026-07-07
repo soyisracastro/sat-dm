@@ -56,6 +56,7 @@ from .routers import (
     procesador_router,
     utilidades_router,
     calculadoras_router,
+    diot_router,
     system_router,
 )
 
@@ -169,6 +170,7 @@ app.include_router(portal_router)
 app.include_router(empresas_router)
 app.include_router(procesador_router)
 app.include_router(calculadoras_router)
+app.include_router(diot_router)
 
 # ---------------------------------------------------------------------------
 # Entry point
