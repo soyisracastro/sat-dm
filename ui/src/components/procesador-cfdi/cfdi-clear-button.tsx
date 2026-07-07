@@ -18,6 +18,8 @@ import {
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa: solo se vacía SU buffer, no el de las demás. */
+  rfc: string;
   /**
    * Total de items que se borrarán; se interpola en la descripción default.
    * Ignorado si se pasa `descripcion` custom.
@@ -33,7 +35,7 @@ interface Props {
   onBorrado: () => void;
 }
 
-export function CfdiClearButton({ total = 0, descripcion, onBorrado }: Props) {
+export function CfdiClearButton({ rfc, total = 0, descripcion, onBorrado }: Props) {
   const { apiClient } = useServer();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -41,7 +43,7 @@ export function CfdiClearButton({ total = 0, descripcion, onBorrado }: Props) {
   async function confirmar() {
     setBusy(true);
     try {
-      await apiClient.procesadorBorrar();
+      await apiClient.procesadorBorrar(rfc);
       toast.success('Procesador vaciado');
       setOpen(false);
       onBorrado();
@@ -54,8 +56,9 @@ export function CfdiClearButton({ total = 0, descripcion, onBorrado }: Props) {
 
   const descripcionFinal = descripcion ?? (
     <>
-      Esto eliminará los {total.toLocaleString('es-MX')} CFDIs cargados y los filtros
-      activos. La acción no se puede deshacer.
+      Esto eliminará los {total.toLocaleString('es-MX')} CFDIs cargados de la
+      empresa <span className="font-mono">{rfc}</span> y sus filtros activos
+      (las demás empresas no se tocan). La acción no se puede deshacer.
     </>
   );
 

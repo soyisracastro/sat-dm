@@ -24,6 +24,8 @@ import type {
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa (los drilldowns consultan SU buffer). */
+  rfc: string;
   data: FacturasPPDResponse | null;
   page: number;
   pageSize: number;
@@ -97,7 +99,7 @@ const STATUS_BADGE: Record<FacturaPPD['status'], { label: string; cls: string; b
   },
 };
 
-export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) {
+export function PagosPPDTable({ rfc, data, page, pageSize, loading, onPage }: Props) {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -202,7 +204,7 @@ export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) 
                 {abierto && (
                   <TableRow>
                     <TableCell colSpan={10} className="bg-muted/30">
-                      <PagosDetalleDrilldown uuid={f.uuid} moneda={f.moneda} />
+                      <PagosDetalleDrilldown rfc={rfc} uuid={f.uuid} moneda={f.moneda} />
                     </TableCell>
                   </TableRow>
                 )}
@@ -243,7 +245,15 @@ export function PagosPPDTable({ data, page, pageSize, loading, onPage }: Props) 
   );
 }
 
-function PagosDetalleDrilldown({ uuid, moneda }: { uuid: string; moneda: string }) {
+function PagosDetalleDrilldown({
+  rfc,
+  uuid,
+  moneda,
+}: {
+  rfc: string;
+  uuid: string;
+  moneda: string;
+}) {
   const { apiClient } = useServer();
   const [items, setItems] = useState<PagoRelacionadoDetalle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -251,7 +261,7 @@ function PagosDetalleDrilldown({ uuid, moneda }: { uuid: string; moneda: string 
   useEffect(() => {
     let mounted = true;
     apiClient
-      .procesadorPagosDetalleFactura(uuid)
+      .procesadorPagosDetalleFactura(rfc, uuid)
       .then((r) => {
         if (mounted) setItems(r.items);
       })
@@ -261,7 +271,7 @@ function PagosDetalleDrilldown({ uuid, moneda }: { uuid: string; moneda: string 
     return () => {
       mounted = false;
     };
-  }, [apiClient, uuid]);
+  }, [apiClient, rfc, uuid]);
 
   if (error) {
     return <div className="p-3 text-xs text-destructive">Error: {error}</div>;

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
+import { useEmpresas } from '@/hooks/use-empresas';
+import { ProcesadorSinEmpresa } from '@/components/shared/procesador-sin-empresa';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -42,6 +44,10 @@ const FILTRO_LABEL: Record<Exclude<FiltroEmisor, 'todos'>, EtiquetaLista | 'SinV
 
 export function MisCfdisTab() {
   const { apiClient } = useServer();
+  const { empresas, loading: empresasLoading } = useEmpresas();
+  const empresaActiva = empresas.find((e) => e.default);
+  const rfcActivo = empresaActiva?.rfc ?? null;
+  const sinEmpresa = !empresasLoading && rfcActivo === null;
   const [stats, setStats] = useState<ProcesadorListasNegrasStats | null>(null);
   const [metadata, setMetadata] = useState<ListasNegrasMetadata | null>(null);
   const [listado, setListado] = useState<EmisoresListasNegrasResponse | null>(null);
@@ -52,12 +58,14 @@ export function MisCfdisTab() {
   const [info, setInfo] = useState<string | null>(null);
 
   const refrescar = useCallback(async (etiquetaFiltro: FiltroEmisor) => {
+    if (!rfcActivo) return;
     setLoading(true);
     setError(null);
     try {
       const [s, l] = await Promise.all([
-        apiClient.procesadorListasNegrasStats({}),
+        apiClient.procesadorListasNegrasStats(rfcActivo, {}),
         apiClient.procesadorListasNegrasPorEmisor(
+          rfcActivo,
           etiquetaFiltro === 'todos'
             ? {}
             : { emisor_lista_negra: etiquetaFiltro },
@@ -71,18 +79,21 @@ export function MisCfdisTab() {
     } finally {
       setLoading(false);
     }
-  }, [apiClient]);
+  }, [apiClient, rfcActivo]);
 
   useEffect(() => {
     refrescar(filtro);
   }, [filtro, refrescar]);
 
   async function validar(forceRefresh: boolean) {
+    if (!rfcActivo) return;
     setValidating(true);
     setError(null);
     setInfo(null);
     try {
-      const r = await apiClient.procesadorValidarListasNegras({ force_refresh: forceRefresh });
+      const r = await apiClient.procesadorValidarListasNegras(rfcActivo, {
+        force_refresh: forceRefresh,
+      });
       setMetadata(r.metadata);
       if (r.validados === 0) {
         setInfo('Todos los RFCs ya están verificados (válidos por 30 días). Usa "Forzar revalidación" si necesitas volver a consultar.');
@@ -101,6 +112,11 @@ export function MisCfdisTab() {
   }
 
   const sinDatos = stats && Object.values(stats).every((v) => v === 0);
+
+  // El cruce trabaja sobre el buffer del procesador, que vive POR empresa.
+  if (sinEmpresa || !rfcActivo) {
+    return <ProcesadorSinEmpresa listo={sinEmpresa} />;
+  }
 
   return (
     <div className="space-y-4">

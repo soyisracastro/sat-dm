@@ -10,6 +10,8 @@ import type { NominaFiltros } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa: el export sale de SU buffer. */
+  rfc: string;
   filtros: Partial<NominaFiltros>;
 }
 
@@ -24,14 +26,14 @@ function descargarBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function NominaExportButton({ filtros }: Props) {
+export function NominaExportButton({ rfc, filtros }: Props) {
   const { apiClient } = useServer();
   const [busy, setBusy] = useState(false);
 
   async function exportar() {
     setBusy(true);
     try {
-      const blob = await apiClient.procesadorNominaExportar(filtros);
+      const blob = await apiClient.procesadorNominaExportar(rfc, filtros);
       const fecha = new Date().toISOString().slice(0, 10);
       descargarBlob(blob, `nomina_${fecha}.xlsx`);
     } catch (e) {

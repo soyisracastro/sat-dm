@@ -18,6 +18,8 @@ import type { PagosFiltros, ReportePagosHuerfanos } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa (el reporte sale de SU buffer). */
+  rfc: string;
   filtros: Partial<PagosFiltros>;
 }
 
@@ -35,7 +37,7 @@ function formatoMXN(n: number): string {
   }).format(n);
 }
 
-export function PagosHuerfanosTable({ filtros }: Props) {
+export function PagosHuerfanosTable({ rfc, filtros }: Props) {
   const { apiClient } = useServer();
   const [data, setData] = useState<ReportePagosHuerfanos | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function PagosHuerfanosTable({ filtros }: Props) {
   useEffect(() => {
     let mounted = true;
     apiClient
-      .procesadorPagosReporte('huerfanos', filtros)
+      .procesadorPagosReporte(rfc, 'huerfanos', filtros)
       .then((r) => {
         if (mounted) setData(r);
       })
@@ -53,7 +55,7 @@ export function PagosHuerfanosTable({ filtros }: Props) {
     return () => {
       mounted = false;
     };
-  }, [apiClient, JSON.stringify(filtros)]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [apiClient, rfc, JSON.stringify(filtros)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (

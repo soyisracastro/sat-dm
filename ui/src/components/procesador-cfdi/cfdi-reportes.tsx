@@ -26,6 +26,8 @@ import type {
 import { mensajeDeError } from '@/lib/errores';
 
 interface Props {
+  /** RFC de la empresa activa (los reportes salen de SU buffer). */
+  rfc: string;
   filtros: Partial<CfdiFiltros>;
 }
 
@@ -44,7 +46,7 @@ function mesLegible(yyyymm: string): string {
   return date.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
 }
 
-export function CfdiReportes({ filtros }: Props) {
+export function CfdiReportes({ rfc, filtros }: Props) {
   return (
     <Card>
       <CardHeader>
@@ -63,13 +65,13 @@ export function CfdiReportes({ filtros }: Props) {
           </TabsList>
 
           <TabsContent value="totales-mes">
-            <TotalesMesPanel filtros={filtros} />
+            <TotalesMesPanel rfc={rfc} filtros={filtros} />
           </TabsContent>
           <TabsContent value="top-contrapartes">
-            <TopContrapartesPanel filtros={filtros} />
+            <TopContrapartesPanel rfc={rfc} filtros={filtros} />
           </TabsContent>
           <TabsContent value="integridad">
-            <IntegridadPanel filtros={filtros} />
+            <IntegridadPanel rfc={rfc} filtros={filtros} />
           </TabsContent>
         </Tabs>
       </CardContent>
@@ -81,7 +83,8 @@ export function CfdiReportes({ filtros }: Props) {
 // Sub-paneles
 // ---------------------------------------------------------------------------
 
-function useReporte<T>(nombre: 'totales-mes' | 'top-contrapartes' | 'integridad',
+function useReporte<T>(rfc: string,
+                      nombre: 'totales-mes' | 'top-contrapartes' | 'integridad',
                       filtros: Partial<CfdiFiltros>) {
   const { apiClient } = useServer();
   const [data, setData] = useState<T | null>(null);
@@ -93,7 +96,7 @@ function useReporte<T>(nombre: 'totales-mes' | 'top-contrapartes' | 'integridad'
     setLoading(true);
     setError(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (apiClient.procesadorReporte as any)(nombre, filtros)
+    (apiClient.procesadorReporte as any)(rfc, nombre, filtros)
       .then((r: T) => mounted && setData(r))
       .catch((e: unknown) => {
         if (mounted) setError(mensajeDeError(e));
@@ -104,7 +107,7 @@ function useReporte<T>(nombre: 'totales-mes' | 'top-contrapartes' | 'integridad'
     return () => {
       mounted = false;
     };
-  }, [apiClient, nombre, JSON.stringify(filtros)]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [apiClient, rfc, nombre, JSON.stringify(filtros)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { data, loading, error };
 }
@@ -135,8 +138,8 @@ function ReporteEstado({ loading, error, empty }: { loading: boolean; error: str
   return null;
 }
 
-function TotalesMesPanel({ filtros }: { filtros: Partial<CfdiFiltros> }) {
-  const { data, loading, error } = useReporte<ReporteTotalesMes>('totales-mes', filtros);
+function TotalesMesPanel({ rfc, filtros }: { rfc: string; filtros: Partial<CfdiFiltros> }) {
+  const { data, loading, error } = useReporte<ReporteTotalesMes>(rfc, 'totales-mes', filtros);
   const items = data?.items ?? [];
   if (loading || error || items.length === 0) {
     return <ReporteEstado loading={loading} error={error} empty={items.length === 0} />;
@@ -180,8 +183,8 @@ function TotalesMesPanel({ filtros }: { filtros: Partial<CfdiFiltros> }) {
   );
 }
 
-function TopContrapartesPanel({ filtros }: { filtros: Partial<CfdiFiltros> }) {
-  const { data, loading, error } = useReporte<ReporteTopContrapartes>('top-contrapartes', filtros);
+function TopContrapartesPanel({ rfc, filtros }: { rfc: string; filtros: Partial<CfdiFiltros> }) {
+  const { data, loading, error } = useReporte<ReporteTopContrapartes>(rfc, 'top-contrapartes', filtros);
   if (loading || error) return <ReporteEstado loading={loading} error={error} />;
   const emisores = data?.emisores ?? [];
   const receptores = data?.receptores ?? [];
@@ -241,8 +244,8 @@ function ContrapartesList({ titulo, items }: { titulo: string; items: TopContrap
   );
 }
 
-function IntegridadPanel({ filtros }: { filtros: Partial<CfdiFiltros> }) {
-  const { data, loading, error } = useReporte<ReporteIntegridad>('integridad', filtros);
+function IntegridadPanel({ rfc, filtros }: { rfc: string; filtros: Partial<CfdiFiltros> }) {
+  const { data, loading, error } = useReporte<ReporteIntegridad>(rfc, 'integridad', filtros);
   const items: ItemIntegridad[] = data?.items ?? [];
   if (loading || error || items.length === 0) {
     return <ReporteEstado loading={loading} error={error} empty={items.length === 0} />;

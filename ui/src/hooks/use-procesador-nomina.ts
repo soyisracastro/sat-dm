@@ -22,11 +22,11 @@ const FILTROS_INICIALES: NominaFiltros = {
 const CONFIG: ProcesadorConfig<NominaFiltros, NominaRecibosResponse, NominaStats> = {
   filtrosIniciales: FILTROS_INICIALES,
   etiquetaLog: 'nomina',
-  filtrosGet: (api) => api.procesadorNominaFiltrosGet(),
-  filtrosSet: (api, filtros) => api.procesadorNominaFiltrosSet(filtros),
-  listar: (api, filtros, page, pageSize) =>
-    api.procesadorNominaListar(filtros, page, pageSize),
-  stats: (api, filtros) => api.procesadorNominaStats(filtros),
+  filtrosGet: (api, rfc) => api.procesadorNominaFiltrosGet(rfc),
+  filtrosSet: (api, rfc, filtros) => api.procesadorNominaFiltrosSet(rfc, filtros),
+  listar: (api, rfc, filtros, page, pageSize) =>
+    api.procesadorNominaListar(rfc, filtros, page, pageSize),
+  stats: (api, rfc, filtros) => api.procesadorNominaStats(rfc, filtros),
 };
 
 /**

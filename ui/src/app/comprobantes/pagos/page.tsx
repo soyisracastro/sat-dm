@@ -16,6 +16,7 @@ import { PagosExportButton } from '@/components/procesador-pagos/pagos-export-bu
 import { PagosPPDTable } from '@/components/procesador-pagos/pagos-ppd-table';
 import { PagosStatsCards } from '@/components/procesador-pagos/pagos-stats';
 import { ProcesadorEstado } from '@/components/shared/procesador-estado';
+import { ProcesadorSinEmpresa } from '@/components/shared/procesador-sin-empresa';
 import { useProcesadorPagos } from '@/hooks/use-procesador-pagos';
 
 export default function ProcesadorPagosPage() {
@@ -33,6 +34,8 @@ export default function ProcesadorPagosPage() {
     error,
     recargar,
     hidratado,
+    rfcActivo,
+    sinEmpresa,
   } = useProcesadorPagos();
 
   // Empty state = no hay facturas PPD ni complementos cargados en el buffer
@@ -54,58 +57,67 @@ export default function ProcesadorPagosPage() {
         }
       />
 
-      <ProcesadorEstado
-        stats={stats}
-        error={error}
-        loading={loading}
-        onReintentar={recargar}
-      >
-      {/* Empty state: usa el mismo CfdiUploader del procesador CFDI. */}
-      {bufferVacio && <CfdiUploader onCargado={recargar} />}
+      {/* Sin empresa activa el hook no consulta nada: el buffer vive POR empresa. */}
+      {sinEmpresa || !rfcActivo ? (
+        <ProcesadorSinEmpresa listo={sinEmpresa} />
+      ) : (
+        <ProcesadorEstado
+          stats={stats}
+          error={error}
+          loading={loading}
+          onReintentar={recargar}
+        >
+        {/* Empty state: usa el mismo CfdiUploader del procesador CFDI. */}
+        {bufferVacio && <CfdiUploader onCargado={recargar} />}
 
-      {/* Estado normal: hay PPDs en el buffer. */}
-      {!bufferVacio && stats !== null && (
-        <>
-          <PagosStatsCards stats={stats} />
+        {/* Estado normal: hay PPDs en el buffer de la empresa. */}
+        {!bufferVacio && stats !== null && (
+          <>
+            <PagosStatsCards stats={stats} />
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <CfdiValidarButton onValidado={recargar} />
-            <CfdiCargarMasButton onCargado={recargar} />
-            <PagosExportButton filtros={filtros} />
-            <CfdiClearButton
-              onBorrado={recargar}
-              descripcion={
-                <>
-                  Esto vaciará <strong>todo el procesador de comprobantes</strong>: las{' '}
-                  {stats.total_global_ppd.toLocaleString('es-MX')} facturas PPD, sus{' '}
-                  {stats.total_pagos.toLocaleString('es-MX')} complementos de pago, y los
-                  CFDIs cargados en el procesador de CFDI. Los filtros activos también se
-                  restablecen. La acción no se puede deshacer.
-                </>
-              }
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <CfdiValidarButton rfc={rfcActivo} onValidado={recargar} />
+              <CfdiCargarMasButton onCargado={recargar} />
+              <PagosExportButton rfc={rfcActivo} filtros={filtros} />
+              <CfdiClearButton
+                rfc={rfcActivo}
+                onBorrado={recargar}
+                descripcion={
+                  <>
+                    Esto vaciará <strong>todo el procesador de comprobantes</strong> de la
+                    empresa <span className="font-mono">{rfcActivo}</span>: las{' '}
+                    {stats.total_global_ppd.toLocaleString('es-MX')} facturas PPD, sus{' '}
+                    {stats.total_pagos.toLocaleString('es-MX')} complementos de pago, y los
+                    CFDIs cargados en el procesador de CFDI. Los filtros activos también se
+                    restablecen (las demás empresas no se tocan). La acción no se puede
+                    deshacer.
+                  </>
+                }
+              />
+            </div>
+
+            <PagosFiltersPanel
+              filtros={filtros}
+              setFiltro={setFiltro}
+              reset={reset}
+              filtrosActivos={filtrosActivos}
             />
-          </div>
 
-          <PagosFiltersPanel
-            filtros={filtros}
-            setFiltro={setFiltro}
-            reset={reset}
-            filtrosActivos={filtrosActivos}
-          />
+            <PagosPPDTable
+              rfc={rfcActivo}
+              data={data}
+              page={page}
+              pageSize={pageSize}
+              loading={loading}
+              onPage={setPage}
+            />
 
-          <PagosPPDTable
-            data={data}
-            page={page}
-            pageSize={pageSize}
-            loading={loading}
-            onPage={setPage}
-          />
-
-          <PagosIncidenciasPue filtros={filtros} />
-          <PagosHuerfanosTable filtros={filtros} />
-        </>
+            <PagosIncidenciasPue rfc={rfcActivo} filtros={filtros} />
+            <PagosHuerfanosTable rfc={rfcActivo} filtros={filtros} />
+          </>
+        )}
+        </ProcesadorEstado>
       )}
-      </ProcesadorEstado>
     </div>
   );
 }

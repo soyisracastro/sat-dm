@@ -24,11 +24,11 @@ const FILTROS_INICIALES: CfdiFiltros = {
 const CONFIG: ProcesadorConfig<CfdiFiltros, CfdiListResponse, CfdiStats> = {
   filtrosIniciales: FILTROS_INICIALES,
   etiquetaLog: 'procesador',
-  filtrosGet: (api) => api.procesadorFiltrosGet(),
-  filtrosSet: (api, filtros) => api.procesadorFiltrosSet(filtros),
-  listar: (api, filtros, page, pageSize) =>
-    api.procesadorListar(filtros, page, pageSize),
-  stats: (api, filtros) => api.procesadorStats(filtros),
+  filtrosGet: (api, rfc) => api.procesadorFiltrosGet(rfc),
+  filtrosSet: (api, rfc, filtros) => api.procesadorFiltrosSet(rfc, filtros),
+  listar: (api, rfc, filtros, page, pageSize) =>
+    api.procesadorListar(rfc, filtros, page, pageSize),
+  stats: (api, rfc, filtros) => api.procesadorStats(rfc, filtros),
 };
 
 /**
