@@ -8,6 +8,20 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **DIOT 2025 (núcleo): generación del archivo de carga masiva**: nuevo paquete
+  `sat_descarga/diot/` que implementa el layout oficial de **54 campos** del
+  instructivo del SAT (Enero 2025, documentado en
+  [docs/diot-2025.md](docs/diot-2025.md)): prellenado de renglones por
+  proveedor desde el buffer del procesador (CFDIs recibidos del periodo; las
+  notas de crédito van a los campos de *devoluciones*, sin negativos), estado
+  editable por empresa y periodo en `~/.sat-descarga/diot/{RFC}.json`,
+  validaciones del instructivo (catálogos por tipo de tercero, RFC,
+  devoluciones ≤ valor, montos enteros) y exportación del `.txt` pipe-delimited
+  en UTF-8 con BOM. El parser del procesador ahora desglosa las **bases de IVA
+  por tasa** (16%, 8%, 0% y exento — migración 008); los CFDIs cargados con
+  versiones anteriores se estiman desde el IVA al 16% y se marcan para
+  recargar. La pantalla, API y CLI llegan en el siguiente PR.
+
 - **Organizador: estructura de carpetas y nombre de archivo personalizados**
   (rediseño Claude Design): junto a las estructuras predefinidas hay una opción
   **"Personalizada…"** con un constructor visual — paleta de variables (Año,

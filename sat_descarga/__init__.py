@@ -57,6 +57,14 @@ from .calculadoras import (
     calcular_sbc,
 )
 
+# DIOT 2025: prellenado desde el procesador + export del TXT de carga masiva.
+from .diot import (
+    DiotInvalida,
+    exportar_txt as exportar_diot_txt,
+    prellenar_desde_procesador as prellenar_diot,
+    validar_filas as validar_filas_diot,
+)
+
 __all__ = [
     "descargar_cfdi",
     "verificar_solicitud_existente",
@@ -91,4 +99,8 @@ __all__ = [
     "SBCInput",
     "calcular_sbc",
     "calcular_isr_periodo",
+    "DiotInvalida",
+    "exportar_diot_txt",
+    "prellenar_diot",
+    "validar_filas_diot",
 ]

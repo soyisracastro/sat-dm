@@ -163,6 +163,15 @@ class CfdiData:
     iva_retenido: float = 0.0
     isr_retenido: float = 0.0
 
+    # Desglose de IVA por tasa (bases del nodo `Impuestos` global; para la DIOT).
+    # En CFDI 3.3 el Traslado global no trae `Base`: se deriva como importe/tasa.
+    # `base_exento` solo se detecta en 4.0 (en 3.3 el Exento no llega al global).
+    base_iva_16: float = 0.0
+    base_iva_8: float = 0.0
+    iva_trasladado_8: float = 0.0
+    base_iva_0: float = 0.0
+    base_exento: float = 0.0
+
     # Forma/método/moneda
     forma_pago: str = ""
     metodo_pago: str = ""
@@ -255,20 +264,38 @@ def _extraer_timbre_fiscal(root) -> tuple[str, str]:
     return _attr(tfd, "UUID"), _attr(tfd, "FechaTimbrado")
 
 
-def _extraer_impuestos(comprobante) -> tuple[float, float, float, float]:
+@dataclass
+class _ImpuestosGlobales:
+    """Acumulados del nodo `Impuestos` global (hijo directo del Comprobante)."""
+
+    iva_trasladado: float = 0.0     # importe IVA al 16%
+    ieps_trasladado: float = 0.0
+    iva_retenido: float = 0.0
+    isr_retenido: float = 0.0
+    # Desglose por tasa para la DIOT (ver docs/diot-2025.md):
+    base_iva_16: float = 0.0
+    base_iva_8: float = 0.0
+    iva_trasladado_8: float = 0.0
+    base_iva_0: float = 0.0
+    base_exento: float = 0.0
+
+
+def _extraer_impuestos(comprobante) -> _ImpuestosGlobales:
     """
-    Extrae IVA 16% trasladado, IEPS trasladado, IVA retenido e ISR retenido
-    del nodo `Impuestos` hijo directo del Comprobante.
+    Extrae impuestos trasladados/retenidos y el desglose de bases de IVA por
+    tasa del nodo `Impuestos` hijo directo del Comprobante.
 
     Códigos SAT:
       - 001 = ISR
       - 002 = IVA
       - 003 = IEPS (Impuesto Especial sobre Producción y Servicios)
+
+    Sobre las bases: en CFDI 4.0 el Traslado global trae `Base`; en 3.3 no
+    existe ese atributo, así que para tasas > 0 se deriva como importe/tasa.
+    El TipoFactor `Exento` solo aparece en el global en 4.0 (en 3.3 vive a
+    nivel concepto y aquí no se contabiliza).
     """
-    iva_trasladado = 0.0
-    ieps_trasladado = 0.0
-    iva_retenido = 0.0
-    isr_retenido = 0.0
+    imp = _ImpuestosGlobales()
 
     # `Impuestos` puede aparecer también dentro de los conceptos — necesitamos
     # solo el `Impuestos` global, hijo directo del Comprobante.
@@ -278,32 +305,42 @@ def _extraer_impuestos(comprobante) -> tuple[float, float, float, float]:
             impuestos_global = child
             break
     if impuestos_global is None:
-        return 0.0, 0.0, 0.0, 0.0
+        return imp
 
     # Traslados:
-    #   - 002 (IVA) solo al 16% (espeja la lógica de todoconta).
+    #   - 002 (IVA) al 16%, 8% (región fronteriza), 0% y Exento.
     #   - 003 (IEPS) en cualquier tasa (las tasas son muy variadas:
     #     telecomunicaciones 3%, bebidas saborizadas 8%, combustibles, etc.).
     for traslado in _findall_local(impuestos_global, "Traslado"):
         impuesto = _attr(traslado, "Impuesto")
         importe = _to_float(_attr(traslado, "Importe"))
         if impuesto == "002":
+            base = _to_float(_attr(traslado, "Base"))
+            if _attr(traslado, "TipoFactor") == "Exento":
+                imp.base_exento += base
+                continue
             tasa = _attr(traslado, "TasaOCuota")
             if tasa in ("0.160000", "0.16"):
-                iva_trasladado += importe
+                imp.iva_trasladado += importe
+                imp.base_iva_16 += base if base else importe / 0.16
+            elif tasa in ("0.080000", "0.08"):
+                imp.iva_trasladado_8 += importe
+                imp.base_iva_8 += base if base else importe / 0.08
+            elif tasa in ("0.000000", "0.00", "0"):
+                imp.base_iva_0 += base
         elif impuesto == "003":
-            ieps_trasladado += importe
+            imp.ieps_trasladado += importe
 
     # Retenciones (IVA 002, ISR 001).
     for retencion in _findall_local(impuestos_global, "Retencion"):
         impuesto = _attr(retencion, "Impuesto")
         importe = _to_float(_attr(retencion, "Importe"))
         if impuesto == "002":
-            iva_retenido += importe
+            imp.iva_retenido += importe
         elif impuesto == "001":
-            isr_retenido += importe
+            imp.isr_retenido += importe
 
-    return iva_trasladado, ieps_trasladado, iva_retenido, isr_retenido
+    return imp
 
 
 def _extraer_conceptos(root) -> list[ConceptoCfdi]:
@@ -590,11 +627,16 @@ def parse_cfdi(xml_content: Union[str, bytes], file_name: str = "") -> CfdiData:
     data.fecha_timbrado = fecha_timbrado
 
     # Impuestos
-    iva_trasladado, ieps_trasladado, iva_retenido, isr_retenido = _extraer_impuestos(root)
-    data.iva_trasladado = iva_trasladado
-    data.ieps_trasladado = ieps_trasladado
-    data.iva_retenido = iva_retenido
-    data.isr_retenido = isr_retenido
+    imp = _extraer_impuestos(root)
+    data.iva_trasladado = imp.iva_trasladado
+    data.ieps_trasladado = imp.ieps_trasladado
+    data.iva_retenido = imp.iva_retenido
+    data.isr_retenido = imp.isr_retenido
+    data.base_iva_16 = imp.base_iva_16
+    data.base_iva_8 = imp.base_iva_8
+    data.iva_trasladado_8 = imp.iva_trasladado_8
+    data.base_iva_0 = imp.base_iva_0
+    data.base_exento = imp.base_exento
 
     # Conceptos
     data.conceptos = _extraer_conceptos(root)
