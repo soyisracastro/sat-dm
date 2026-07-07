@@ -22,6 +22,8 @@ export const NAV_ITEMS: readonly PaginaNav[] = [
   { href: '/organizador', label: 'Organizador', icon: 'ph:folders-light' },
   { href: '/historial', label: 'Historial', icon: 'ph:clock-counter-clockwise-light' },
   { href: '/calculadoras', label: 'Calculadoras', icon: 'ph:calculator-light' },
+  // Al FINAL a propósito: agregarla en medio movería los atajos ⌘N existentes.
+  { href: '/diot', label: 'DIOT', icon: 'ph:file-text-light' },
 ] as const;
 
 // Páginas fuera del nav plano (footer del sidebar / menú de cuenta).

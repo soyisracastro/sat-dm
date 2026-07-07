@@ -11,6 +11,7 @@ las del monolito original (la UI y el CLI las consumen tal cual).
 - procesador — procesador de comprobantes (CFDI/Pagos/Nómina) + listas negras.
 - utilidades — metadata, validación, organizador de XMLs.
 - calculadoras — calculadoras fiscales/laborales + estado por empresa.
+- diot       — DIOT 2025: prellenado, estado por empresa/periodo y export TXT.
 - system     — health, abrir en el SO, ajustes y auth de licencia (todoconta).
 """
 
@@ -20,6 +21,7 @@ from .empresas import router as empresas_router
 from .procesador import router as procesador_router
 from .utilidades import router as utilidades_router
 from .calculadoras import router as calculadoras_router
+from .diot import router as diot_router
 from .system import router as system_router
 
 __all__ = [
@@ -29,5 +31,6 @@ __all__ = [
     "procesador_router",
     "utilidades_router",
     "calculadoras_router",
+    "diot_router",
     "system_router",
 ]

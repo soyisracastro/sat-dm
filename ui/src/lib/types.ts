@@ -1503,3 +1503,69 @@ export interface IndicadoresCalculadoras {
   tipos_terminacion: Record<string, TipoTerminacionInfo>;
   advertencias: string[];
 }
+
+// ---------------------------------------------------------------------------
+// DIOT 2025 (carga masiva) — /diot/*
+// ---------------------------------------------------------------------------
+//
+// Un renglón lleva las 54 claves del layout oficial (docs/diot-2025.md en el
+// repo raíz) + metadatos de UI que el TXT ignora (nombre, origen, estimado,
+// num_cfdis). Los montos son enteros sin decimales.
+
+export interface FilaDiot {
+  // Datos del tercero (campos 1–7)
+  tipo_tercero: string; // '04' | '05' | '15'
+  tipo_operacion: string;
+  rfc: string;
+  id_fiscal: string;
+  nombre_extranjero: string;
+  pais: string;
+  lugar_jurisdiccion: string;
+  manifiesto: string; // '01' | '02'
+  // Metadatos de UI (no se exportan)
+  nombre?: string;
+  origen?: 'cfdi' | 'manual';
+  estimado?: boolean;
+  num_cfdis?: number;
+  // Los 47 montos enteros (valor_16, dev_16, acred_excl_16, iva_retenido, ...)
+  [monto: string]: string | number | boolean | undefined;
+}
+
+export interface HallazgoDiot {
+  fila: number | null;
+  campo: string | null;
+  mensaje: string;
+}
+
+export interface EstadoDiot {
+  filas: FilaDiot[];
+  origen: 'prellenado' | 'manual' | null;
+  generado_en: string | null;
+  actualizado_en: string | null;
+  errores: HallazgoDiot[];
+  advertencias: HallazgoDiot[];
+  /** Solo en la respuesta de prellenar. */
+  resumen?: ResumenPrellenadoDiot;
+}
+
+export interface ResumenPrellenadoDiot {
+  cfdis_considerados: number;
+  cfdis_sin_desglose: number;
+  proveedores: number;
+}
+
+export interface CampoDiotMeta {
+  clave: string;
+  etiqueta: string;
+  tipo: 'catalogo' | 'texto' | 'entero';
+  seccion: 'tercero' | 'valores' | 'iva_acreditable' | 'iva_no_acreditable' | 'adicionales';
+}
+
+export interface CatalogosDiot {
+  tipo_tercero: Record<string, string>;
+  tipo_operacion: Record<string, string>;
+  operaciones_por_tercero: Record<string, string[]>;
+  manifiesto: Record<string, string>;
+  paises: Record<string, string>;
+  campos: CampoDiotMeta[];
+}

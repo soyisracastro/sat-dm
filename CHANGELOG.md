@@ -22,6 +22,21 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   versiones anteriores se estiman desde el IVA al 16% y se marcan para
   recargar. La pantalla, API y CLI llegan en el siguiente PR.
 
+- **DIOT 2025 (app): pantalla, API y CLI**: nueva página **DIOT** en el sidebar
+  (al final — atajo **⌘9**; los atajos existentes no se mueven). Selector de
+  mes/año, botón **"Prellenar desde comprobantes"** (agrupa los CFDIs recibidos
+  del periodo por proveedor), **"Cargar XMLs"** directo en la pantalla (alimenta
+  el mismo buffer por empresa, sin duplicar folios, y re-prellena), tabla
+  **editable** (montos inline, fila expandida con los 54 campos por sección,
+  datos de proveedor extranjero, catálogos oficiales en selects) con totales al
+  pie, renglones manuales que sobreviven al re-prellenado (con confirmación), y
+  validaciones en vivo (los errores del instructivo bloquean el TXT; las
+  advertencias no). **Generar TXT** es premium (patrón calculadoras); nombra el
+  archivo `{RFC}_diot_{YYYY-MM}.txt`. API: `/diot/{estado,prellenar,exportar,
+  catalogos}`. CLI: `sat-dm diot --rfc RFC --periodo YYYY-MM [--salida …]
+  [--forzar]`. El TXT generado debe verificarse subiéndolo a la aplicación DIOT
+  del SAT (ver "Pendiente de validar" en docs/diot-2025.md).
+
 - **Organizador: estructura de carpetas y nombre de archivo personalizados**
   (rediseño Claude Design): junto a las estructuras predefinidas hay una opción
   **"Personalizada…"** con un constructor visual — paleta de variables (Año,
