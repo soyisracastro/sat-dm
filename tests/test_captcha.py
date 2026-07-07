@@ -14,6 +14,7 @@ from sat_descarga.portal.captcha import bytes_de_data_uri
 from sat_descarga.portal.login import (
     _login_ciec_con_reintentos,
     _es_error_credenciales,
+    _texto_error_login,
     CredencialCIECInvalida,
 )
 
@@ -119,6 +120,25 @@ def test_clasifica_error_de_credenciales(msg):
 ])
 def test_clasifica_error_de_captcha_o_vacio(msg):
     assert _es_error_credenciales(msg) is False
+
+
+# --- _texto_error_login: nunca lanza ---------------------------------------
+
+class _PageContextoDestruido:
+    """Página cuyo contexto muere a media lectura (navegación en vuelo)."""
+
+    def query_selector(self, sel):
+        raise RuntimeError(
+            "Page.query_selector: Execution context was destroyed, "
+            "most likely because of a navigation"
+        )
+
+
+def test_texto_error_login_no_lanza_con_contexto_destruido():
+    # Reproduce TODOCONTA-DESKTOP-T: el SAT navega mientras leemos el mensaje de
+    # error del login → query_selector revienta. Debe tratarse como "sin mensaje"
+    # (la política de reintentos decide), no matar el job.
+    assert _texto_error_login(_PageContextoDestruido()) == ""
 
 
 def test_fail_fast_aborta_sin_reintentar_captcha():
