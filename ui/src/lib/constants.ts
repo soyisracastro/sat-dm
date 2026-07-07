@@ -106,35 +106,95 @@ export const ESTRUCTURAS = [
 /** Valor sentinela del Select de estructura para "Personalizada…". */
 export const ESTRUCTURA_CUSTOM = 'custom';
 
+/** Prefijo de segmento literal (carpeta/parte de texto fijo) — espejo del backend. */
+export const PREFIJO_TEXTO = 'txt:';
+
+/** Entrada de catálogo para los builders (niveles de carpeta / partes del nombre). */
+export interface SegmentoCatalogo {
+  value: string;
+  label: string;
+  ejemplo: string;
+  /** true = "Texto personalizado": editable y se puede repetir. */
+  custom?: boolean;
+}
+
 /**
  * Variables disponibles como nivel de la estructura personalizada.
  * `value` es el token que entiende el backend (organizador.py TOKENS);
- * `ejemplo` alimenta la vista previa del builder.
+ * `ejemplo` alimenta la vista previa tipo Finder.
  */
-export const NIVELES_CUSTOM = [
+export const NIVELES_CUSTOM: SegmentoCatalogo[] = [
   { value: 'anio', label: 'Año', ejemplo: '2026' },
   { value: 'mes', label: 'Mes', ejemplo: '05' },
-  { value: 'dia', label: 'Día', ejemplo: '15' },
-  { value: 'rfc', label: 'RFC de la empresa', ejemplo: 'CULL551116HM8' },
-  { value: 'rfc_emisor', label: 'RFC emisor', ejemplo: 'AAA010101AAA' },
-  { value: 'rfc_receptor', label: 'RFC receptor', ejemplo: 'BBB020202BBB' },
+  { value: 'dia', label: 'Día', ejemplo: '07' },
   { value: 'flujo', label: 'Emitidos / Recibidos', ejemplo: 'Emitidos' },
   { value: 'tipo', label: 'Tipo de comprobante', ejemplo: 'Ingreso' },
-] as const;
+  { value: 'rfc', label: 'RFC de la empresa', ejemplo: 'CULL551116HM8' },
+  { value: 'rfc_emisor', label: 'RFC del emisor', ejemplo: 'SAHA010125PV9' },
+  { value: 'rfc_receptor', label: 'RFC del receptor', ejemplo: 'XAXX010101000' },
+  { value: 'texto', label: 'Texto personalizado', ejemplo: 'CFDI', custom: true },
+];
 
 /** Tokens de NIVELES_CUSTOM que requieren el RFC de la empresa. */
 export const NIVELES_REQUIEREN_RFC: string[] = ['rfc', 'flujo'];
+
+/**
+ * Partes disponibles para componer el nombre de archivo en Renombrar
+ * (espejo de organizador.py NOMBRE_TOKENS).
+ */
+export const PARTES_NOMBRE: SegmentoCatalogo[] = [
+  { value: 'fecha', label: 'Fecha', ejemplo: '2026-05-07' },
+  { value: 'rfc_emisor', label: 'RFC del emisor', ejemplo: 'SAHA010125PV9' },
+  { value: 'nombre_emisor', label: 'Nombre del emisor', ejemplo: 'Acme SA' },
+  { value: 'rfc_receptor', label: 'RFC del receptor', ejemplo: 'XAXX010101000' },
+  { value: 'folio_fiscal', label: 'Folio fiscal', ejemplo: 'A1B2C3D4' },
+  { value: 'serie_folio', label: 'Serie y folio', ejemplo: 'A-1024' },
+  { value: 'tipo', label: 'Tipo', ejemplo: 'Ingreso' },
+  { value: 'total', label: 'Total', ejemplo: '1160.00' },
+  { value: 'texto', label: 'Texto personalizado', ejemplo: 'CFDI', custom: true },
+];
+
+/** Valor sentinela del Select de nombre de archivo para "Personalizado…". */
+export const PATRON_CUSTOM = 'custom';
+
+/** Separadores disponibles entre partes del nombre. */
+export const SEPARADORES_NOMBRE = [
+  { label: '-', value: '-' },
+  { label: '_', value: '_' },
+  { label: '␣', value: ' ' },
+  { label: '·', value: ' · ' },
+] as const;
 
 // ---------------------------------------------------------------------------
 // Rename patterns (from organizador.py PATRONES_NOMBRE)
 // ---------------------------------------------------------------------------
 
 export const PATRONES_NOMBRE = [
-  { value: 'emisor_fecha_total', label: 'Emisor - Fecha - Total' },
-  { value: 'receptor_fecha_total', label: 'Receptor - Fecha - Total' },
-  { value: 'uuid', label: 'UUID' },
-  { value: 'fecha_emisor_total', label: 'Fecha - Emisor - Total' },
-  { value: 'fecha_uuid', label: 'Fecha - UUID' },
+  {
+    value: 'emisor_fecha_total',
+    label: 'Emisor - Fecha - Total',
+    ejemplo: 'SAHA010125PV9_2026-05-07_1160.00_A1B2C3D4',
+  },
+  {
+    value: 'receptor_fecha_total',
+    label: 'Receptor - Fecha - Total',
+    ejemplo: 'XAXX010101000_2026-05-07_1160.00_A1B2C3D4',
+  },
+  {
+    value: 'uuid',
+    label: 'UUID',
+    ejemplo: 'A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6',
+  },
+  {
+    value: 'fecha_emisor_total',
+    label: 'Fecha - Emisor - Total',
+    ejemplo: '2026-05-07_SAHA010125PV9_1160.00',
+  },
+  {
+    value: 'fecha_uuid',
+    label: 'Fecha - UUID',
+    ejemplo: '2026-05-07_A1B2C3D4-E5F6-7A8B-9C0D-E1F2A3B4C5D6',
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------

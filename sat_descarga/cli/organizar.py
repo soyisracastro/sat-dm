@@ -67,24 +67,38 @@ def organizar_carpetas(origen, destino, estructura, rfc, copiar):
 @click.option(
     "--patron", "-p",
     default="emisor_fecha_total",
-    help="Patrón de nombre (emisor_fecha_total, uuid, fecha_uuid, etc.)",
+    help="Patrón de nombre predefinido (emisor_fecha_total, uuid, fecha_uuid, etc.)",
 )
-def renombrar_cmd(directorio, patron):
+@click.option(
+    "--partes",
+    default=None,
+    help=(
+        "Partes del nombre separadas por coma (ignora --patron): fecha, "
+        "rfc_emisor, nombre_emisor, rfc_receptor, folio_fiscal, serie_folio, "
+        "tipo, total, txt:Literal. Ej: fecha,rfc_emisor,folio_fiscal"
+    ),
+)
+@click.option("--separador", default="-", help="Separador entre partes (modo --partes)")
+def renombrar_cmd(directorio, patron, partes, separador):
     """Renombra masivamente XMLs basándose en su contenido."""
-    from sat_descarga.utils.organizador import renombrar, PATRONES_NOMBRE
+    from sat_descarga.utils.organizador import renombrar
 
     print_header("Renombrado masivo de XML")
 
-    if patron not in PATRONES_NOMBRE:
-        print_error(f"Patrón '{patron}' no válido.")
-        click.echo(f"  Opciones: {', '.join(PATRONES_NOMBRE.keys())}")
-        return
+    lista_partes = [p.strip() for p in partes.split(",") if p.strip()] if partes else None
 
     click.echo(f"  Directorio: {directorio}")
-    click.echo(f"  Patrón: {patron}")
+    if lista_partes:
+        click.echo(f"  Partes: {' + '.join(lista_partes)} (separador: '{separador}')")
+    else:
+        click.echo(f"  Patrón: {patron}")
     click.echo()
 
-    result = renombrar(directorio, patron)
+    try:
+        result = renombrar(directorio, patron, partes=lista_partes, separador=separador)
+    except ValueError as e:
+        print_error(str(e))
+        return
 
     print_success(f"Procesados: {result.archivos_procesados}")
     print_success(f"Renombrados: {result.archivos_movidos}")

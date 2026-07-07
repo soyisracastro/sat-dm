@@ -52,13 +52,26 @@ ESTRUCTURAS = (
     "plano",
 )
 
-# Patrones de renombrado
+# Patrones de renombrado predefinidos (legacy; el modo por partes es el nuevo)
 PATRONES_NOMBRE = {
     "emisor_fecha_total": lambda h: f"{h.emisor_rfc}_{h.fecha_emision[:10]}_{h.total:.2f}_{h.uuid[:8]}",
     "receptor_fecha_total": lambda h: f"{h.receptor_rfc}_{h.fecha_emision[:10]}_{h.total:.2f}_{h.uuid[:8]}",
     "uuid": lambda h: h.uuid,
     "fecha_emisor_total": lambda h: f"{h.fecha_emision[:10]}_{h.emisor_rfc}_{h.total:.2f}",
     "fecha_uuid": lambda h: f"{h.fecha_emision[:10]}_{h.uuid}",
+}
+
+# Partes disponibles para componer el nombre de archivo (modo por partes):
+# se unen con un separador, más literales con prefijo "txt:".
+NOMBRE_TOKENS: dict[str, Callable[[CfdiHeader], str]] = {
+    "fecha": lambda h: h.fecha_emision[:10],
+    "rfc_emisor": lambda h: h.emisor_rfc,
+    "nombre_emisor": lambda h: h.emisor_nombre,
+    "rfc_receptor": lambda h: h.receptor_rfc,
+    "folio_fiscal": lambda h: h.uuid[:8],
+    "serie_folio": lambda h: "-".join(p for p in (h.serie, h.folio) if p),
+    "tipo": lambda h: _tipo_nombre(h.tipo_comprobante),
+    "total": lambda h: f"{h.total:.2f}",
 }
 
 
@@ -153,25 +166,33 @@ def renombrar(
     directorio: str,
     patron: str = "emisor_fecha_total",
     recursive: bool = True,
+    partes: Optional[List[str]] = None,
+    separador: str = "-",
 ) -> OrganizadorResult:
     """
     Renombra masivamente archivos XML basándose en su contenido.
 
     Args:
         directorio: Directorio con XMLs.
-        patron: Patrón de nombre (ver PATRONES_NOMBRE).
+        patron: Patrón de nombre predefinido (ver PATRONES_NOMBRE).
         recursive: Si buscar en subdirectorios.
+        partes: Modo por partes: tokens de NOMBRE_TOKENS (o "txt:Literal")
+            que componen el nombre; si se pasa, `patron` se ignora.
+        separador: Separador entre partes (solo en modo por partes).
 
     Returns:
         OrganizadorResult con estadísticas.
     """
-    if patron not in PATRONES_NOMBRE:
+    if partes is not None:
+        name_fn = _compilar_nombre(partes, separador)
+    elif patron in PATRONES_NOMBRE:
+        name_fn = PATRONES_NOMBRE[patron]
+    else:
         raise ValueError(
             f"Patrón '{patron}' no válido. "
             f"Opciones: {', '.join(PATRONES_NOMBRE.keys())}"
         )
 
-    name_fn = PATRONES_NOMBRE[patron]
     result = OrganizadorResult()
 
     for root_dir, _dirs, files in os.walk(directorio):
@@ -362,6 +383,10 @@ def _sanear_segmento(valor: Optional[str]) -> str:
     return limpio or "SIN_DATO"
 
 
+# Prefijo de segmento literal: "txt:Facturas" crea la carpeta fija "Facturas"
+_PREFIJO_TEXTO = "txt:"
+
+
 def _compilar_estructura(
     estructura: str,
     rfc: Optional[str],
@@ -369,16 +394,24 @@ def _compilar_estructura(
     """
     Valida una estructura tokenizada y regresa la función header → subruta.
 
-    Acepta "plano" (sin subcarpetas) o tokens de TOKENS separados por "/".
+    Acepta "plano" (sin subcarpetas) o niveles separados por "/": tokens de
+    TOKENS o literales con prefijo "txt:" (carpeta de nombre fijo).
     """
     if estructura == "plano":
         return lambda h: ""
 
     tokens = estructura.split("/") if estructura else []
-    if not tokens or any(t not in TOKENS for t in tokens):
+
+    def _es_valido(t: str) -> bool:
+        if t.startswith(_PREFIJO_TEXTO):
+            return bool(t[len(_PREFIJO_TEXTO):].strip())
+        return t in TOKENS
+
+    if not tokens or any(not _es_valido(t) for t in tokens):
         raise ValueError(
             f"Estructura '{estructura}' no válida. Combina niveles separados "
-            f"por '/' usando: {', '.join(TOKENS)} — o 'plano' (sin subcarpetas)."
+            f"por '/' usando: {', '.join(TOKENS)}, texto fijo con "
+            f"'txt:NombreCarpeta' — o 'plano' (sin subcarpetas)."
         )
     if _TOKENS_CON_RFC & set(tokens) and not (rfc or "").strip():
         raise ValueError(
@@ -386,7 +419,46 @@ def _compilar_estructura(
             "requiere el RFC de la empresa."
         )
 
+    def _segmento(t: str, header: CfdiHeader) -> str:
+        if t.startswith(_PREFIJO_TEXTO):
+            return _sanear_segmento(t[len(_PREFIJO_TEXTO):])
+        return _sanear_segmento(TOKENS[t](header, rfc))
+
     def path_fn(header: CfdiHeader) -> str:
-        return "/".join(_sanear_segmento(TOKENS[t](header, rfc)) for t in tokens)
+        return "/".join(_segmento(t, header) for t in tokens)
 
     return path_fn
+
+
+def _compilar_nombre(
+    partes: List[str],
+    separador: str,
+) -> Callable[[CfdiHeader], str]:
+    """
+    Valida las partes de un nombre de archivo y regresa header → nombre.
+
+    Cada parte es un token de NOMBRE_TOKENS o un literal "txt:...".
+    """
+
+    def _es_valida(p: str) -> bool:
+        if p.startswith(_PREFIJO_TEXTO):
+            return bool(p[len(_PREFIJO_TEXTO):].strip())
+        return p in NOMBRE_TOKENS
+
+    if not partes or any(not _es_valida(p) for p in partes):
+        raise ValueError(
+            f"Partes del nombre no válidas: {partes!r}. "
+            f"Opciones: {', '.join(NOMBRE_TOKENS)}, o texto fijo con 'txt:Algo'."
+        )
+
+    sep = _CHARS_INVALIDOS.sub("_", separador)
+
+    def _parte(p: str, header: CfdiHeader) -> str:
+        if p.startswith(_PREFIJO_TEXTO):
+            return _sanear_segmento(p[len(_PREFIJO_TEXTO):])
+        return _sanear_segmento(NOMBRE_TOKENS[p](header))
+
+    def name_fn(header: CfdiHeader) -> str:
+        return sep.join(_parte(p, header) for p in partes)
+
+    return name_fn

@@ -133,6 +133,10 @@ class OrganizarRequest(BaseModel):
 class RenombrarRequest(BaseModel):
     directorio: str
     patron: str = "emisor_fecha_total"
+    # Modo por partes (builder): tokens de NOMBRE_TOKENS o "txt:Literal";
+    # si viene, `patron` se ignora.
+    partes: Optional[List[str]] = None
+    separador: str = "-"
 
 
 class DeduplicarRequest(BaseModel):
@@ -165,7 +169,9 @@ def renombrar_endpoint(req: RenombrarRequest):
     from ...utils.organizador import renombrar
 
     try:
-        result = renombrar(req.directorio, req.patron)
+        result = renombrar(
+            req.directorio, req.patron, partes=req.partes, separador=req.separador
+        )
         return {
             "archivos_procesados": result.archivos_procesados,
             "archivos_movidos": result.archivos_movidos,

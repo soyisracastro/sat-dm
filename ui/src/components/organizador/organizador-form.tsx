@@ -17,14 +17,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { EstructuraCustomBuilder } from '@/components/organizador/estructura-custom-builder';
+import { VistaPrevia } from '@/components/organizador/builder-partes';
+import {
+  EstructuraCustomBuilder,
+  VistaPreviaEstructura,
+} from '@/components/organizador/estructura-custom-builder';
+import {
+  NombreArchivo,
+  RenombrarBuilder,
+} from '@/components/organizador/renombrar-builder';
 import { useEmpresas } from '@/hooks/use-empresas';
 import {
   ESTRUCTURAS,
   ESTRUCTURA_CUSTOM,
   NIVELES_CUSTOM,
   NIVELES_REQUIEREN_RFC,
+  PARTES_NOMBRE,
+  PATRON_CUSTOM,
   PATRONES_NOMBRE,
+  PREFIJO_TEXTO,
+  type SegmentoCatalogo,
 } from '@/lib/constants';
 import type {
   OrganizadorRequest,
@@ -32,25 +44,43 @@ import type {
   DeduplicarRequest,
 } from '@/lib/types';
 
-/** Clave de localStorage donde se recuerda la última estructura personalizada. */
+// Claves de localStorage donde se recuerdan los builders personalizados.
 const NIVELES_STORAGE_KEY = 'organizador:estructura-custom';
+const NOMBRE_STORAGE_KEY = 'organizador:nombre-custom';
 
 const NIVELES_DEFAULT = ['anio', 'mes', 'flujo'];
+const PARTES_DEFAULT = ['fecha', 'rfc_emisor', 'folio_fiscal'];
 
-/** Restaura los niveles guardados, descartando tokens que ya no existan. */
-function leerNivelesGuardados(): string[] | null {
+/** Filtra segmentos guardados, descartando tokens que ya no existan. */
+function filtrarSegmentos(
+  raw: unknown,
+  catalogo: SegmentoCatalogo[],
+): string[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const validos = raw.filter(
+    (n): n is string =>
+      typeof n === 'string' &&
+      (n.startsWith(PREFIJO_TEXTO)
+        ? n.length > PREFIJO_TEXTO.length
+        : catalogo.some((t) => !t.custom && t.value === n)),
+  );
+  return validos.length > 0 ? validos : null;
+}
+
+function leerStorage(key: string): Record<string, unknown> | null {
   try {
-    const raw = window.localStorage.getItem(NIVELES_STORAGE_KEY);
-    if (!raw) return null;
-    const { niveles } = JSON.parse(raw) as { niveles?: unknown };
-    if (!Array.isArray(niveles) || niveles.length === 0) return null;
-    const validos = niveles.filter(
-      (n): n is string =>
-        typeof n === 'string' && NIVELES_CUSTOM.some((t) => t.value === n),
-    );
-    return validos.length > 0 ? validos : null;
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
   } catch {
     return null;
+  }
+}
+
+function escribirStorage(key: string, valor: Record<string, unknown>) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(valor));
+  } catch {
+    // localStorage lleno o bloqueado: el builder sigue funcionando en memoria.
   }
 }
 
@@ -141,9 +171,12 @@ export function OrganizadorForm({
   // Hasta que el usuario lo edita, destino sigue al origen (caso común: organizar in-place).
   const [destinoTouched, setDestinoTouched] = useState(false);
 
-  // Estructura personalizada: niveles del builder, restaurados de localStorage.
-  // Los tokens "rfc" y "flujo" se resuelven contra la empresa activa.
+  // Builders personalizados (estructura de carpetas y nombre de archivo),
+  // restaurados de localStorage. Los tokens "rfc" y "flujo" se resuelven
+  // contra la empresa activa.
   const [nivelesCustom, setNivelesCustom] = useState<string[]>(NIVELES_DEFAULT);
+  const [partesNombre, setPartesNombre] = useState<string[]>(PARTES_DEFAULT);
+  const [separadorNombre, setSeparadorNombre] = useState('-');
 
   const esCustom = orgEstructura === ESTRUCTURA_CUSTOM;
   const requiereRfc =
@@ -151,20 +184,31 @@ export function OrganizadorForm({
   const rfcActiva = empresas.find((e) => e.default)?.rfc ?? '';
 
   useEffect(() => {
-    const guardados = leerNivelesGuardados();
-    if (guardados) setNivelesCustom(guardados);
+    const niveles = filtrarSegmentos(
+      leerStorage(NIVELES_STORAGE_KEY)?.niveles,
+      NIVELES_CUSTOM,
+    );
+    if (niveles) setNivelesCustom(niveles);
+
+    const nombre = leerStorage(NOMBRE_STORAGE_KEY);
+    const partes = filtrarSegmentos(nombre?.partes, PARTES_NOMBRE);
+    if (partes) setPartesNombre(partes);
+    if (typeof nombre?.separador === 'string') setSeparadorNombre(nombre.separador);
   }, []);
 
   function cambiarNiveles(niveles: string[]) {
     setNivelesCustom(niveles);
-    try {
-      window.localStorage.setItem(
-        NIVELES_STORAGE_KEY,
-        JSON.stringify({ niveles }),
-      );
-    } catch {
-      // localStorage lleno o bloqueado: el builder sigue funcionando en memoria.
-    }
+    escribirStorage(NIVELES_STORAGE_KEY, { niveles });
+  }
+
+  function cambiarPartes(partes: string[]) {
+    setPartesNombre(partes);
+    escribirStorage(NOMBRE_STORAGE_KEY, { partes, separador: separadorNombre });
+  }
+
+  function cambiarSeparador(separador: string) {
+    setSeparadorNombre(separador);
+    escribirStorage(NOMBRE_STORAGE_KEY, { partes: partesNombre, separador });
   }
 
   // Renombrar
@@ -236,13 +280,26 @@ export function OrganizadorForm({
     onOrganizar,
   ]);
 
+  const esNombreCustom = renPatron === PATRON_CUSTOM;
+
   const handleRenombrar = useCallback(() => {
     if (!renDirectorio) return;
+    if (esNombreCustom && partesNombre.length === 0) return;
     onRenombrar({
       directorio: renDirectorio,
       patron: renPatron,
+      ...(esNombreCustom
+        ? { partes: partesNombre, separador: separadorNombre }
+        : {}),
     });
-  }, [renDirectorio, renPatron, onRenombrar]);
+  }, [
+    renDirectorio,
+    renPatron,
+    esNombreCustom,
+    partesNombre,
+    separadorNombre,
+    onRenombrar,
+  ]);
 
   const handleDeduplicar = useCallback(() => {
     if (!dedDirectorio) return;
@@ -291,15 +348,22 @@ export function OrganizadorForm({
                     </SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
 
-              {esCustom && (
-                <EstructuraCustomBuilder
-                  niveles={nivelesCustom}
-                  onChange={cambiarNiveles}
-                  rfcEmpresa={rfcActiva || undefined}
-                />
-              )}
+                <div className="pt-1">
+                  {esCustom ? (
+                    <EstructuraCustomBuilder
+                      niveles={nivelesCustom}
+                      onChange={cambiarNiveles}
+                      rfcEmpresa={rfcActiva || undefined}
+                    />
+                  ) : (
+                    <VistaPreviaEstructura
+                      estructura={orgEstructura}
+                      rfcEmpresa={rfcActiva || undefined}
+                    />
+                  )}
+                </div>
+              </div>
 
               {requiereRfc && (
                 <p className="text-xs text-muted-foreground">
@@ -343,7 +407,8 @@ export function OrganizadorForm({
                   isLoading ||
                   !orgOrigen ||
                   !orgDestino ||
-                  (requiereRfc && !rfcActiva)
+                  (requiereRfc && !rfcActiva) ||
+                  (esCustom && nivelesCustom.length === 0)
                 }
               >
                 {isLoading ? 'Procesando...' : 'Organizar'}
@@ -375,13 +440,38 @@ export function OrganizadorForm({
                         {p.label}
                       </SelectItem>
                     ))}
+                    <SelectItem value={PATRON_CUSTOM}>Personalizado…</SelectItem>
                   </SelectContent>
                 </Select>
+
+                <div className="pt-1">
+                  {esNombreCustom ? (
+                    <RenombrarBuilder
+                      partes={partesNombre}
+                      onChange={cambiarPartes}
+                      separador={separadorNombre}
+                      onSeparadorChange={cambiarSeparador}
+                    />
+                  ) : (
+                    <VistaPrevia>
+                      <NombreArchivo
+                        nombre={
+                          PATRONES_NOMBRE.find((p) => p.value === renPatron)
+                            ?.ejemplo ?? ''
+                        }
+                      />
+                    </VistaPrevia>
+                  )}
+                </div>
               </div>
 
               <Button
                 onClick={handleRenombrar}
-                disabled={isLoading || !renDirectorio}
+                disabled={
+                  isLoading ||
+                  !renDirectorio ||
+                  (esNombreCustom && partesNombre.length === 0)
+                }
               >
                 {isLoading ? 'Procesando...' : 'Renombrar'}
               </Button>

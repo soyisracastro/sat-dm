@@ -111,6 +111,10 @@ export interface OrganizadorResult {
 export interface RenombrarRequest {
   directorio: string;
   patron: string;
+  /** Modo por partes (builder): tokens de NOMBRE_TOKENS o "txt:Literal". */
+  partes?: string[];
+  /** Separador entre partes (solo modo por partes). */
+  separador?: string;
 }
 
 // POST /deduplicar (planned endpoint — models match organizador.py)
