@@ -4,6 +4,7 @@ El layout de 54 campos y las reglas vienen del instructivo oficial del SAT
 (Enero 2025) — ver docs/diot-2025.md.
 """
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -460,4 +461,71 @@ def test_migracion_008_agrega_columnas_null(tmp_path):
         assert {"base_iva_16", "base_iva_8", "iva_trasladado_8", "base_iva_0", "base_exento"} <= columnas
     finally:
         inst.close()
+        db_mod.resetear_singleton_para_tests()
+
+
+def test_migracion_007_a_008_preserva_datos_y_estima(tmp_path):
+    """Upgrade real de un usuario que ya tenía la app: una DB en v007 poblada
+    sube a v008 sin perder datos; las filas viejas quedan sin desglose (la DIOT
+    las estima desde el IVA) y las nuevas traen el desglose exacto.
+
+    El v007 se simula ocultando la migración 008 del directorio mientras se
+    puebla la DB "a la vieja" (INSERT sin las columnas nuevas); el `finally`
+    restaura la migración SIEMPRE — de no hacerlo rompería el resto de la suite.
+    """
+    mig = db_mod.MIGRATIONS_DIR / "008_desglose_iva.sql"
+    fuera = tmp_path / "008_desglose_iva.sql.bak"
+    db_path = tmp_path / "procesador.db"
+
+    db_mod.resetear_singleton_para_tests()
+    try:
+        # 1) DB "vieja" en v007: la 008 no está en el directorio de migraciones.
+        shutil.move(str(mig), str(fuera))
+        vieja = db_mod.ProcesadorDB(db_path)
+        try:
+            with vieja.cursor() as c:
+                c.execute("SELECT value FROM _meta WHERE key='schema_version'")
+                assert c.fetchone()[0] == "7"
+                # INSERT como lo haría la app ANTERIOR: sin las columnas de la 008.
+                c.execute(
+                    "INSERT INTO cfdis (uuid, mi_rfc, tipo, fecha, emisor_rfc, "
+                    "emisor_nombre, receptor_rfc, iva_trasladado) VALUES "
+                    "('LEGACY-1', ?, 'I', '2026-05-10T10:00:00', 'LEGA010101AA1', "
+                    "'PROVEEDOR LEGADO', ?, 160.0)",
+                    (MI_RFC, MI_RFC),
+                )
+                c.connection.commit()
+        finally:
+            vieja.close()
+    finally:
+        # Restaurar la migración pase lo que pase (crítico para la suite).
+        if fuera.exists():
+            shutil.move(str(fuera), str(mig))
+        db_mod.resetear_singleton_para_tests()
+
+    # 2) La app nueva reabre la misma DB → aplica la 008 ANTES de cualquier INSERT.
+    nueva = db_mod.ProcesadorDB(db_path)
+    try:
+        with nueva.cursor() as c:
+            c.execute("SELECT value FROM _meta WHERE key='schema_version'")
+            assert c.fetchone()[0] == "8"
+            c.execute("SELECT base_iva_16 FROM cfdis WHERE uuid='LEGACY-1'")
+            assert c.fetchone()[0] is None  # fila legacy: sin desglose, no se pierde
+
+        # 3) Con la app nueva se carga un CFDI con desglose completo (16% + 8%).
+        nueva.agregar(
+            [parse_cfdi(_xml("NUEVA-1", traslados=TRASLADO_16 + TRASLADO_8))],
+            mi_rfc=MI_RFC,
+        )
+        res = prellenar_desde_procesador(MI_RFC, "2026-05", db=nueva)
+        assert res["resumen"]["cfdis_sin_desglose"] == 1  # solo la vieja
+        por_rfc = {f["rfc"]: f for f in res["filas"]}
+        # Legacy: base 16% estimada desde el IVA (160 / 0.16).
+        assert por_rfc["LEGA010101AA1"]["estimado"] is True
+        assert por_rfc["LEGA010101AA1"]["valor_16"] == 1000
+        # Nueva: desglose exacto, sin estimar.
+        assert por_rfc[PROV_A]["estimado"] is False
+        assert por_rfc[PROV_A]["valor_rf_norte"] == 500  # base 8% exacta
+    finally:
+        nueva.close()
         db_mod.resetear_singleton_para_tests()
