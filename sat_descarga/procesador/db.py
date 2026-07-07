@@ -564,11 +564,12 @@ class ProcesadorDB:
                         receptor_rfc, receptor_nombre, receptor_uso_cfdi,
                         sub_total, descuento, total,
                         iva_trasladado, ieps_trasladado, iva_retenido, isr_retenido,
+                        base_iva_16, base_iva_8, iva_trasladado_8, base_iva_0, base_exento,
                         forma_pago, metodo_pago, moneda, tipo_cambio, lugar_expedicion,
                         direccion, estado_sat, validado_en,
                         raw_json, warnings_json, cargado_en
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         cfdi.uuid, mi_rfc, cfdi.file_name, cfdi.version, cfdi.tipo_comprobante,
@@ -579,6 +580,8 @@ class ProcesadorDB:
                         cfdi.sub_total, cfdi.descuento, cfdi.total,
                         cfdi.iva_trasladado, cfdi.ieps_trasladado,
                         cfdi.iva_retenido, cfdi.isr_retenido,
+                        cfdi.base_iva_16, cfdi.base_iva_8, cfdi.iva_trasladado_8,
+                        cfdi.base_iva_0, cfdi.base_exento,
                         cfdi.forma_pago, cfdi.metodo_pago, cfdi.moneda,
                         cfdi.tipo_cambio, cfdi.lugar_expedicion,
                         direccion, cfdi.estado_sat, cfdi.validado_en,
