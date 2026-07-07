@@ -10,36 +10,68 @@ Usa xml_reader.py para extraer datos mínimos del header de cada XML.
 
 import logging
 import os
+import re
 import shutil
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from .xml_reader import leer_cfdi, CfdiHeader
 
 logger = logging.getLogger(__name__)
 
-# Patrones de estructura de carpetas disponibles
-ESTRUCTURAS = {
-    "rfc_emisor/anio/mes": lambda h: f"{h.emisor_rfc}/{h.fecha_emision[:4]}/{h.fecha_emision[5:7]}",
-    "rfc_emisor/anio": lambda h: f"{h.emisor_rfc}/{h.fecha_emision[:4]}",
-    "anio/mes/rfc_emisor": lambda h: f"{h.fecha_emision[:4]}/{h.fecha_emision[5:7]}/{h.emisor_rfc}",
-    "anio/mes": lambda h: f"{h.fecha_emision[:4]}/{h.fecha_emision[5:7]}",
-    "anio/mes/dia": lambda h: f"{h.fecha_emision[:4]}/{h.fecha_emision[5:7]}/{h.fecha_emision[8:10]}",
-    "tipo/anio/mes": lambda h: f"{_tipo_nombre(h.tipo_comprobante)}/{h.fecha_emision[:4]}/{h.fecha_emision[5:7]}",
-    "rfc_emisor/tipo/anio/mes": lambda h: f"{h.emisor_rfc}/{_tipo_nombre(h.tipo_comprobante)}/{h.fecha_emision[:4]}/{h.fecha_emision[5:7]}",
-    "rfc_receptor/anio/mes": lambda h: f"{h.receptor_rfc}/{h.fecha_emision[:4]}/{h.fecha_emision[5:7]}",
-    "plano": lambda h: "",
+# Tokens para componer estructuras de carpetas: una estructura es una
+# secuencia de tokens separados por "/" (p. ej. "rfc/anio/mes/flujo/tipo"),
+# donde cada token produce un nivel de carpeta por CFDI.
+TOKENS: dict[str, Callable[[CfdiHeader, Optional[str]], str]] = {
+    "anio": lambda h, rfc: h.fecha_emision[:4],
+    "mes": lambda h, rfc: h.fecha_emision[5:7],
+    "dia": lambda h, rfc: h.fecha_emision[8:10],
+    "rfc": lambda h, rfc: rfc or "",
+    "rfc_emisor": lambda h, rfc: h.emisor_rfc,
+    "rfc_receptor": lambda h, rfc: h.receptor_rfc,
+    "tipo": lambda h, rfc: _tipo_nombre(h.tipo_comprobante),
+    "flujo": lambda h, rfc: _flujo(h, rfc),
 }
 
-# Patrones de renombrado
+# Tokens que necesitan el RFC de la empresa como contexto
+_TOKENS_CON_RFC = {"rfc", "flujo"}
+
+# Estructuras predefinidas (presets que ofrece la UI); cualquier otra
+# combinación de TOKENS también es válida, más "plano" (sin subcarpetas).
+ESTRUCTURAS = (
+    "rfc_emisor/anio/mes",
+    "rfc_emisor/anio",
+    "anio/mes/rfc_emisor",
+    "anio/mes",
+    "anio/mes/dia",
+    "tipo/anio/mes",
+    "rfc_emisor/tipo/anio/mes",
+    "rfc_receptor/anio/mes",
+    "plano",
+)
+
+# Patrones de renombrado predefinidos (legacy; el modo por partes es el nuevo)
 PATRONES_NOMBRE = {
     "emisor_fecha_total": lambda h: f"{h.emisor_rfc}_{h.fecha_emision[:10]}_{h.total:.2f}_{h.uuid[:8]}",
     "receptor_fecha_total": lambda h: f"{h.receptor_rfc}_{h.fecha_emision[:10]}_{h.total:.2f}_{h.uuid[:8]}",
     "uuid": lambda h: h.uuid,
     "fecha_emisor_total": lambda h: f"{h.fecha_emision[:10]}_{h.emisor_rfc}_{h.total:.2f}",
     "fecha_uuid": lambda h: f"{h.fecha_emision[:10]}_{h.uuid}",
+}
+
+# Partes disponibles para componer el nombre de archivo (modo por partes):
+# se unen con un separador, más literales con prefijo "txt:".
+NOMBRE_TOKENS: dict[str, Callable[[CfdiHeader], str]] = {
+    "fecha": lambda h: h.fecha_emision[:10],
+    "rfc_emisor": lambda h: h.emisor_rfc,
+    "nombre_emisor": lambda h: h.emisor_nombre,
+    "rfc_receptor": lambda h: h.receptor_rfc,
+    "folio_fiscal": lambda h: h.uuid[:8],
+    "serie_folio": lambda h: "-".join(p for p in (h.serie, h.folio) if p),
+    "tipo": lambda h: _tipo_nombre(h.tipo_comprobante),
+    "total": lambda h: f"{h.total:.2f}",
 }
 
 
@@ -66,6 +98,7 @@ def organizar(
     destino: str,
     estructura: str = "rfc_emisor/anio/mes",
     copiar: bool = False,
+    rfc: Optional[str] = None,
 ) -> OrganizadorResult:
     """
     Organiza archivos XML en carpetas basándose en su contenido.
@@ -73,19 +106,16 @@ def organizar(
     Args:
         origen: Directorio con XMLs desordenados.
         destino: Directorio destino para la estructura organizada.
-        estructura: Patrón de carpetas (ver ESTRUCTURAS).
+        estructura: Tokens de carpetas separados por "/" (ver TOKENS),
+            o "plano" para no crear subcarpetas. Presets en ESTRUCTURAS.
         copiar: Si True copia en lugar de mover.
+        rfc: RFC de la empresa; requerido si la estructura usa los tokens
+            "rfc" o "flujo" (Emitidos/Recibidos se clasifican contra él).
 
     Returns:
         OrganizadorResult con estadísticas.
     """
-    if estructura not in ESTRUCTURAS:
-        raise ValueError(
-            f"Estructura '{estructura}' no válida. "
-            f"Opciones: {', '.join(ESTRUCTURAS.keys())}"
-        )
-
-    path_fn = ESTRUCTURAS[estructura]
+    path_fn = _compilar_estructura(estructura, rfc)
     result = OrganizadorResult()
     dest_path = Path(destino)
 
@@ -136,25 +166,33 @@ def renombrar(
     directorio: str,
     patron: str = "emisor_fecha_total",
     recursive: bool = True,
+    partes: Optional[List[str]] = None,
+    separador: str = "-",
 ) -> OrganizadorResult:
     """
     Renombra masivamente archivos XML basándose en su contenido.
 
     Args:
         directorio: Directorio con XMLs.
-        patron: Patrón de nombre (ver PATRONES_NOMBRE).
+        patron: Patrón de nombre predefinido (ver PATRONES_NOMBRE).
         recursive: Si buscar en subdirectorios.
+        partes: Modo por partes: tokens de NOMBRE_TOKENS (o "txt:Literal")
+            que componen el nombre; si se pasa, `patron` se ignora.
+        separador: Separador entre partes (solo en modo por partes).
 
     Returns:
         OrganizadorResult con estadísticas.
     """
-    if patron not in PATRONES_NOMBRE:
+    if partes is not None:
+        name_fn = _compilar_nombre(partes, separador)
+    elif patron in PATRONES_NOMBRE:
+        name_fn = PATRONES_NOMBRE[patron]
+    else:
         raise ValueError(
             f"Patrón '{patron}' no válido. "
             f"Opciones: {', '.join(PATRONES_NOMBRE.keys())}"
         )
 
-    name_fn = PATRONES_NOMBRE[patron]
     result = OrganizadorResult()
 
     for root_dir, _dirs, files in os.walk(directorio):
@@ -323,3 +361,104 @@ def _tipo_nombre(tipo: str) -> str:
         "N": "Nomina",
     }
     return tipos.get(tipo.upper(), tipo)
+
+
+def _flujo(header: CfdiHeader, rfc: Optional[str]) -> str:
+    """Clasifica el CFDI como Emitidos/Recibidos respecto al RFC de la empresa."""
+    mi_rfc = (rfc or "").strip().upper()
+    if (header.emisor_rfc or "").strip().upper() == mi_rfc:
+        return "Emitidos"
+    if (header.receptor_rfc or "").strip().upper() == mi_rfc:
+        return "Recibidos"
+    return "Otros"
+
+
+# Caracteres inválidos en nombres de carpeta (Windows es el SO principal)
+_CHARS_INVALIDOS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _sanear_segmento(valor: Optional[str]) -> str:
+    """Convierte un valor en nombre de carpeta seguro; vacío → SIN_DATO."""
+    limpio = _CHARS_INVALIDOS.sub("_", (valor or "").strip()).rstrip(". ")
+    return limpio or "SIN_DATO"
+
+
+# Prefijo de segmento literal: "txt:Facturas" crea la carpeta fija "Facturas"
+_PREFIJO_TEXTO = "txt:"
+
+
+def _compilar_estructura(
+    estructura: str,
+    rfc: Optional[str],
+) -> Callable[[CfdiHeader], str]:
+    """
+    Valida una estructura tokenizada y regresa la función header → subruta.
+
+    Acepta "plano" (sin subcarpetas) o niveles separados por "/": tokens de
+    TOKENS o literales con prefijo "txt:" (carpeta de nombre fijo).
+    """
+    if estructura == "plano":
+        return lambda h: ""
+
+    tokens = estructura.split("/") if estructura else []
+
+    def _es_valido(t: str) -> bool:
+        if t.startswith(_PREFIJO_TEXTO):
+            return bool(t[len(_PREFIJO_TEXTO):].strip())
+        return t in TOKENS
+
+    if not tokens or any(not _es_valido(t) for t in tokens):
+        raise ValueError(
+            f"Estructura '{estructura}' no válida. Combina niveles separados "
+            f"por '/' usando: {', '.join(TOKENS)}, texto fijo con "
+            f"'txt:NombreCarpeta' — o 'plano' (sin subcarpetas)."
+        )
+    if _TOKENS_CON_RFC & set(tokens) and not (rfc or "").strip():
+        raise ValueError(
+            "La estructura usa 'rfc' o 'flujo' (Emitidos/Recibidos) y "
+            "requiere el RFC de la empresa."
+        )
+
+    def _segmento(t: str, header: CfdiHeader) -> str:
+        if t.startswith(_PREFIJO_TEXTO):
+            return _sanear_segmento(t[len(_PREFIJO_TEXTO):])
+        return _sanear_segmento(TOKENS[t](header, rfc))
+
+    def path_fn(header: CfdiHeader) -> str:
+        return "/".join(_segmento(t, header) for t in tokens)
+
+    return path_fn
+
+
+def _compilar_nombre(
+    partes: List[str],
+    separador: str,
+) -> Callable[[CfdiHeader], str]:
+    """
+    Valida las partes de un nombre de archivo y regresa header → nombre.
+
+    Cada parte es un token de NOMBRE_TOKENS o un literal "txt:...".
+    """
+
+    def _es_valida(p: str) -> bool:
+        if p.startswith(_PREFIJO_TEXTO):
+            return bool(p[len(_PREFIJO_TEXTO):].strip())
+        return p in NOMBRE_TOKENS
+
+    if not partes or any(not _es_valida(p) for p in partes):
+        raise ValueError(
+            f"Partes del nombre no válidas: {partes!r}. "
+            f"Opciones: {', '.join(NOMBRE_TOKENS)}, o texto fijo con 'txt:Algo'."
+        )
+
+    sep = _CHARS_INVALIDOS.sub("_", separador)
+
+    def _parte(p: str, header: CfdiHeader) -> str:
+        if p.startswith(_PREFIJO_TEXTO):
+            return _sanear_segmento(p[len(_PREFIJO_TEXTO):])
+        return _sanear_segmento(NOMBRE_TOKENS[p](header))
+
+    def name_fn(header: CfdiHeader) -> str:
+        return sep.join(_parte(p, header) for p in partes)
+
+    return name_fn

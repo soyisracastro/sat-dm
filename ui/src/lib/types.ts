@@ -96,6 +96,8 @@ export interface OrganizadorRequest {
   destino: string;
   estructura: string;
   copiar: boolean;
+  /** RFC de la empresa; requerido si la estructura usa "rfc" o "flujo". */
+  rfc?: string;
 }
 
 export interface OrganizadorResult {
@@ -109,6 +111,10 @@ export interface OrganizadorResult {
 export interface RenombrarRequest {
   directorio: string;
   patron: string;
+  /** Modo por partes (builder): tokens de NOMBRE_TOKENS o "txt:Literal". */
+  partes?: string[];
+  /** Separador entre partes (solo modo por partes). */
+  separador?: string;
 }
 
 // POST /deduplicar (planned endpoint — models match organizador.py)

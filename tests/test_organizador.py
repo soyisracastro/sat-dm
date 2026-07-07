@@ -81,6 +81,94 @@ class TestOrganizar:
         assert result.archivos_procesados == 0
 
 
+class TestEstructuraCustom:
+    """Estructuras compuestas por tokens (feature 'Personalizada')."""
+
+    def test_custom_completa_emitidos(self, tmp_path):
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        _create_cfdi(src, "factura.xml")
+
+        # El RFC de la empresa es el emisor → Emitidos
+        result = organizar(
+            str(src), str(dst), "rfc/anio/mes/flujo/tipo", rfc="AAA010101AAA"
+        )
+
+        assert result.archivos_movidos == 1
+        assert (
+            dst / "AAA010101AAA" / "2025" / "06" / "Emitidos" / "Ingreso" / "factura.xml"
+        ).exists()
+
+    def test_flujo_recibidos(self, tmp_path):
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        _create_cfdi(src, "factura.xml")
+
+        organizar(str(src), str(dst), "anio/mes/flujo", rfc="bbb020202bbb")
+
+        # Comparación case-insensitive: el RFC de la empresa es el receptor
+        assert (dst / "2025" / "06" / "Recibidos" / "factura.xml").exists()
+
+    def test_flujo_otros(self, tmp_path):
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        _create_cfdi(src, "factura.xml")
+
+        organizar(str(src), str(dst), "flujo", rfc="ZZZ999999ZZZ")
+
+        assert (dst / "Otros" / "factura.xml").exists()
+
+    def test_rfc_o_flujo_sin_rfc_falla(self, tmp_path):
+        with pytest.raises(ValueError, match="RFC de la empresa"):
+            organizar(str(tmp_path), str(tmp_path), "anio/flujo")
+        with pytest.raises(ValueError, match="RFC de la empresa"):
+            organizar(str(tmp_path), str(tmp_path), "rfc/anio")
+
+    def test_plano_no_combina(self, tmp_path):
+        with pytest.raises(ValueError, match="no válida"):
+            organizar(str(tmp_path), str(tmp_path), "plano/anio")
+
+    def test_estructura_vacia(self, tmp_path):
+        with pytest.raises(ValueError, match="no válida"):
+            organizar(str(tmp_path), str(tmp_path), "")
+        with pytest.raises(ValueError, match="no válida"):
+            organizar(str(tmp_path), str(tmp_path), "anio//mes")
+
+    def test_texto_literal(self, tmp_path):
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        _create_cfdi(src, "factura.xml")
+
+        organizar(str(src), str(dst), "txt:Facturas/anio/txt:CFDI")
+
+        assert (dst / "Facturas" / "2025" / "CFDI" / "factura.xml").exists()
+
+    def test_texto_literal_vacio_falla(self, tmp_path):
+        with pytest.raises(ValueError, match="no válida"):
+            organizar(str(tmp_path), str(tmp_path), "anio/txt:")
+
+
+class TestSanearSegmento:
+    def test_sanea_chars_invalidos(self):
+        from sat_descarga.utils.organizador import _sanear_segmento
+
+        assert _sanear_segmento('A<B>:C"D|E?F*G') == "A_B__C_D_E_F_G"
+        assert _sanear_segmento("normal") == "normal"
+        # Windows no permite puntos/espacios al final
+        assert _sanear_segmento("carpeta. ") == "carpeta"
+
+    def test_vacio_es_sin_dato(self):
+        from sat_descarga.utils.organizador import _sanear_segmento
+
+        assert _sanear_segmento("") == "SIN_DATO"
+        assert _sanear_segmento(None) == "SIN_DATO"
+        assert _sanear_segmento("   ") == "SIN_DATO"
+
+
 class TestRenombrar:
     def test_renombra_por_emisor_fecha_total(self, tmp_path):
         _create_cfdi(tmp_path, "original.xml")
@@ -103,6 +191,33 @@ class TestRenombrar:
     def test_patron_invalido(self, tmp_path):
         with pytest.raises(ValueError, match="no válido"):
             renombrar(str(tmp_path), "patron_inventado")
+
+    def test_renombra_por_partes(self, tmp_path):
+        _create_cfdi(tmp_path, "original.xml", uuid="A1B2C3D4-AAAA-BBBB-CCCC-DDDDDDDDDDDD")
+
+        result = renombrar(
+            tmp_path.as_posix(),
+            partes=["fecha", "rfc_emisor", "folio_fiscal"],
+            separador="-",
+        )
+
+        assert result.archivos_movidos == 1
+        files = list(tmp_path.glob("*.xml"))
+        assert files[0].name == "2025-06-15-AAA010101AAA-A1B2C3D4.xml"
+
+    def test_renombra_partes_con_texto_y_separador(self, tmp_path):
+        _create_cfdi(tmp_path, "x.xml")
+
+        renombrar(tmp_path.as_posix(), partes=["txt:CFDI", "total"], separador="_")
+
+        files = list(tmp_path.glob("*.xml"))
+        assert files[0].name == "CFDI_1160.00.xml"
+
+    def test_partes_invalidas(self, tmp_path):
+        with pytest.raises(ValueError, match="no válidas"):
+            renombrar(str(tmp_path), partes=["fecha", "inventada"])
+        with pytest.raises(ValueError, match="no válidas"):
+            renombrar(str(tmp_path), partes=[])
 
 
 class TestEliminarDuplicados:

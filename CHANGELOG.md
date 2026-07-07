@@ -8,6 +8,24 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Organizador: estructura de carpetas y nombre de archivo personalizados**
+  (rediseño Claude Design): junto a las estructuras predefinidas hay una opción
+  **"Personalizada…"** con un constructor visual — paleta de variables (Año,
+  Mes, Día, **Emitidos/Recibidos**, Tipo de comprobante, RFC de la empresa,
+  RFC emisor, RFC receptor y **carpetas de texto fijo**), niveles reordenables
+  arrastrándolos y **vista previa tipo Finder** de la ruta resultante (ej.
+  `CULL551116HM8 › 2026 › 05 › Emitidos › factura.xml`); los presets también
+  muestran su vista previa. En **Renombrar**, el nombre del archivo ahora se
+  puede componer por partes (Fecha, RFC/Nombre del emisor, Folio fiscal, Serie
+  y folio, Tipo, Total, texto fijo) con **separador a elegir** (`-`, `_`,
+  espacio, `·`) y vista previa. La clasificación Emitidos/Recibidos compara
+  cada CFDI contra el RFC de la **empresa activa**; las composiciones
+  personalizadas se recuerdan entre sesiones. Desde CLI:
+  `sat-dm organizar carpetas -e "txt:Facturas/anio/flujo" --rfc XXX` y
+  `sat-dm organizar renombrar --partes "fecha,rfc_emisor,folio_fiscal"
+  --separador "-"`. Los nombres generados se sanean para Windows (caracteres
+  inválidos, valores vacíos).
+
 - **Procesador de comprobantes aislado por empresa (RFC)**: el buffer, los
   filtros, reportes y exportaciones de CFDI/Pagos/Nómina ahora viven POR
   empresa — al cambiar de empresa activa solo ves sus comprobantes y al

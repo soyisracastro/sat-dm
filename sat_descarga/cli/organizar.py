@@ -19,27 +19,37 @@ def organizar_group():
 @click.option(
     "--estructura", "-e",
     default="rfc_emisor/anio/mes",
-    help="Estructura de carpetas (rfc_emisor/anio/mes, anio/mes, tipo/anio/mes, etc.)",
+    help=(
+        "Niveles de carpetas separados por '/' combinando: anio, mes, dia, "
+        "rfc, rfc_emisor, rfc_receptor, tipo, flujo — o 'plano'. "
+        "Ej: rfc/anio/mes/flujo/tipo"
+    ),
+)
+@click.option(
+    "--rfc",
+    default=None,
+    help="RFC de la empresa; requerido si la estructura usa 'rfc' o 'flujo'",
 )
 @click.option("--copiar", is_flag=True, help="Copiar en lugar de mover")
-def organizar_carpetas(origen, destino, estructura, copiar):
+def organizar_carpetas(origen, destino, estructura, rfc, copiar):
     """Organiza XMLs en carpetas basándose en su contenido."""
-    from sat_descarga.utils.organizador import organizar, ESTRUCTURAS
+    from sat_descarga.utils.organizador import organizar
 
     print_header("Organizador de XML en carpetas")
-
-    if estructura not in ESTRUCTURAS:
-        print_error(f"Estructura '{estructura}' no válida.")
-        click.echo(f"  Opciones: {', '.join(ESTRUCTURAS.keys())}")
-        return
 
     click.echo(f"  Origen: {origen}")
     click.echo(f"  Destino: {destino}")
     click.echo(f"  Estructura: {estructura}")
+    if rfc:
+        click.echo(f"  RFC empresa: {rfc}")
     click.echo(f"  Modo: {'copiar' if copiar else 'mover'}")
     click.echo()
 
-    result = organizar(origen, destino, estructura, copiar)
+    try:
+        result = organizar(origen, destino, estructura, copiar, rfc=rfc)
+    except ValueError as e:
+        print_error(str(e))
+        return
 
     print_success(f"Procesados: {result.archivos_procesados}")
     print_success(f"{'Copiados' if copiar else 'Movidos'}: {result.archivos_movidos}")
@@ -57,24 +67,38 @@ def organizar_carpetas(origen, destino, estructura, copiar):
 @click.option(
     "--patron", "-p",
     default="emisor_fecha_total",
-    help="Patrón de nombre (emisor_fecha_total, uuid, fecha_uuid, etc.)",
+    help="Patrón de nombre predefinido (emisor_fecha_total, uuid, fecha_uuid, etc.)",
 )
-def renombrar_cmd(directorio, patron):
+@click.option(
+    "--partes",
+    default=None,
+    help=(
+        "Partes del nombre separadas por coma (ignora --patron): fecha, "
+        "rfc_emisor, nombre_emisor, rfc_receptor, folio_fiscal, serie_folio, "
+        "tipo, total, txt:Literal. Ej: fecha,rfc_emisor,folio_fiscal"
+    ),
+)
+@click.option("--separador", default="-", help="Separador entre partes (modo --partes)")
+def renombrar_cmd(directorio, patron, partes, separador):
     """Renombra masivamente XMLs basándose en su contenido."""
-    from sat_descarga.utils.organizador import renombrar, PATRONES_NOMBRE
+    from sat_descarga.utils.organizador import renombrar
 
     print_header("Renombrado masivo de XML")
 
-    if patron not in PATRONES_NOMBRE:
-        print_error(f"Patrón '{patron}' no válido.")
-        click.echo(f"  Opciones: {', '.join(PATRONES_NOMBRE.keys())}")
-        return
+    lista_partes = [p.strip() for p in partes.split(",") if p.strip()] if partes else None
 
     click.echo(f"  Directorio: {directorio}")
-    click.echo(f"  Patrón: {patron}")
+    if lista_partes:
+        click.echo(f"  Partes: {' + '.join(lista_partes)} (separador: '{separador}')")
+    else:
+        click.echo(f"  Patrón: {patron}")
     click.echo()
 
-    result = renombrar(directorio, patron)
+    try:
+        result = renombrar(directorio, patron, partes=lista_partes, separador=separador)
+    except ValueError as e:
+        print_error(str(e))
+        return
 
     print_success(f"Procesados: {result.archivos_procesados}")
     print_success(f"Renombrados: {result.archivos_movidos}")
