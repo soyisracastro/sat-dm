@@ -278,11 +278,19 @@ class CSDPortalClient:
             logger.warning("[%s] no pude entrar a Seguimiento: %s", self.ETIQUETA, e)
             return estado, acuse
 
-        # Estado del certificado (fila de detalle).
+        # Observación real del trámite (evitando el texto instructivo de la página,
+        # que también menciona "generación/renovación" y contiene "proporcione …").
+        _CLAVES = (
+            "certificado digital generado",
+            "renovación de certificado digital",
+            "certificado de sello digital generado",
+            "solicitud de certificado de sello",
+        )
         try:
             txt = page.inner_text("body")
             for linea in txt.splitlines():
-                if "generado" in linea.lower() or "renovaci" in linea.lower():
+                low = linea.strip().lower()
+                if low and "proporcione" not in low and any(k in low for k in _CLAVES):
                     estado = linea.strip()
                     break
             logger.info("[%s] Estado en seguimiento: %s", self.ETIQUETA, estado or "(no leído)")

@@ -169,5 +169,10 @@ verifica **de forma independiente**:
 - ✅ **CSD probado de punta a punta contra el SAT real**: `.sdg` generado → aceptado
   (número de operación) → CSD emitido → recuperado y **empareja con la `.key`** generada.
 - ✅ Envío automatizado del `.sdg` en `portal/csd.py` (login e.firma headless) +
-  recuperación independiente (`recuperar csd`).
-- ⏳ Automatizar la **renovación** (`.ren`) en `portal/` (mismo login; siguiente paso).
+  recuperación independiente (`recuperar csd`) + **descarga del acuse PDF** (`pdf.do`),
+  todo probado en vivo contra el SAT.
+- ✅ Renovación (`.ren`) automatizada en `portal/renovacion.py` (mismo login/acuse que CSD;
+  el envío no se re-testea en vivo porque sustituye la e.firma única — validado por analogía
+  + login real con la e.firma renovada).
+- ✅ `.key` en formato 3DES (compat. SAT), verificado byte-a-byte contra CSD reales de
+  Certifica (2021 y 2025) y con login real.
