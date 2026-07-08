@@ -29,6 +29,7 @@ from .webservice.descarga import descargar_paquete, descargar_todos
 from .portal.cfdi import descargar_cfdi_ciec, descargar_cfdi_fiel
 from .portal.constancia import descargar_constancia_ciec, descargar_constancia_fiel
 from .portal.opinion import descargar_opinion_ciec, descargar_opinion_fiel
+from .portal.csd import enviar_solicitud_csd_fiel, recuperar_ultimo_csd_fiel
 
 # Listas negras del SAT (Art. 69 y 69-B). Cliente HTTP hacia todoconta-apps.
 from .utils.listas_negras import (
@@ -116,4 +117,6 @@ __all__ = [
     "generar_renovacion_fiel",
     "generar_renovacion_fiel_moral",
     "generar_solicitud_csd",
+    "enviar_solicitud_csd_fiel",
+    "recuperar_ultimo_csd_fiel",
 ]

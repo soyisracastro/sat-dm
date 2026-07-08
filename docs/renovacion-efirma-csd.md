@@ -67,9 +67,45 @@ manual/scraping:
 4. Descarga el **`.cer` nuevo** en **«Recuperación de certificados»** y guárdalo
    junto a la `.key` nueva.
 
-Pendiente (siguiente iteración): automatizar el paso 2–4 en `portal/` reusando
-`iniciar_sesion_fiel` (login NIDP con e.firma, sin captcha). El detalle del portal
-está en la *Guía para renovar el certificado de e.firma desde CertiSAT WEB* del SAT.
+## Envío automatizado (CSD) — `portal/csd.py`
+
+El envío del `.sdg` a CertiSAT Web ya está automatizado (login e.firma sin captcha,
+headless), probado contra el SAT real:
+
+```bash
+# Generar y enviar en un paso (recupera el CSD si ya se publicó):
+sat-dm solicitar csd --cer ... --key ... --sucursal "Matriz" --enviar
+# Subir un .sdg ya generado:
+sat-dm enviar csd --cer ... --key ... --sdg archivo.sdg --key-nueva sello.key
+# Descargar DESPUÉS el CSD emitido (patrón asíncrono, ver abajo):
+sat-dm recuperar csd --cer ... --key ... --key-nueva sello.key
+```
+
+API: `enviar_solicitud_csd_fiel(...)` y `recuperar_ultimo_csd_fiel(...)` en
+`sat_descarga.portal.csd`. Flujo: login NIDP e.firma (`iniciar_sesion_fiel`) →
+`requerimiento.do` (subir `.sdg`) → número de operación → Seguimiento (acuse) →
+Recuperación (descarga del `.cer`).
+
+Detalles no obvios aprendidos en la corrida real (importantes para no romperlo):
+
+- **Predicado de login por HOST, no por substring**: el host `aplicacionesc.mat.sat.gob.mx`
+  aparece dentro del `target=` de la URL de login → `"host" in url` da falso positivo
+  y "aterriza" sin entrar. Hay que exigir que el host REAL (antes del `?`) sea ese.
+- **`/nidp/app` intermitente**: el NIDP a veces se atora en `loginc.../nidp/app` en vez
+  de aterrizar en CertiSAT → `_login` reintenta (cada intento re-entra fresco).
+- **El `.cer` no está disponible de inmediato** (tarda minutos en publicarse) → la
+  recuperación reintenta y **verifica que el CSD empareje con la `.key` nueva** para no
+  bajar un certificado viejo. En la UI conviene el patrón asíncrono: el envío devuelve
+  el número de operación al instante y la descarga del `.cer` es un paso aparte
+  («bajar después» → `recuperar_ultimo_csd_fiel`).
+- **Descarga del `.cer` por HTTP directo** (`requests`, `verify=False`): `rdc.sat.gob.mx`
+  es público y su TLS lo acepta requests/curl; el navegador lo trata como descarga
+  (content-type `x-x509-ca-cert`). Fallback: captura de la descarga con el navegador.
+
+Pendiente (siguiente iteración): automatizar igual la **renovación** (`.ren`) — el
+mismo login sirve; cambia el menú/subida y la descarga del `.cer` nuevo. El detalle
+del portal está en la *Guía para renovar el certificado de e.firma desde CertiSAT WEB*
+del SAT y en `docs/path-renovacion-efirma-csd.md`.
 
 ## Verificación
 
@@ -104,6 +140,8 @@ verifica **de forma independiente**:
 
 - ✅ Generación de `.req`, `.ren` (física y moral) y `.sdg`, verificada con
   `cryptography` + `openssl` sobre e.firma de prueba.
-- ⏳ **Sin probar contra el SAT real** (no se ha subido un `.ren`/`.sdg` a CertiSAT
-  Web). Es el siguiente paso antes de exponerlo en la UI.
-- ⏳ Envío automatizado en `portal/` (hoy manual).
+- ✅ **CSD probado de punta a punta contra el SAT real**: `.sdg` generado → aceptado
+  (número de operación) → CSD emitido → recuperado y **empareja con la `.key`** generada.
+- ✅ Envío automatizado del `.sdg` en `portal/csd.py` (login e.firma headless) +
+  recuperación independiente (`recuperar csd`).
+- ⏳ Automatizar la **renovación** (`.ren`) en `portal/` (mismo login; siguiente paso).
