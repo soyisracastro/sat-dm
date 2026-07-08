@@ -155,7 +155,7 @@ export default function FiniquitoPage() {
       }
       resultados={
         !resultado ? (
-          <SinResultado restaurando={calc.restaurando} />
+          <SinResultado restaurando={calc.restaurando} icono="ph:receipt-light" />
         ) : (
           <>
             <Advertencias advertencias={calc.advertencias} />

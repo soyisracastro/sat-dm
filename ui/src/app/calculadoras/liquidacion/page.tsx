@@ -9,6 +9,7 @@ import { ExportButtons } from '@/components/calculadoras/export-buttons';
 import { FiniquitoConceptosTabla } from '@/components/calculadoras/finiquito-conceptos';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
 import { ResumenCards } from '@/components/calculadoras/resumen-cards';
+import { ToggleRow } from '@/components/calculadoras/toggle-row';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -18,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -223,24 +223,17 @@ export default function LiquidacionPage() {
             </p>
           </div>
 
-          <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
-            <div className="space-y-0.5">
-              <Label htmlFor="zona-fronteriza">Zona libre de la frontera norte</Label>
-              <p className="text-xs text-muted-foreground">
-                Usa el salario mínimo fronterizo para el tope de la prima de antigüedad.
-              </p>
-            </div>
-            <Switch
-              id="zona-fronteriza"
-              checked={inputs.es_zona_fronteriza}
-              onCheckedChange={(v) => setInput('es_zona_fronteriza', v)}
-            />
-          </div>
+          <ToggleRow
+            titulo="Zona libre de la frontera norte"
+            descripcion="Usa el salario mínimo fronterizo para el tope de la prima de antigüedad."
+            activo={inputs.es_zona_fronteriza}
+            onCambiar={(v) => setInput('es_zona_fronteriza', v)}
+          />
         </div>
       }
       resultados={
         !resultado ? (
-          <SinResultado restaurando={calc.restaurando} />
+          <SinResultado restaurando={calc.restaurando} icono="ph:scales-light" />
         ) : (
           <>
             <Advertencias advertencias={calc.advertencias} />

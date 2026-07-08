@@ -10,6 +10,7 @@ import { ComparacionMetodos } from '@/components/calculadoras/comparacion-metodo
 import { DesglosePasos } from '@/components/calculadoras/desglose-pasos';
 import { MonedaInput } from '@/components/calculadoras/moneda-input';
 import { ResumenCards } from '@/components/calculadoras/resumen-cards';
+import { ToggleRow } from '@/components/calculadoras/toggle-row';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -19,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { useCalculadora, useIndicadores } from '@/hooks/use-calculadora';
 import { formatCurrency } from '@/lib/formatting';
 import type { CalculadoraInputs, MetodoIsrAguinaldo, TipoSalario } from '@/lib/types';
@@ -119,19 +119,12 @@ export default function AguinaldoPage() {
             </p>
           )}
 
-          <div className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2.5">
-            <div className="space-y-0.5">
-              <Label htmlFor="zlfn">Zona Libre de la Frontera Norte</Label>
-              <p className="text-xs text-muted-foreground">
-                El salario mínimo de la ZLFN es mayor al del resto del país.
-              </p>
-            </div>
-            <Switch
-              id="zlfn"
-              checked={inputs.es_zona_fronteriza}
-              onCheckedChange={(v) => setInput('es_zona_fronteriza', v)}
-            />
-          </div>
+          <ToggleRow
+            titulo="Zona Libre de la Frontera Norte"
+            descripcion="El salario mínimo de la ZLFN es mayor al del resto del país."
+            activo={inputs.es_zona_fronteriza}
+            onCambiar={(v) => setInput('es_zona_fronteriza', v)}
+          />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -201,7 +194,7 @@ export default function AguinaldoPage() {
       }
       resultados={
         !resultado ? (
-          <SinResultado restaurando={calc.restaurando} />
+          <SinResultado restaurando={calc.restaurando} icono="ph:gift-light" />
         ) : (
           <>
             <Advertencias advertencias={calc.advertencias} />

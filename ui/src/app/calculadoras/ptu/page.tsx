@@ -499,7 +499,7 @@ export default function PtuPage() {
       }
       resultados={
         !resultado ? (
-          <SinResultado restaurando={calc.restaurando} />
+          <SinResultado restaurando={calc.restaurando} icono="ph:users-three-light" />
         ) : (
           <>
             <Advertencias advertencias={calc.advertencias} />

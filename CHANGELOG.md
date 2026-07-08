@@ -8,6 +8,16 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Calculadoras: rediseño de la interfaz (Claude Design)**: el índice pasó a
+  tarjetas con ícono en badge y llamada **"Abrir →"** con elevación al hover; en
+  cada calculadora los totales se muestran en **cifras grandes monoespaciadas**,
+  los interruptores (asimilado, zona fronteriza…) ahora son **filas clicables**
+  que se resaltan al activarse, el encabezado es más prominente y el estado vacío
+  lleva el ícono de la calculadora. Aplicado en los componentes compartidos
+  (`ResumenCards`, `CalculadoraShell`, nuevo `ToggleRow`), por lo que alcanza a
+  las 7 calculadoras. Sin cambios en la lógica de cálculo ni en el API: solo
+  UX/UI.
+
 - **DIOT: rediseño de la pantalla (Claude Design)**: tarjetas de resumen del
   periodo (proveedores, valor de actos 16%, IVA acreditable, IVA retenido), el
   detalle del renglón pasó de fila expandida a **panel lateral** con secciones
