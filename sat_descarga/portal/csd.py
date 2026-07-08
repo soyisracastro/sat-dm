@@ -72,7 +72,16 @@ def _mismo_par(cer_der: bytes, key_bytes: bytes, password: str) -> bool:
 
 
 class CSDPortalClient:
-    """Cliente para enviar el `.sdg` y recuperar el CSD emitido (portal e.firma)."""
+    """Cliente para enviar el `.sdg` y recuperar el CSD emitido (portal e.firma).
+
+    Sirve de base para otros trámites de CertiSAT (p. ej. renovación de e.firma):
+    el login, el número de operación, el seguimiento y la recuperación son idénticos;
+    subclases solo cambian los atributos de clase (menú, input del archivo, acuse)."""
+
+    MENU_URL = REQUERIMIENTO_URL          # página donde se sube el archivo
+    FILE_INPUT = "#txtFileReq"            # input file (oculto) del trámite
+    ACUSE_PREFIX = "Acuse_GeneracionSellos"
+    ETIQUETA = "CSD"                      # prefijo de los logs
 
     def __init__(self, cer_path: str, key_path: str, password: str, headless: bool = True):
         self.cer_path = cer_path
@@ -130,10 +139,10 @@ class CSDPortalClient:
             try:
                 self._login(page)
 
-                # --- Subir el .sdg ---
+                # --- Subir el archivo del trámite (.sdg / .ren) ---
                 num = self._subir_sdg(page, sdg_path)
                 res["numero_operacion"] = num
-                logger.info("[CSD] Número de operación: %s", num)
+                logger.info("[%s] Número de operación: %s", self.ETIQUETA, num)
                 (out_dir / f"numero_operacion_{self.rfc}_{stamp}.txt").write_text(
                     num, encoding="utf-8"
                 )
@@ -193,9 +202,13 @@ class CSDPortalClient:
     # ------------------------------------------------------------------
 
     def _login(self, page, intentos: int = 3):
-        """Login e.firma con reintentos: el NIDP a veces se atora en un paso
-        intermedio (`/nidp/app`) en vez de aterrizar en CertiSAT; reintentar lo
-        resuelve (cada intento re-entra por la URL fresca)."""
+        """Login e.firma robusto. El NIDP a veces se atora en un paso intermedio
+        (`loginc.../nidp/app`) tras autenticar, en vez de aterrizar en CertiSAT. En
+        ese caso ya estamos autenticados (la cookie de sesión está puesta), así que
+        forzar `goto` al home de CertiSAT suele entrar de una; si no, se reintenta."""
+        from playwright.sync_api import TimeoutError as PWTimeout
+
+        home = f"https://{CSD_LANDING_HOST}/certisat/"
         ultimo = None
         for intento in range(1, intentos + 1):
             try:
@@ -203,24 +216,36 @@ class CSDPortalClient:
                     page, self.cer_path, self.key_path, self.password,
                     url_entrada=CSD_URL_ENTRADA_FIEL,
                     exito=_aterrizo_en_certisat,
-                    timeout_ms=45_000,
+                    timeout_ms=30_000,
                 )
                 return
             except RuntimeError as e:
                 ultimo = e
-                logger.warning("[CSD] login intento %d/%d no aterrizó (%s); reintento…",
-                               intento, intentos, page.url[:70])
+            # Recuperación rápida: si quedamos en el NIDP (autenticados pero sin
+            # aterrizar), forzar el home de CertiSAT con la sesión ya establecida.
+            if "loginc.mat.sat.gob.mx" in page.url:
+                try:
+                    page.goto(home, wait_until="domcontentloaded", timeout=20_000)
+                    if _aterrizo_en_certisat(page.url):
+                        logger.info("[%s] login recuperado vía goto directo tras /nidp/app",
+                                    self.ETIQUETA)
+                        return
+                except PWTimeout:
+                    pass
+            logger.warning("[%s] login intento %d/%d no aterrizó (%s); reintento…",
+                           self.ETIQUETA, intento, intentos, page.url[:70])
         raise RuntimeError(f"No se pudo entrar a CertiSAT tras {intentos} intentos: {ultimo}")
 
     def _subir_sdg(self, page, sdg_path: str) -> str:
-        """Sube el `.sdg` y devuelve el número de operación (o lanza si el SAT no lo dio)."""
+        """Sube el archivo del trámite (`.sdg`/`.ren`) y devuelve el número de
+        operación (o lanza si el SAT no lo dio)."""
         import os
         from playwright.sync_api import TimeoutError as PWTimeout
 
-        page.goto(REQUERIMIENTO_URL, wait_until="domcontentloaded")
-        page.wait_for_selector("#txtFileReq", state="attached", timeout=30_000)
-        page.set_input_files("#txtFileReq", os.path.abspath(sdg_path))
-        logger.info("[CSD] .sdg seleccionado: %s", os.path.basename(sdg_path))
+        page.goto(self.MENU_URL, wait_until="domcontentloaded")
+        page.wait_for_selector(self.FILE_INPUT, state="attached", timeout=30_000)
+        page.set_input_files(self.FILE_INPUT, os.path.abspath(sdg_path))
+        logger.info("[%s] archivo seleccionado: %s", self.ETIQUETA, os.path.basename(sdg_path))
         page.click('input[name="enviar"]', no_wait_after=True)
 
         try:
@@ -228,7 +253,7 @@ class CSDPortalClient:
         except PWTimeout:
             cuerpo = (page.inner_text("body")[:400] if page else "").strip()
             raise RuntimeError(
-                "El SAT no devolvió número de operación tras subir el .sdg. "
+                "El SAT no devolvió número de operación tras subir el archivo. "
                 "A veces es un error transitorio del portal; reintenta. "
                 f"Pantalla: «{cuerpo}»"
             )
@@ -250,22 +275,22 @@ class CSDPortalClient:
         except PWTimeout:
             pass
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CSD] no pude entrar a Seguimiento: %s", e)
+            logger.warning("[%s] no pude entrar a Seguimiento: %s", self.ETIQUETA, e)
             return estado, acuse
 
         # Estado del certificado (fila de detalle).
         try:
             txt = page.inner_text("body")
             for linea in txt.splitlines():
-                if "Certificado Digital generado" in linea or "generado" in linea.lower():
+                if "generado" in linea.lower() or "renovaci" in linea.lower():
                     estado = linea.strip()
                     break
-            logger.info("[CSD] Estado en seguimiento: %s", estado or "(no leído)")
+            logger.info("[%s] Estado en seguimiento: %s", self.ETIQUETA, estado or "(no leído)")
         except Exception:  # noqa: BLE001
             pass
 
         # Acuse PDF: el link abre window.open('pdf.do') que descarga el PDF.
-        dest = out_dir / f"Acuse_GeneracionSellos_{self.rfc}_{stamp}.pdf"
+        dest = out_dir / f"{self.ACUSE_PREFIX}_{self.rfc}_{stamp}.pdf"
         try:
             acuse = self._descargar_acuse(context, page, dest)
         except Exception as e:  # noqa: BLE001
@@ -273,18 +298,56 @@ class CSDPortalClient:
         return estado, acuse
 
     def _descargar_acuse(self, context, page, dest: Path) -> Optional[Path]:
+        """Descarga el acuse PDF de la operación. `pdf.do` genera el acuse de la
+        última operación de la sesión (es lo que hace `window.open('pdf.do')`), así
+        que basta con GETearlo tras haber pasado por Seguimiento."""
         from playwright.sync_api import TimeoutError as PWTimeout
 
+        pdf_url = f"https://{CSD_LANDING_HOST}/certisat/pdf.do"
+
+        def _guardar(b: bytes) -> Optional[Path]:
+            if b and b[:5] == b"%PDF-":
+                dest.write_bytes(b)
+                logger.info("[%s] Acuse guardado: %s (%d bytes)", self.ETIQUETA, dest, len(b))
+                return dest
+            return None
+
+        # Primario: GET directo a pdf.do (lo sirve como descarga o inline).
+        dl = context.new_page()
+        try:
+            try:
+                with dl.expect_download(timeout=12_000) as di:
+                    try:
+                        dl.goto(pdf_url)
+                    except Exception:  # noqa: BLE001 — la descarga aborta el goto
+                        pass
+                import tempfile
+                tf = Path(tempfile.mktemp(suffix=".pdf"))
+                di.value.save_as(str(tf))
+                r = _guardar(tf.read_bytes())
+                if r:
+                    return r
+            except PWTimeout:
+                try:
+                    resp = dl.goto(pdf_url, wait_until="commit", timeout=12_000)
+                    if resp and resp.ok:
+                        r = _guardar(resp.body())
+                        if r:
+                            return r
+                except Exception:  # noqa: BLE001
+                    pass
+        finally:
+            dl.close()
+
+        # Fallback: clic en el link "Acuse de recibo" → window.open('pdf.do') → descarga.
         link = page.locator('a:has-text("Acuse de recibo")')
         if link.count() == 0:
             return None
         descarga: dict = {}
         context.on("download", lambda d: descarga.setdefault("d", d))
-        popup = None
         try:
-            with context.expect_page(timeout=8_000) as pop:
+            with context.expect_page(timeout=8_000):
                 link.first.click()
-            popup = pop.value
         except PWTimeout:
             pass
         for _ in range(20):
@@ -292,18 +355,10 @@ class CSDPortalClient:
                 break
             page.wait_for_timeout(300)
         if "d" in descarga:
-            descarga["d"].save_as(str(dest))
-            return dest if dest.exists() and dest.stat().st_size > 0 else None
-        if popup is not None and popup.url.startswith("http"):
-            try:
-                resp = popup.goto(popup.url, wait_until="commit", timeout=10_000)
-                if resp:
-                    b = resp.body()
-                    if b[:5] == b"%PDF-":
-                        dest.write_bytes(b)
-                        return dest
-            except Exception:  # noqa: BLE001
-                pass
+            import tempfile
+            tf = Path(tempfile.mktemp(suffix=".pdf"))
+            descarga["d"].save_as(str(tf))
+            return _guardar(tf.read_bytes())
         return None
 
     def _recuperar_cert(self, context, page, out_dir: Path, stamp: str,

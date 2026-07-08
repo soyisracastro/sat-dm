@@ -102,10 +102,31 @@ Detalles no obvios aprendidos en la corrida real (importantes para no romperlo):
   es público y su TLS lo acepta requests/curl; el navegador lo trata como descarga
   (content-type `x-x509-ca-cert`). Fallback: captura de la descarga con el navegador.
 
-Pendiente (siguiente iteración): automatizar igual la **renovación** (`.ren`) — el
-mismo login sirve; cambia el menú/subida y la descarga del `.cer` nuevo. El detalle
-del portal está en la *Guía para renovar el certificado de e.firma desde CertiSAT WEB*
-del SAT y en `docs/path-renovacion-efirma-csd.md`.
+### Envío automatizado (RENOVACIÓN) — `portal/renovacion.py`
+
+La renovación (`.ren`) reusa TODA la mecánica del CSD (`CSDPortalClient`): solo
+cambian el menú (`renovacion.do?menu=renovacion`), el input (`#txtFileRen`, name
+`renovacion`) y el acuse (`Acuse_renovacion.pdf`). El botón es el mismo
+`input[name="enviar"]` (value "Renovar").
+
+```bash
+sat-dm renovar fiel --cer ... --key ... --enviar   # genera y sube el .ren (pide confirmación)
+sat-dm enviar ren   --cer ... --key ... --ren archivo.ren
+sat-dm recuperar ren --cer ... --key ... --key-nueva nueva.key
+```
+
+API: `enviar_renovacion_fiel(...)` / `recuperar_renovacion_fiel(...)`.
+
+⚠️ **Ventana post-renovación (confirmada en vivo):** al renovar, la e.firma anterior
+queda **revocada de inmediato** y el SAT **no reconoce la nueva para login hasta
+HORAS después** (propagación; el servidor emisor va en UTC). O sea, justo después de
+renovar **ni la vieja ni la nueva** sirven para autenticar en el portal. La UI debe
+avisar de esto. La renovación NO se puede re-testear libremente (cada envío sustituye
+la e.firma única) → se valida por analogía con el CSD (código idéntico) + el
+emparejamiento offline del `.cer` renovado con la `.key` generada.
+
+Detalle del portal en `docs/path-renovacion-efirma.md` (no commiteado: PII) y la
+*Guía ... CertiSAT WEB* del SAT.
 
 ## Verificación
 

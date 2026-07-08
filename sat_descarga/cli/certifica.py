@@ -48,6 +48,34 @@ def _enviar_csd(cer, key, password, sdg_path, key_nueva, salida, ver_navegador, 
     return res
 
 
+def _enviar_ren(cer, key, password, ren_path, key_nueva, salida, ver_navegador, recuperar):
+    """Sube un .ren al portal (Renovación) e imprime el resultado."""
+    from sat_descarga.portal.renovacion import enviar_renovacion_fiel
+
+    print_warning("Subiendo el .ren a CertiSAT Web → «Renovación del certificado» (e.firma)…")
+    res = enviar_renovacion_fiel(
+        cer, key, password, str(ren_path),
+        directorio_salida=str(salida) if salida else "./renovacion/",
+        key_nueva_path=str(key_nueva) if key_nueva else None,
+        headless=not ver_navegador, recuperar=recuperar,
+    )
+    if res.get("numero_operacion"):
+        print_success(f"Número de operación: {res['numero_operacion']}")
+    else:
+        print_error("El SAT no devolvió número de operación (posible error transitorio; reintenta).")
+    if res.get("estado"):
+        print_success(f"Estado: {res['estado']}")
+    if res.get("acuse_pdf"):
+        print_success(f"Acuse: {res['acuse_pdf']}")
+    if res.get("cer"):
+        print_success(f"e.firma renovada (.cer nuevo): {res['cer']}")
+        print_warning("Reemplaza tu .cer/.key por los NUEVOS; la e.firma anterior queda sustituida.")
+    elif recuperar:
+        print_warning("El .cer renovado aún no estaba disponible (tarda minutos). "
+                      "Recupéralo luego con `sat-dm recuperar ren`.")
+    return res
+
+
 def _cargar_fiel(cer, key, password):
     from sat_descarga.core.fiel import FIEL
 
@@ -111,9 +139,18 @@ def renovar():
 @click.option("--rfc-moral", default=None, help="RFC de la persona moral (renovación PM con representante legal)")
 @click.option("--nueva-password", default=None, help="Contraseña de la nueva clave privada")
 @click.option("--salida", default=None, help="Directorio de salida (default: actual)")
-def renovar_fiel_cmd(cer, key, password, correo, rfc_moral, nueva_password, salida):
+@click.option("--enviar", is_flag=True, default=False,
+              help="Además de generar, sube el .ren a CertiSAT Web (¡RENUEVA tu e.firma!)")
+@click.option("--sin-recuperar", is_flag=True, default=False,
+              help="(con --enviar) no esperar/descargar el .cer renovado")
+@click.option("--ver-navegador", is_flag=True, default=False, help="Debug: mostrar el navegador (headful)")
+@click.option("--yes", is_flag=True, default=False, help="No pedir confirmación al enviar")
+def renovar_fiel_cmd(cer, key, password, correo, rfc_moral, nueva_password, salida,
+                     enviar, sin_recuperar, ver_navegador, yes):
     """Requerimiento de Renovación de e.firma (.ren + .key nuevos)."""
     print_header("Renovación de e.firma (.ren)")
+    if not password:
+        password = click.prompt("Contraseña de la clave privada vigente", hide_input=True)
     fiel = _cargar_fiel(cer, key, password)
     if not fiel.vigente:
         print_warning("El certificado ya está vencido; el SAT solo permite renovar antes de vencer.")
@@ -123,6 +160,15 @@ def renovar_fiel_cmd(cer, key, password, correo, rfc_moral, nueva_password, sali
     else:
         res = generar_renovacion_fiel(fiel, correo, nueva, salida)
     _reportar(res, "Sube el .ren en CertiSAT Web → «Renovación del certificado» (login con la e.firma vigente).")
+    if enviar:
+        if not yes:
+            print_warning("Enviar el .ren RENUEVA tu e.firma: el certificado actual quedará "
+                          "SUSTITUIDO y deberás usar el .cer nuevo + la .key recién generada.")
+            if not click.confirm("¿Continuar con el envío al SAT?", default=False):
+                print_warning("Envío cancelado. El .ren quedó generado; súbelo cuando decidas.")
+                return
+        _enviar_ren(cer, key, password, res["ren"], res["key"], salida,
+                    ver_navegador, recuperar=not sin_recuperar)
 
 
 # ---------------------------------------------------------------------------
@@ -184,9 +230,34 @@ def enviar_csd_cmd(cer, key, password, sdg_path, key_nueva, salida, sin_recupera
                 ver_navegador, recuperar=not sin_recuperar)
 
 
+@enviar.command("ren")
+@click.option("--cer", type=click.Path(exists=True), required=True, help="Archivo .cer de la e.firma VIGENTE")
+@click.option("--key", type=click.Path(exists=True), required=True, help="Archivo .key de la e.firma VIGENTE")
+@click.option("--password", default=None, help="Contraseña de la clave privada (se pide oculta si falta)")
+@click.option("--ren", "ren_path", type=click.Path(exists=True), required=True, help="Archivo .ren a subir")
+@click.option("--key-nueva", type=click.Path(exists=True), default=None,
+              help="La .key generada junto al .ren (para confirmar la e.firma renovada)")
+@click.option("--salida", default=None, help="Directorio de salida (default: ./renovacion/)")
+@click.option("--sin-recuperar", is_flag=True, default=False, help="No esperar/descargar el .cer renovado")
+@click.option("--ver-navegador", is_flag=True, default=False, help="Debug: mostrar el navegador (headful)")
+@click.option("--yes", is_flag=True, default=False, help="No pedir confirmación")
+def enviar_ren_cmd(cer, key, password, ren_path, key_nueva, salida, sin_recuperar, ver_navegador, yes):
+    """Sube un .ren a CertiSAT Web (¡RENUEVA tu e.firma!) y recupera el .cer nuevo."""
+    print_header("Envío de renovación de e.firma")
+    if not yes:
+        print_warning("Esto RENUEVA tu e.firma: el certificado actual quedará SUSTITUIDO.")
+        if not click.confirm("¿Continuar con el envío al SAT?", default=False):
+            print_warning("Envío cancelado.")
+            return
+    if not password:
+        password = click.prompt("Contraseña de la clave privada vigente", hide_input=True)
+    _enviar_ren(cer, key, password, ren_path, key_nueva, salida,
+                ver_navegador, recuperar=not sin_recuperar)
+
+
 @click.group()
 def recuperar():
-    """Descarga certificados ya emitidos por el SAT (CSD)."""
+    """Descarga certificados ya emitidos por el SAT (CSD, e.firma renovada)."""
 
 
 @recuperar.command("csd")
@@ -214,3 +285,30 @@ def recuperar_csd_cmd(cer, key, password, key_nueva, salida, ver_navegador):
         print_success(f"CSD descargado: {res['cer']}")
     else:
         print_warning("No se encontró/descargó el CSD (¿aún no se publica? reintenta en unos minutos).")
+
+
+@recuperar.command("ren")
+@click.option("--cer", type=click.Path(exists=True), required=True, help="Archivo .cer de la e.firma para autenticar")
+@click.option("--key", type=click.Path(exists=True), required=True, help="Archivo .key de la e.firma para autenticar")
+@click.option("--password", default=None, help="Contraseña de la clave privada (se pide oculta si falta)")
+@click.option("--key-nueva", type=click.Path(exists=True), default=None,
+              help="La .key nueva del .ren (para confirmar la e.firma renovada)")
+@click.option("--salida", default=None, help="Directorio de salida (default: ./renovacion/)")
+@click.option("--ver-navegador", is_flag=True, default=False, help="Debug: mostrar el navegador (headful)")
+def recuperar_ren_cmd(cer, key, password, key_nueva, salida, ver_navegador):
+    """Descarga el .cer de la e.firma renovada (útil cuando tardó en publicarse)."""
+    from sat_descarga.portal.renovacion import recuperar_renovacion_fiel
+
+    print_header("Recuperación de e.firma renovada")
+    if not password:
+        password = click.prompt("Contraseña de la clave privada vigente", hide_input=True)
+    res = recuperar_renovacion_fiel(
+        cer, key, password,
+        directorio_salida=str(salida) if salida else "./renovacion/",
+        key_nueva_path=str(key_nueva) if key_nueva else None,
+        headless=not ver_navegador,
+    )
+    if res.get("cer"):
+        print_success(f".cer renovado descargado: {res['cer']}")
+    else:
+        print_warning("No se encontró/descargó el .cer (¿aún no se publica? reintenta en unos minutos).")
