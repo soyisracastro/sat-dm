@@ -65,6 +65,15 @@ from .diot import (
     validar_filas as validar_filas_diot,
 )
 
+# Certifica: generación de solicitudes de e.firma (.req/.ren) y CSD (.sdg),
+# equivalente a la app oficial del SAT. Solo depende de `cryptography`.
+from .certifica import (
+    generar_requerimiento_fiel,
+    generar_renovacion_fiel,
+    generar_renovacion_fiel_moral,
+    generar_solicitud_csd,
+)
+
 __all__ = [
     "descargar_cfdi",
     "verificar_solicitud_existente",
@@ -103,4 +112,8 @@ __all__ = [
     "exportar_diot_txt",
     "prellenar_diot",
     "validar_filas_diot",
+    "generar_requerimiento_fiel",
+    "generar_renovacion_fiel",
+    "generar_renovacion_fiel_moral",
+    "generar_solicitud_csd",
 ]
