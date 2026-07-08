@@ -111,6 +111,21 @@ def test_generar_requerimiento_fiel(tmp_path):
     serialization.load_der_private_key(res["key"].read_bytes(), NUEVA_PWD.encode())
 
 
+def test_key_generada_es_3des_no_aes(tmp_path):
+    """La `.key` DEBE ir cifrada con 3DES (formato Certifica), no AES: el login del
+    SAT lee la .key con un JS que no soporta AES-256 y la rechazaría (confirmado en
+    vivo). Regresión del bug del 2026-07-08."""
+    res = certifica.generar_requerimiento_fiel(
+        "XAXX010101000", "XAXX010101HDFXXX01", "a@b.com", "Clave#1", str(tmp_path)
+    )
+    der = res["key"].read_bytes()
+    OID_3DES = bytes([0x06, 0x08, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x03, 0x07])  # des-ede3-cbc
+    OID_AES = bytes([0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x01, 0x2A])  # aes-256-cbc
+    assert OID_3DES in der, "la .key debe cifrarse con 3DES (compatible con el SAT)"
+    assert OID_AES not in der, "la .key NO debe usar AES (el login del SAT no lo lee)"
+    serialization.load_der_private_key(der, b"Clave#1")  # abre con su contraseña
+
+
 # ---------------------------------------------------------------------------
 # .ren — renovación con la e.firma vigente
 # ---------------------------------------------------------------------------

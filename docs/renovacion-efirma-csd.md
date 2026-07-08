@@ -147,9 +147,14 @@ verifica **de forma independiente**:
   aceptando (satcfdi está activo en producción). **Validar contra el portal real**
   antes de anunciarlo; si algún día el SAT exige SHA-256, subir el hash del PKCS#10
   y del CMS.
-- **`.key` con AES-256** (`BestAvailableEncryption`) en lugar del 3DES de Certifica:
-  el `.key` **nunca** se envía al SAT (solo lo guarda el usuario) y las herramientas
-  modernas leen PKCS#8/AES sin problema. Solo cambian esos bytes, no la solicitud.
+- **`.key` cifrada con 3DES, NO AES** (`cifrar_pkcs8_3des`, PBES2/PBKDF2-SHA1/DES-EDE3-CBC,
+  formato Certifica). ⚠️ Es OBLIGATORIO: aunque el `.key` no se envía al SAT, la e.firma se
+  carga en herramientas del SAT que NO soportan AES-256 — en particular el **JS de login del
+  portal (`firmar()`) descifra la `.key` en el navegador** y con AES-256 falla con «Certificado,
+  clave privada o contraseña inválidos» aunque la llave sea correcta. Confirmado en vivo
+  (2026-07-08): un `.key` AES-256 renovada NO deja entrar; re-cifrada a 3DES, sí. `cryptography`
+  no expone 3DES en su API de alto nivel (solo AES), así que se construye el EncryptedPrivateKeyInfo
+  a mano con el encoder ASN.1 propio. (No confundir con el login por CIEC, que no usa la .key.)
 - **No byte-idéntico a Certifica**: el CMS puede diferir en el framing (DER vs BER)
   sin afectar la validez; el SAT acepta el DER. La equivalencia funcional está
   verificada por `satcfdi` contra archivos reales de Certifica.

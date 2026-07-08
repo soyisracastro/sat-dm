@@ -164,18 +164,59 @@ def _codigo_aleatorio() -> bytes:
 # Nueva llave privada
 # ---------------------------------------------------------------------------
 
-def _generar_llave(ruta: Path, password: str):
-    """Genera un par RSA-2048 nuevo y escribe el `.key` cifrado (PKCS#8/AES-256)."""
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    ruta.write_bytes(
-        private_key.private_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.BestAvailableEncryption(
-                password.encode()
-            ),
-        )
+def cifrar_pkcs8_3des(private_key, password: str, iteraciones: int = 2048) -> bytes:
+    """Cifra la llave como PKCS#8 EncryptedPrivateKeyInfo con PBES2 / PBKDF2-HMAC-SHA1 /
+    DES-EDE3-CBC (3DES) — el MISMO formato que produce Certifica.
+
+    Es OBLIGATORIO usar 3DES (no AES): la e.firma se carga en herramientas del SAT que
+    NO soportan AES-256 — en particular el JS de login del portal (`firmar()`) descifra
+    la `.key` en el navegador y con AES-256 falla con «Certificado, clave privada o
+    contraseña inválidos» aunque la llave sea correcta (confirmado en vivo 2026-07-08).
+    """
+    from cryptography.hazmat.primitives.ciphers import Cipher, modes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives.padding import PKCS7
+    try:  # cryptography ≥ 43 movió TripleDES a "decrepit" (sale de primitives en 48)
+        from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+    except ImportError:
+        from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
+
+    plano = private_key.private_bytes(
+        serialization.Encoding.DER,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
     )
+    salt = token_bytes(8)
+    iv = token_bytes(8)
+    clave = PBKDF2HMAC(
+        algorithm=hashes.SHA1(), length=24, salt=salt, iterations=iteraciones
+    ).derive(password.encode())
+    padder = PKCS7(64).padder()  # 3DES: bloque de 64 bits
+    data = padder.update(plano) + padder.finalize()
+    enc = Cipher(TripleDES(clave), modes.CBC(iv)).encryptor()
+    cifrado = enc.update(data) + enc.finalize()
+
+    e = Ans1Encoder()
+    with e.seq():                                    # EncryptedPrivateKeyInfo
+        with e.seq():                                # encryptionAlgorithm (PBES2)
+            e.oid("1.2.840.113549.1.5.13")           # id-PBES2
+            with e.seq():                            # PBES2-params
+                with e.seq():                        # keyDerivationFunc
+                    e.oid("1.2.840.113549.1.5.12")   # id-PBKDF2
+                    with e.seq():
+                        e(salt, nr=Numbers.OctetString)
+                        e(iteraciones)               # INTEGER (prf por defecto: SHA1)
+                with e.seq():                        # encryptionScheme
+                    e.oid("1.2.840.113549.3.7")      # des-ede3-cbc (3DES)
+                    e(iv, nr=Numbers.OctetString)
+        e(cifrado, nr=Numbers.OctetString)           # encryptedData
+    return e.output()
+
+
+def _generar_llave(ruta: Path, password: str):
+    """Genera un par RSA-2048 nuevo y escribe el `.key` cifrado (PKCS#8/3DES, formato SAT)."""
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ruta.write_bytes(cifrar_pkcs8_3des(private_key, password))
     return private_key
 
 
