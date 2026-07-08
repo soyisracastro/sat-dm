@@ -68,7 +68,7 @@ export function TablaDiot({
     catalogos?.operaciones_por_tercero[tercero] ?? [];
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="overflow-hidden rounded-lg border bg-card">
       <Table>
         <TableHeader>
           <TableRow>
