@@ -41,19 +41,19 @@ export function DesglosePasos({
               {paso.numero}
             </span>
             <div className="min-w-0 flex-1 space-y-1">
-              <p className="text-sm font-medium">{paso.descripcion}</p>
+              <p className="text-sm font-bold tracking-tight">{paso.descripcion}</p>
               <p className="text-xs text-muted-foreground">{paso.formula}</p>
               {Object.keys(paso.valores).length > 0 && (
                 <dl className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                   {Object.entries(paso.valores).map(([clave, valor]) => (
                     <div key={clave} className="flex gap-1">
-                      <dt>{clave}:</dt>
+                      <dt className="font-medium text-foreground/80">{clave}:</dt>
                       <dd className="tabular-nums">{formatearValor(valor)}</dd>
                     </div>
                   ))}
                 </dl>
               )}
-              <p className="text-sm font-bold tabular-nums">
+              <p className="pt-0.5 font-mono text-base font-bold tracking-tight tabular-nums">
                 = {formatearValor(paso.resultado)}
               </p>
             </div>

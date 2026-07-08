@@ -9,9 +9,9 @@ export interface ResumenCardItem {
 }
 
 const TONO_CLASES: Record<NonNullable<ResumenCardItem['tono']>, string> = {
-  default: '',
-  positivo: 'text-emerald-600 dark:text-emerald-400',
-  negativo: 'text-red-600 dark:text-red-400',
+  default: 'text-foreground',
+  positivo: 'text-success',
+  negativo: 'text-destructive',
 };
 
 /** Fila de tarjetas de totales (bruto / ISR / neto, etc.). */
@@ -26,16 +26,16 @@ export function ResumenCards({
   return (
     <div
       className={cn(
-        'grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3',
+        'grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3.5',
         className,
       )}
     >
       {items.map((item) => (
-        <div key={item.etiqueta} className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+        <div key={item.etiqueta} className="rounded-xl border bg-card px-4 py-4 shadow-sm">
           <p className="text-xs text-muted-foreground">{item.etiqueta}</p>
           <p
             className={cn(
-              'mt-1 text-lg font-bold tabular-nums',
+              'mt-2.5 font-mono text-2xl leading-none font-medium tracking-tight tabular-nums',
               TONO_CLASES[item.tono ?? 'default'],
             )}
           >

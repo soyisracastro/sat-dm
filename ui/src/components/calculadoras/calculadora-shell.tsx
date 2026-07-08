@@ -38,14 +38,14 @@ export function CalculadoraShell({
       <div className="space-y-2">
         <Link
           href="/calculadoras"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-primary"
         >
           <Icon icon="ph:arrow-left-light" className="size-4" />
           Calculadoras
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="flex items-center gap-3 text-2xl font-extrabold tracking-tight">
+          <div className="space-y-1.5">
+            <h1 className="flex items-center gap-3 text-[1.75rem] leading-tight font-extrabold tracking-tight">
               {titulo}
               {calculando && (
                 <span className="inline-flex items-center gap-1 text-xs font-normal text-muted-foreground">
@@ -54,7 +54,7 @@ export function CalculadoraShell({
                 </span>
               )}
             </h1>
-            <p className="text-muted-foreground">{descripcion}</p>
+            <p className="max-w-3xl leading-relaxed text-muted-foreground">{descripcion}</p>
           </div>
           {acciones && <div className="shrink-0">{acciones}</div>}
         </div>
@@ -77,13 +77,26 @@ export function CalculadoraShell({
 }
 
 /** Placeholder de la columna de resultados mientras no hay cálculo. */
-export function SinResultado({ restaurando = false }: { restaurando?: boolean }) {
+export function SinResultado({
+  restaurando = false,
+  icono,
+  mensaje,
+}: {
+  restaurando?: boolean;
+  /** Icono Phosphor de la calculadora (p. ej. "ph:gift-light"). */
+  icono?: string;
+  /** Mensaje personalizado cuando no hay cálculo (por defecto, el genérico). */
+  mensaje?: string;
+}) {
   return (
     <Card>
-      <CardContent className="py-10 text-center text-sm text-muted-foreground">
-        {restaurando
-          ? 'Cargando el último cálculo de la empresa…'
-          : 'Captura los datos para ver el cálculo en tiempo real.'}
+      <CardContent className="flex min-h-70 flex-col items-center justify-center gap-3 py-10 text-center">
+        {icono && <Icon icon={icono} className="size-8 text-muted-foreground/50" />}
+        <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
+          {restaurando
+            ? 'Cargando el último cálculo de la empresa…'
+            : (mensaje ?? 'Captura los datos para ver el cálculo en tiempo real.')}
+        </p>
       </CardContent>
     </Card>
   );

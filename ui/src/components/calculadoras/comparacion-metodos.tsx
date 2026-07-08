@@ -51,8 +51,8 @@ export function ComparacionMetodos({
           {filas.map((fila) => {
             const recomendado = comparacion.metodo_recomendado === fila.clave;
             return (
-              <TableRow key={fila.clave} className={recomendado ? 'bg-muted/40' : undefined}>
-                <TableCell className={recomendado ? 'font-medium' : undefined}>
+              <TableRow key={fila.clave} className={recomendado ? 'bg-accent' : undefined}>
+                <TableCell className={recomendado ? 'font-semibold' : undefined}>
                   {fila.metodo}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
@@ -62,7 +62,11 @@ export function ComparacionMetodos({
                   {fila.tasa.toFixed(2)}%
                 </TableCell>
                 <TableCell className="text-right">
-                  {recomendado && <Badge variant="secondary">Recomendado</Badge>}
+                  {recomendado && (
+                    <Badge className="border-transparent bg-success/10 text-success">
+                      Recomendado
+                    </Badge>
+                  )}
                 </TableCell>
               </TableRow>
             );
