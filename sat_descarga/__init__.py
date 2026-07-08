@@ -29,6 +29,8 @@ from .webservice.descarga import descargar_paquete, descargar_todos
 from .portal.cfdi import descargar_cfdi_ciec, descargar_cfdi_fiel
 from .portal.constancia import descargar_constancia_ciec, descargar_constancia_fiel
 from .portal.opinion import descargar_opinion_ciec, descargar_opinion_fiel
+from .portal.csd import enviar_solicitud_csd_fiel, recuperar_ultimo_csd_fiel
+from .portal.renovacion import enviar_renovacion_fiel, recuperar_renovacion_fiel
 
 # Listas negras del SAT (Art. 69 y 69-B). Cliente HTTP hacia todoconta-apps.
 from .utils.listas_negras import (
@@ -63,6 +65,15 @@ from .diot import (
     exportar_txt as exportar_diot_txt,
     prellenar_desde_procesador as prellenar_diot,
     validar_filas as validar_filas_diot,
+)
+
+# Certifica: generación de solicitudes de e.firma (.req/.ren) y CSD (.sdg),
+# equivalente a la app oficial del SAT. Solo depende de `cryptography`.
+from .certifica import (
+    generar_requerimiento_fiel,
+    generar_renovacion_fiel,
+    generar_renovacion_fiel_moral,
+    generar_solicitud_csd,
 )
 
 __all__ = [
@@ -103,4 +114,12 @@ __all__ = [
     "exportar_diot_txt",
     "prellenar_diot",
     "validar_filas_diot",
+    "generar_requerimiento_fiel",
+    "generar_renovacion_fiel",
+    "generar_renovacion_fiel_moral",
+    "generar_solicitud_csd",
+    "enviar_solicitud_csd_fiel",
+    "recuperar_ultimo_csd_fiel",
+    "enviar_renovacion_fiel",
+    "recuperar_renovacion_fiel",
 ]
