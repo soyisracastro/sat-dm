@@ -52,6 +52,7 @@ from .state import _session, _limpiar_session  # noqa: F401
 from .routers import (
     webservice_router,
     portal_router,
+    certifica_router,
     empresas_router,
     procesador_router,
     utilidades_router,
@@ -167,6 +168,7 @@ app.include_router(system_router)
 app.include_router(webservice_router)
 app.include_router(utilidades_router)
 app.include_router(portal_router)
+app.include_router(certifica_router)
 app.include_router(empresas_router)
 app.include_router(procesador_router)
 app.include_router(calculadoras_router)

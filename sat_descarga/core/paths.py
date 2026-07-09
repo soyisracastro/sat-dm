@@ -27,6 +27,8 @@ BASE_DIR = "descargas"          # wrapper raíz (plural, estilo "Descargas/Docum
 TIPO_CFDI = "cfdi"              # categoría en singular; → "cfdis" para plural
 TIPO_CONSTANCIA = "constancia"  # → "constancias"
 TIPO_OPINION = "opinion"        # → "opiniones"
+TIPO_RENOVACION = "renovacion"  # e.firma: .ren/.key/acuse/cer del trámite de renovación
+TIPO_CSD = "csd"                # CSD: .sdg/.key/acuse/cer por solicitud de sello
 
 SUB_EMITIDOS = "emitidos"       # colecciones en plural
 SUB_RECIBIDOS = "recibidos"

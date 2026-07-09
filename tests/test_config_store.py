@@ -467,3 +467,95 @@ class TestEncodingLegacy:
         assert descargas[0]["descripcion"] == "Recibidos de MUÑOZ"
         todas = config_store.list_todas_descargas()
         assert todas[0]["descripcion"] == "Recibidos de MUÑOZ"
+
+
+# ---------------------------------------------------------------------------
+# Certifica: renovación de e.firma y CSDs
+# ---------------------------------------------------------------------------
+
+class TestCertifica:
+
+    def _alta(self, test_cer, test_key, test_password):
+        return config_store.add_empresa("Test", test_cer, test_key, test_password)
+
+    # -- respaldo de la e.firma anterior --
+
+    def test_respaldar_efirma_anterior(self, test_cer, test_key, test_password, tmp_path):
+        rfc = self._alta(test_cer, test_key, test_password)
+        destino = config_store.respaldar_efirma_anterior(rfc)
+        assert destino is not None and destino.name.startswith("anterior_")
+        assert (destino / "fiel.cer").exists()
+        assert (destino / "fiel.key").exists()
+        # Los originales siguen en su lugar (es copia, no move).
+        assert (tmp_path / "efirma" / rfc / "fiel.cer").exists()
+
+    def test_respaldar_sin_efirma_devuelve_none(self):
+        assert config_store.respaldar_efirma_anterior("XAXX010101000") is None
+
+    # -- renovación pendiente --
+
+    def test_renovacion_pendiente_ciclo(self, test_cer, test_key, test_password):
+        rfc = self._alta(test_cer, test_key, test_password)
+        assert config_store.get_renovacion_pendiente(rfc) is None
+
+        config_store.set_renovacion_pendiente(rfc, {
+            "numero_operacion": "123456", "acuse_pdf": "/tmp/acuse.pdf",
+            "key_path": "/tmp/nueva.key",
+        })
+        pendiente = config_store.get_renovacion_pendiente(rfc)
+        assert pendiente["numero_operacion"] == "123456"
+        assert pendiente["solicitado_en"]  # timestamp automático
+
+        # Aparece en el payload de list_empresas (lo lee la UI).
+        emp = next(e for e in config_store.list_empresas() if e["rfc"] == rfc)
+        assert emp["renovacion_pendiente"]["numero_operacion"] == "123456"
+
+        config_store.clear_renovacion_pendiente(rfc)
+        assert config_store.get_renovacion_pendiente(rfc) is None
+
+    def test_renovacion_pendiente_rfc_inexistente_no_lanza(self):
+        config_store.set_renovacion_pendiente("XAXX010101000", {"numero_operacion": "1"})
+        assert config_store.get_renovacion_pendiente("XAXX010101000") is None
+        config_store.clear_renovacion_pendiente("XAXX010101000")  # no lanza
+
+    # -- CSDs --
+
+    def test_registrar_y_actualizar_csd(self, test_cer, test_key, test_password):
+        rfc = self._alta(test_cer, test_key, test_password)
+        registro = config_store.registrar_csd(rfc, {
+            "uso": "Facturación general", "numero_operacion": "987654",
+            "acuse_pdf": "/tmp/acuse_csd.pdf", "key_path": "/tmp/csd.key",
+        })
+        assert registro["estado"] == "pendiente"
+        assert registro["cer_path"] is None
+
+        assert config_store.get_csd_pendiente(rfc)["numero_operacion"] == "987654"
+        assert config_store.get_csd_pendiente(rfc, "987654") is not None
+        assert config_store.get_csd_pendiente(rfc, "otro") is None
+
+        ok = config_store.update_csd(rfc, "987654", {
+            "estado": "emitido", "cer_path": "/tmp/csd.cer",
+            "recuperado_en": "2026-07-09T10:00:00",
+        })
+        assert ok
+        emp = next(e for e in config_store.list_empresas() if e["rfc"] == rfc)
+        assert emp["csds"][0]["estado"] == "emitido"
+        assert config_store.get_csd_pendiente(rfc) is None  # ya no hay pendientes
+
+    def test_csd_pendiente_toma_el_mas_reciente(self, test_cer, test_key, test_password):
+        rfc = self._alta(test_cer, test_key, test_password)
+        config_store.registrar_csd(rfc, {"uso": "Matriz", "numero_operacion": "111",
+                                         "acuse_pdf": None, "key_path": "/tmp/a.key"})
+        config_store.registrar_csd(rfc, {"uso": "Sucursal", "numero_operacion": "222",
+                                         "acuse_pdf": None, "key_path": "/tmp/b.key"})
+        assert config_store.get_csd_pendiente(rfc)["numero_operacion"] == "222"
+
+    def test_update_csd_inexistente(self, test_cer, test_key, test_password):
+        rfc = self._alta(test_cer, test_key, test_password)
+        assert config_store.update_csd(rfc, "nope", {"estado": "emitido"}) is False
+        assert config_store.update_csd("XAXX010101000", "1", {}) is False
+
+    def test_registrar_csd_rfc_inexistente_lanza(self):
+        with pytest.raises(KeyError):
+            config_store.registrar_csd("XAXX010101000", {"uso": "x", "numero_operacion": "1",
+                                                         "acuse_pdf": None, "key_path": "k"})

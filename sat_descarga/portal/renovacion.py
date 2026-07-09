@@ -47,6 +47,7 @@ def enviar_renovacion_fiel(
     recuperar: bool = True,
     intentos_cert: int = 6,
     espera_cert_s: int = 30,
+    on_progreso=None,
 ) -> dict:
     """
     Sube un `.ren` (Requerimiento de Renovación de e.firma) a CertiSAT Web y
@@ -55,8 +56,10 @@ def enviar_renovacion_fiel(
     `cer_path`/`key_path`/`password` son la e.firma VIGENTE (con la que se firma el
     login y el `.ren`). `key_nueva_path` es la `.key` nueva generada junto al `.ren`:
     si se pasa, confirma que el certificado recuperado es el renovado (empareja).
+    `on_progreso(fase, data)` refleja el avance para la UI (ver csd.py).
     """
-    client = RenovacionPortalClient(cer_path, key_path, password, headless=headless)
+    client = RenovacionPortalClient(cer_path, key_path, password, headless=headless,
+                                    on_progreso=on_progreso)
     return client.enviar(
         ren_path, directorio_salida=directorio_salida, key_nueva_path=key_nueva_path,
         recuperar=recuperar, intentos_cert=intentos_cert, espera_cert_s=espera_cert_s,
@@ -72,13 +75,15 @@ def recuperar_renovacion_fiel(
     headless: bool = True,
     intentos: int = 10,
     espera_s: int = 30,
+    on_progreso=None,
 ) -> dict:
     """Descarga el `.cer` de la e.firma renovada (para cuando no estaba listo al
     enviar; tarda minutos). Con `key_nueva_path` verifica el emparejamiento.
 
     OJO: puede usarse con la e.firma VIGENTE para el login mientras el SAT aún la
     reconozca; una vez que la nueva sea válida, se usa la nueva para autenticar."""
-    client = RenovacionPortalClient(cer_path, key_path, password, headless=headless)
+    client = RenovacionPortalClient(cer_path, key_path, password, headless=headless,
+                                    on_progreso=on_progreso)
     return client.recuperar(
         directorio_salida=directorio_salida, key_nueva_path=key_nueva_path,
         intentos=intentos, espera_s=espera_s,
