@@ -82,18 +82,18 @@ export function GenerarCsdWizard({ empresa, open, onOpenChange, onDone }: Genera
     if (paso === 2 && job.estado === 'done') setPaso(3);
   }, [paso, job.estado]);
 
+  // Reinicia el asistente al abrir (modal controlado desde el padre → flanco de
+  // `open`). `job.reset` limpia el EventSource del job previo (parte que exige
+  // un Effect); `modo` lo fija cada acción antes del paso de progreso.
   useEffect(() => {
-    if (open) {
-      setPaso(0);
-      setUso('Facturación general');
-      setPassCsd('');
-      setPassCsd2('');
-      setPassEfirma('');
-      setModo(csdPendiente ? 'recuperar' : 'enviar');
-      job.reset();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    if (!open) return;
+    setPaso(0);
+    setUso('Facturación general');
+    setPassCsd('');
+    setPassCsd2('');
+    setPassEfirma('');
+    job.reset();
+  }, [open, job.reset]);
 
   const vigenciaNueva = useMemo(() => {
     const f = new Date();

@@ -100,16 +100,18 @@ export function RenovarEfirmaWizard({
     if (paso === 2 && job.estado === 'done') setPaso(3);
   }, [paso, job.estado]);
 
+  // Reinicia el asistente cada vez que se abre (el modal se controla desde el
+  // padre, así que reaccionamos al flanco de `open`). `job.reset` limpia el
+  // EventSource del job previo — es la parte que exige un Effect (recurso
+  // externo); las demás son setters estables. `modo` no se toca aquí: cada
+  // acción (renovar/recuperar) lo fija antes de llegar al paso de progreso.
   useEffect(() => {
-    if (open) {
-      setPaso(0);
-      setPassword('');
-      setAcepto(false);
-      setModo(pendienteEnviada ? 'recuperar' : 'enviar');
-      job.reset();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    if (!open) return;
+    setPaso(0);
+    setPassword('');
+    setAcepto(false);
+    job.reset();
+  }, [open, job.reset]);
 
   function handleOpenChange(next: boolean) {
     if (!next && corriendo) return; // no cerrar a media renovación
