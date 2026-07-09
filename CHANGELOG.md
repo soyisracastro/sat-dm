@@ -8,6 +8,34 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Renovación de e.firma y generación de CSD desde la app (Certifica)**: nuevo
+  router del agente (`/renovar`, `/renovar/recuperar`, `/csd`, `/csd/recuperar`)
+  que corre cada trámite como **job SSE** de extremo a extremo: genera la
+  solicitud (`.ren`/`.sdg` + `.key`), la firma con la e.firma vigente, la envía
+  a CertiSAT/Certifica y recupera el certificado emitido. En la UI, asistentes
+  de 4 pasos con progreso real por fases: **Renovar e.firma** (confirmación
+  explícita del trámite irreversible; sustituye el `.cer`/`.key` del catálogo
+  con respaldo de la anterior y recarga la sesión; si venció, dirige al trámite
+  presencial + actualizar archivos) y **Generar CSD** («bajar después»
+  first-class: el envío devuelve el número de operación al instante y el
+  certificado se descarga cuando el SAT lo emite; la contraseña del sello se
+  guarda en el keychain y en un `.txt` junto a la `.key` para el timbrado
+  futuro). El estado pendiente se persiste en el catálogo, así que la descarga
+  se puede retomar aunque se cierre la app. FIEL-only (CertiSAT no acepta CIEC).
+
+- **Empresas: rediseño de la lista (Claude Design, boceto Desktop v2)**: vistas
+  **Activas/Archivadas** como pestañas con contadores (las archivadas explican
+  que se conservan por si regresan), barra de totales (activas · morales ·
+  físicas · **requieren atención**), toolbar con **búsqueda por nombre/RFC**,
+  filtro segmentado Todas/Morales/Físicas, filtro de estado y orden (nombre,
+  RFC, e.firma por vencer, requieren atención), columna **Tipo** (Moral/Física
+  según el RFC) y chips de estado con fondo suave. La fila expandida pasó a un
+  grid de **3 tarjetas**: e.firma (semáforo + **Renovar en línea** o
+  **Descargar certificado** pendiente), Constancia de Situación Fiscal y
+  Opinión 32-D. En el detalle de empresa, la card de e.firma abre el asistente
+  de renovación (resaltada cuando está por vencer) y conserva la vía manual de
+  actualizar `.cer`/`.key`.
+
 - **Calculadoras: rediseño de la interfaz (Claude Design)**: el índice pasó a
   tarjetas con ícono en badge y llamada **"Abrir →"** con elevación al hover; en
   cada calculadora los totales se muestran en **cifras grandes monoespaciadas**,
