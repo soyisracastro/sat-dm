@@ -31,6 +31,7 @@ base de datos por dentro**.
 | 03 | [`03-lectura-sql-server.md`](03-lectura-sql-server.md) | **Lectura read-only** — tablas SQL Server, conciliación UUID↔póliza |
 | 04 | [`04-mapeo-cfdi-poliza.md`](04-mapeo-cfdi-poliza.md) | **Reglas contables** CFDI (`CfdiData`) → asientos |
 | 05 | [`05-roadmap.md`](05-roadmap.md) | Fases, esfuerzo, riesgos, brecha 14→19, escalabilidad Aspel/Microsip |
+| 06 | [`06-plan-mvp-contabilizador.md`](06-plan-mvp-contabilizador.md) | **Plan de implementación del MVP** — módulos, endpoints, config de cuentas, contrato de UI |
 
 ## Dónde encaja en TodoConta
 
