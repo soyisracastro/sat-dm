@@ -32,6 +32,7 @@ base de datos por dentro**.
 | 04 | [`04-mapeo-cfdi-poliza.md`](04-mapeo-cfdi-poliza.md) | **Reglas contables** CFDI (`CfdiData`) → asientos |
 | 05 | [`05-roadmap.md`](05-roadmap.md) | Fases, esfuerzo, riesgos, brecha 14→19, escalabilidad Aspel/Microsip |
 | 06 | [`06-plan-mvp-contabilizador.md`](06-plan-mvp-contabilizador.md) | **Plan de implementación del MVP** — módulos, endpoints, config de cuentas, contrato de UI |
+| 07 | [`07-brief-ui-contabilizador.md`](07-brief-ui-contabilizador.md) | **Brief de diseño de UI** — para pasar a diseño: flujo, pantallas, estados, microcopy |
 
 ## Dónde encaja en TodoConta
 
