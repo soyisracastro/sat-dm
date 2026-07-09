@@ -243,6 +243,96 @@ class TestRenovarFlujo:
         rfc = _alta_fiel(client, test_cer, test_key, test_password)
         assert client.post("/renovar/recuperar", json={"rfc": rfc}).status_code == 404
 
+    def test_envio_fallido_persiste_etapa_generada_y_reintento_reusa_el_ren(
+        self, client, monkeypatch, tmp_path, test_cer, test_key, test_password, vigente,
+    ):
+        """Portal del SAT caído en el envío: queda la etapa 'generada' y el
+        reintento REENVÍA el mismo .ren (no regenera — si el SAT hubiera
+        procesado el envío sin que leyéramos el número, la .key original es la
+        que empareja con el cert emitido)."""
+        rfc = _alta_fiel(client, test_cer, test_key, test_password)
+
+        generaciones = []
+
+        def fake_generar(fiel, correo=None, password=None, salida_dir=None):
+            generaciones.append(1)
+            d = Path(salida_dir); d.mkdir(parents=True, exist_ok=True)
+            key = d / "Claveprivada_FIEL_nueva.key"
+            shutil.copy2(test_key, key)
+            ren = d / "Renovacion_FIEL.ren"
+            ren.write_bytes(b"REN")
+            return {"key": key, "ren": ren}
+
+        def enviar_caido(cer, key, password, ren, on_progreso=None, **kw):
+            on_progreso("login_ok", {})
+            raise RuntimeError("El portal del SAT no respondió")
+
+        monkeypatch.setattr("sat_descarga.certifica.generar_renovacion_fiel", fake_generar)
+        monkeypatch.setattr("sat_descarga.portal.renovacion.enviar_renovacion_fiel", enviar_caido)
+
+        r = client.post("/renovar", json={
+            "rfc": rfc, "password": test_password, "confirmar": True,
+        })
+        data = _esperar_job(client, r.json()["job_id"])
+        assert data["estado"] == "error"
+
+        pendiente = config_store.get_renovacion_pendiente(rfc)
+        assert pendiente["etapa"] == "generada"
+        assert pendiente["numero_operacion"] is None
+        assert Path(pendiente["ren_path"]).exists()
+        assert Path(pendiente["key_path"]).exists()
+
+        # Reintento: NO es 409, reusa el MISMO .ren/.key y completa el trámite.
+        def enviar_ok(cer, key, password, ren, directorio_salida=None,
+                      key_nueva_path=None, on_progreso=None, **kw):
+            assert ren == pendiente["ren_path"]
+            assert key_nueva_path == pendiente["key_path"]
+            on_progreso("numero_operacion", {"numero": "998877"})
+            acuse = Path(directorio_salida) / "Acuse_renovacion.pdf"
+            acuse.write_bytes(b"%PDF")
+            on_progreso("acuse", {"estado": "Aceptada", "acuse_pdf": str(acuse)})
+            return {"numero_operacion": "998877", "acuse_pdf": acuse,
+                    "estado": "Aceptada", "cer": Path(test_cer)}
+
+        monkeypatch.setattr("sat_descarga.portal.renovacion.enviar_renovacion_fiel", enviar_ok)
+        r2 = client.post("/renovar", json={
+            "rfc": rfc, "password": test_password, "confirmar": True,
+        })
+        assert r2.status_code == 200
+        data2 = _esperar_job(client, r2.json()["job_id"])
+        assert data2["estado"] == "done" and data2["resultado"]["renovada"] is True
+        assert len(generaciones) == 1  # no se regeneró
+        assert config_store.get_renovacion_pendiente(rfc) is None
+
+    def test_recuperar_con_pendiente_generada_409(self, client, test_cer, test_key, test_password):
+        """Sin número de operación no hay nada que descargar: el reintento
+        correcto es POST /renovar (reenvía el mismo .ren)."""
+        rfc = _alta_fiel(client, test_cer, test_key, test_password)
+        config_store.set_renovacion_pendiente(rfc, {
+            "etapa": "generada", "numero_operacion": None, "acuse_pdf": None,
+            "ren_path": "/tmp/r.ren", "key_path": "/tmp/k.key",
+        })
+        r = client.post("/renovar/recuperar", json={"rfc": rfc})
+        assert r.status_code == 409 and "no se envía" in r.json()["detail"]
+
+    def test_pendiente_generada_sin_archivos_regenera(
+        self, client, monkeypatch, test_cer, test_key, test_password, vigente,
+    ):
+        """Si el usuario borró el .ren/.key del trámite fallido, se limpia el
+        pendiente y se genera una solicitud nueva (no hay nada que reusar)."""
+        rfc = _alta_fiel(client, test_cer, test_key, test_password)
+        config_store.set_renovacion_pendiente(rfc, {
+            "etapa": "generada", "numero_operacion": None, "acuse_pdf": None,
+            "ren_path": "/no/existe.ren", "key_path": "/no/existe.key",
+        })
+        TestRenovarFlujo._fakes(self, monkeypatch, None, test_cer, test_key, con_cer=True)
+        r = client.post("/renovar", json={
+            "rfc": rfc, "password": test_password, "confirmar": True,
+        })
+        assert r.status_code == 200
+        data = _esperar_job(client, r.json()["job_id"])
+        assert data["estado"] == "done" and data["resultado"]["renovada"] is True
+
 
 # ---------------------------------------------------------------------------
 # POST /csd — flujo completo (envío monkeypatcheado)

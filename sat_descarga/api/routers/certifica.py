@@ -196,7 +196,8 @@ def renovar_efirma(req: RenovarRequest):
                 "los archivos nuevos."
             ),
         )
-    if config_store.get_renovacion_pendiente(rfc):
+    pendiente = config_store.get_renovacion_pendiente(rfc)
+    if pendiente and pendiente.get("numero_operacion"):
         raise HTTPException(
             status_code=409,
             detail=(
@@ -204,6 +205,19 @@ def renovar_efirma(req: RenovarRequest):
                 "Usa «Descargar certificado» (POST /renovar/recuperar)."
             ),
         )
+    # Pendiente SIN número de operación = el `.ren` se generó pero el envío no se
+    # logró (portal del SAT caído). Se REUTILIZA el mismo .ren/.key: si el SAT
+    # hubiera alcanzado a procesar el envío sin que leyéramos el número, el cert
+    # emitido empareja con ESA .key — regenerar la perdería. Si el usuario borró
+    # los archivos del trámite, se limpia y se regenera.
+    reusar: Optional[dict] = None
+    if pendiente:
+        ren_prev, key_prev = pendiente.get("ren_path"), pendiente.get("key_path")
+        if ren_prev and key_prev and Path(ren_prev).exists() and Path(key_prev).exists():
+            reusar = {"ren": ren_prev, "key": key_prev,
+                      "solicitado_en": pendiente.get("solicitado_en")}
+        else:
+            config_store.clear_renovacion_pendiente(rfc)
 
     password = req.password
     correo = req.correo
@@ -216,35 +230,50 @@ def renovar_efirma(req: RenovarRequest):
             from ...portal.renovacion import enviar_renovacion_fiel
 
             emitir_fase("generando")
-            # La contraseña de la .key nueva = la de la vigente (decisión UX:
-            # una sola contraseña que el usuario ya conoce).
-            generado = generar_renovacion_fiel(
-                fiel, correo=correo, password=password, salida_dir=salida,
-            )
-            key_nueva = str(generado["key"])
+            if reusar:
+                ren_path, key_nueva = str(reusar["ren"]), str(reusar["key"])
+            else:
+                # La contraseña de la .key nueva = la de la vigente (decisión UX:
+                # una sola contraseña que el usuario ya conoce).
+                generado = generar_renovacion_fiel(
+                    fiel, correo=correo, password=password, salida_dir=salida,
+                )
+                ren_path, key_nueva = str(generado["ren"]), str(generado["key"])
+            # Persistir ANTES de enviar (etapa "generada"): si el portal del SAT
+            # falla en el envío, el reintento continúa desde aquí con el MISMO .ren.
+            config_store.set_renovacion_pendiente(rfc, {
+                "etapa": "generada",
+                "numero_operacion": None,
+                "acuse_pdf": None,
+                "ren_path": ren_path,
+                "key_path": key_nueva,
+                **({"solicitado_en": reusar["solicitado_en"]}
+                   if reusar and reusar.get("solicitado_en") else {}),
+            })
             emitir_fase("firmando")     # la firma CMS ocurrió dentro del .ren
 
             def puente(fase, data):
                 emitir_fase(fase, data)
                 if fase == "numero_operacion":
-                    # Persistir YA: si la app muere a media recuperación, la UI
-                    # retoma con /renovar/recuperar.
+                    # El SAT ya tiene el trámite: etapa "enviada". Si la app muere
+                    # a media recuperación, la UI retoma con /renovar/recuperar.
+                    actual = config_store.get_renovacion_pendiente(rfc) or {}
                     config_store.set_renovacion_pendiente(rfc, {
+                        **actual,
+                        "etapa": "enviada",
                         "numero_operacion": data.get("numero"),
-                        "acuse_pdf": None,
-                        "key_path": key_nueva,
                     })
                 elif fase == "acuse" and data.get("acuse_pdf"):
-                    pendiente = config_store.get_renovacion_pendiente(rfc) or {}
-                    if pendiente:
+                    actual = config_store.get_renovacion_pendiente(rfc) or {}
+                    if actual:
                         config_store.set_renovacion_pendiente(
-                            rfc, {**pendiente, "acuse_pdf": data["acuse_pdf"]},
+                            rfc, {**actual, "acuse_pdf": data["acuse_pdf"]},
                         )
 
             emitir_fase("enviando")
             res = enviar_renovacion_fiel(
                 empresa["cer_path"], empresa["key_path"], password,
-                str(generado["ren"]), directorio_salida=salida,
+                ren_path, directorio_salida=salida,
                 key_nueva_path=key_nueva, recuperar=True,
                 intentos_cert=6, espera_cert_s=30, on_progreso=puente,
             )
@@ -291,6 +320,16 @@ def renovar_recuperar(req: RenovarRecuperarRequest):
         raise HTTPException(
             status_code=404,
             detail="No hay una renovación pendiente de descargar para este RFC.",
+        )
+    if not pendiente.get("numero_operacion"):
+        # Etapa "generada": el .ren nunca llegó al SAT → aquí no hay nada que
+        # descargar; el reintento correcto es POST /renovar (reenvía el mismo .ren).
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "La solicitud de renovación aún no se envía al SAT. "
+                "Reintenta la renovación: se reenviará la misma solicitud."
+            ),
         )
     empresa = _credenciales_keychain(rfc)
     password = empresa["password"]

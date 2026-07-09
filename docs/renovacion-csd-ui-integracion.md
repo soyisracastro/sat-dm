@@ -120,10 +120,17 @@ Progreso por SSE con eventos `{"event":"fase","fase":…}`
 (`generando → firmando → enviando → numero_operacion → acuse → recuperando →
 guardando`), emitidos por el callback `on_progreso` de `portal/csd.py`.
 
-**Persistencia** (`cli/config_store.py`): `renovacion_pendiente` y `csds[]` en
-empresas.json se escriben EN CUANTO hay número de operación (si la app muere a
-media recuperación, la UI retoma con `*/recuperar`); respaldo de la e.firma
-anterior en `efirma/{RFC}/anterior_{stamp}/` antes de sustituir.
+**Persistencia por etapa** (`cli/config_store.py`): `renovacion_pendiente` se
+escribe con `etapa: "generada"` ANTES del envío (con `ren_path`/`key_path`) y
+pasa a `etapa: "enviada"` al capturar el número de operación. Si el portal del
+SAT falla **en el envío**, el reintento de `POST /renovar` REENVÍA el mismo
+`.ren` (no regenera: si el SAT hubiera procesado el envío sin que leyéramos el
+número, la `.key` original es la que empareja con el cert emitido); si falla
+**al recuperar el cert**, la UI retoma con `/renovar/recuperar` (409 si aún no
+hay número). `csds[]` se registra al obtener número de operación. Respaldo de
+la e.firma anterior en `efirma/{RFC}/anterior_{stamp}/` antes de sustituir.
+El CSD no necesita etapa "generada": es repetible y no destructivo (un `.sdg`
+regenerado solo produce otro sello).
 
 **Contraseña del CSD** (decisión de producto 2026-07-09): la elige el usuario en
 el wizard (mín. 8) y se guarda en el **keychain** (`csd:{RFC}`) **y** en un

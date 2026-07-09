@@ -84,6 +84,10 @@ export function RenovarEfirmaWizard({
   const [modo, setModo] = useState<'enviar' | 'recuperar'>('enviar');
 
   const pendiente = empresa.renovacion_pendiente ?? null;
+  // 'enviada' (hay número de operación) → solo falta descargar el cert.
+  // 'generada' (el envío falló) → se reenvía el MISMO .ren con POST /renovar.
+  const pendienteEnviada = !!pendiente?.numero_operacion;
+  const pendienteGenerada = !!pendiente && !pendiente.numero_operacion;
   const sem = semaforoVencimiento(empresa.vencimiento);
   const vencida = sem?.vencida ?? false;
 
@@ -101,7 +105,7 @@ export function RenovarEfirmaWizard({
       setPaso(0);
       setPassword('');
       setAcepto(false);
-      setModo(pendiente ? 'recuperar' : 'enviar');
+      setModo(pendienteEnviada ? 'recuperar' : 'enviar');
       job.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,7 +149,7 @@ export function RenovarEfirmaWizard({
     }
   }
 
-  const puedeContinuar = !vencida && !pendiente;
+  const puedeContinuar = !vencida && !pendienteEnviada;
   const confirmarListo = password.length >= 4 && acepto;
 
   return (
@@ -167,7 +171,7 @@ export function RenovarEfirmaWizard({
           <div className="space-y-3.5">
             <EstadoVigencia empresa={empresa} />
 
-            {pendiente ? (
+            {pendienteEnviada && pendiente ? (
               <Alert>
                 <AlertTitle>Tu certificado nuevo está en camino</AlertTitle>
                 <AlertDescription>
@@ -175,6 +179,18 @@ export function RenovarEfirmaWizard({
                   <span className="font-mono">{pendiente.numero_operacion}</span>). Solo
                   falta descargar el certificado que emitió el SAT — suele tardar unos
                   minutos.
+                </AlertDescription>
+              </Alert>
+            ) : pendienteGenerada ? (
+              <Alert>
+                <AlertTitle>Retomamos donde te quedaste</AlertTitle>
+                <AlertDescription>
+                  Tu solicitud de renovación quedó generada, pero el portal del SAT
+                  falló al enviarla. Nada llegó al SAT y{' '}
+                  <span className="font-semibold text-foreground">
+                    tu e.firma actual sigue intacta
+                  </span>
+                  : al continuar, reenviamos la misma solicitud.
                 </AlertDescription>
               </Alert>
             ) : vencida ? (
@@ -198,7 +214,7 @@ export function RenovarEfirmaWizard({
               </div>
             )}
 
-            {!vencida && !pendiente && (
+            {!vencida && !pendienteEnviada && (
               <dl className="space-y-2.5 rounded-xl border border-border/60 p-3.5 text-[13px]">
                 <div className="flex items-baseline justify-between gap-3">
                   <dt className="text-xs text-muted-foreground">RFC</dt>
@@ -218,7 +234,7 @@ export function RenovarEfirmaWizard({
               <Button variant="ghost" onClick={() => handleOpenChange(false)}>
                 Cancelar
               </Button>
-              {pendiente ? (
+              {pendienteEnviada ? (
                 <Button onClick={recuperar}>
                   <Icon icon="ph:download-simple-light" className="size-4" />
                   Descargar certificado
@@ -325,10 +341,31 @@ export function RenovarEfirmaWizard({
             />
 
             {job.estado === 'error' && (
-              <Alert variant="destructive">
-                <AlertTitle>El trámite no se completó</AlertTitle>
-                <AlertDescription>{job.error}</AlertDescription>
-              </Alert>
+              <>
+                <Alert variant="destructive">
+                  <AlertTitle>El trámite no se completó</AlertTitle>
+                  <AlertDescription>{job.error}</AlertDescription>
+                </Alert>
+                {/* Tranquilidad ante el portal caído: el progreso queda guardado
+                    y el reintento continúa desde la etapa donde se atoró. */}
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {modo === 'recuperar' || (job.fase && FASES_POST_ENVIO.has(job.fase)) ? (
+                    <>
+                      La solicitud <strong className="text-foreground">ya está en el SAT</strong> y
+                      tu avance quedó guardado: al reintentar solo descargamos tu
+                      certificado nuevo. También puedes cerrar y retomarlo después
+                      desde Empresas.
+                    </>
+                  ) : (
+                    <>
+                      Nada se envió al SAT:{' '}
+                      <strong className="text-foreground">tu e.firma actual sigue intacta</strong>.
+                      La solicitud quedó guardada; reintenta ahora o cierra y
+                      retómala después desde Empresas — se reenviará la misma.
+                    </>
+                  )}
+                </p>
+              </>
             )}
 
             <DialogFooter>

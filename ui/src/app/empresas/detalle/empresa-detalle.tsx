@@ -296,6 +296,8 @@ function FielSection({
   const sem = tiene ? semaforoVencimiento(empresa.vencimiento) : null;
   const avisaRenovar = sem !== null && sem.estado !== 'verde';
   const pendiente = !!empresa.renovacion_pendiente;
+  // 'enviada' (falta bajar el cert) vs 'generada' (reenviar el mismo .ren).
+  const pendienteEnviada = !!empresa.renovacion_pendiente?.numero_operacion;
   const [mostrarForm, setMostrarForm] = useState(!tiene);
   const [renovarOpen, setRenovarOpen] = useState(false);
   const [confirmQuitar, setConfirmQuitar] = useState(false);
@@ -377,10 +379,14 @@ function FielSection({
                 onClick={() => setRenovarOpen(true)}
               >
                 <Icon
-                  icon={pendiente ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
+                  icon={pendienteEnviada ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
                   className="size-3.5"
                 />
-                {pendiente ? 'Descargar certificado' : 'Renovar e.firma'}
+                {pendienteEnviada
+                  ? 'Descargar certificado'
+                  : pendiente
+                    ? 'Reanudar renovación'
+                    : 'Renovar e.firma'}
               </Button>
             )}
             <Button
@@ -394,11 +400,13 @@ function FielSection({
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          {pendiente
+          {pendienteEnviada
             ? 'Renovación enviada: solo falta descargar el certificado que emitió el SAT.'
-            : sem
-              ? `Vence el ${sem.fecha} · ${sem.label}`
-              : 'Certificado registrado.'}
+            : pendiente
+              ? 'El envío de la renovación falló en ese momento; tu e.firma sigue intacta. Reanuda para reenviar la misma solicitud.'
+              : sem
+                ? `Vence el ${sem.fecha} · ${sem.label}`
+                : 'Certificado registrado.'}
         </p>
         {avisaRenovar && sem && !pendiente && (
           <Alert

@@ -277,8 +277,13 @@ export interface Empresa {
 // ---------------------------------------------------------------------------
 
 export interface RenovacionPendiente {
-  numero_operacion: string;
+  /** 'generada' = el .ren existe pero el envío al SAT falló (se reenvía el mismo
+   * con POST /renovar); 'enviada' = ya hay número de operación (falta el cert,
+   * se descarga con POST /renovar/recuperar). */
+  etapa?: 'generada' | 'enviada';
+  numero_operacion?: string | null;
   acuse_pdf?: string | null;
+  ren_path?: string;
   key_path: string;
   solicitado_en: string;
 }

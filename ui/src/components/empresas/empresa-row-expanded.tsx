@@ -166,16 +166,23 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
     );
   }
 
+  // Renovación pendiente: 'enviada' (falta bajar el cert) vs 'generada' (el
+  // envío falló y se reanuda reenviando el mismo .ren).
+  const renEnviada = !!empresa.renovacion_pendiente?.numero_operacion;
+  const renGenerada = !!empresa.renovacion_pendiente && !renEnviada;
+
   // Estado de la tarjeta e.firma (dot + etiqueta, estilo boceto).
   const efirmaEstado = !tieneFiel
     ? { tone: 'muted' as const, label: 'Sin e.firma registrada' }
-    : empresa.renovacion_pendiente
+    : renEnviada
       ? { tone: 'warn' as const, label: 'Certificado nuevo pendiente' }
-      : sem?.vencida
-        ? { tone: 'warn' as const, label: 'Vencida' }
-        : sem && sem.estado !== 'verde'
-          ? { tone: 'warn' as const, label: 'Por renovar' }
-          : { tone: 'ok' as const, label: 'Vigente' };
+      : renGenerada
+        ? { tone: 'warn' as const, label: 'Renovación por reenviar' }
+        : sem?.vencida
+          ? { tone: 'warn' as const, label: 'Vencida' }
+          : sem && sem.estado !== 'verde'
+            ? { tone: 'warn' as const, label: 'Por renovar' }
+            : { tone: 'ok' as const, label: 'Vigente' };
 
   return (
     <div className="space-y-3">
@@ -187,10 +194,15 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
           <EstadoDot tone={efirmaEstado.tone} label={efirmaEstado.label} />
           {tieneFiel && sem ? (
             <p className="text-xs leading-relaxed text-muted-foreground">
-              {empresa.renovacion_pendiente ? (
+              {renEnviada ? (
                 <>
                   La renovación ya se envió; solo falta descargar el certificado que
                   emitió el SAT.
+                </>
+              ) : renGenerada ? (
+                <>
+                  El envío al SAT falló en ese momento; tu e.firma sigue intacta.
+                  Reanuda para reenviar la misma solicitud.
                 </>
               ) : (
                 <>
@@ -215,10 +227,14 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
                 onClick={() => setRenovarOpen(true)}
               >
                 <Icon
-                  icon={empresa.renovacion_pendiente ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
+                  icon={renEnviada ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
                   className="mr-1.5 size-3.5"
                 />
-                {empresa.renovacion_pendiente ? 'Descargar certificado' : 'Renovar e.firma'}
+                {renEnviada
+                  ? 'Descargar certificado'
+                  : renGenerada
+                    ? 'Reanudar renovación'
+                    : 'Renovar e.firma'}
               </Button>
             ) : (
               <Button size="sm" variant="outline" className="flex-1" asChild>
