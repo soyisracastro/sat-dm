@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
 import { useJob } from '@/hooks/use-job';
@@ -107,12 +107,6 @@ export function RenovarEfirmaWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const vigenciaNueva = useMemo(() => {
-    const f = new Date();
-    f.setFullYear(f.getFullYear() + 4);
-    return f.toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
-  }, []);
-
   function handleOpenChange(next: boolean) {
     if (!next && corriendo) return; // no cerrar a media renovación
     if (!next && exito) onDone?.();
@@ -211,8 +205,11 @@ export function RenovarEfirmaWizard({
                   <dd className="font-mono text-xs font-medium">{empresa.rfc}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-3">
+                  {/* Sin fecha exacta: la vigencia corre desde que el SAT emite el
+                      certificado, no desde hoy (junto al vencimiento actual, una
+                      estimación al día parece error de fechas). */}
                   <dt className="text-xs text-muted-foreground">Vigencia nueva</dt>
-                  <dd className="font-semibold">4 años · hasta {vigenciaNueva}</dd>
+                  <dd className="font-semibold">4 años a partir de la emisión</dd>
                 </div>
               </dl>
             )}
