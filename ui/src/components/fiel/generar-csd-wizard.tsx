@@ -197,8 +197,10 @@ export function GenerarCsdWizard({ empresa, open, onOpenChange, onDone }: Genera
                 <dd className="font-mono text-xs font-medium">{empresa.rfc}</dd>
               </div>
               <div className="flex items-baseline justify-between gap-3">
+                {/* Sin fecha exacta: la vigencia corre desde que el SAT emite el
+                    sello (misma razón que en el wizard de renovación). */}
                 <dt className="text-xs text-muted-foreground">Vigencia</dt>
-                <dd className="font-semibold">4 años · hasta {vigenciaNueva}</dd>
+                <dd className="font-semibold">4 años a partir de la emisión</dd>
               </div>
             </dl>
 
