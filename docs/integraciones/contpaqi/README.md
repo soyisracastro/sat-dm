@@ -74,7 +74,8 @@ flowchart LR
 | | **A) TXT** | **B) SDK COM** | **C) SQL read-only** |
 |---|---|---|---|
 | Dirección | Escritura | Escritura | Lectura |
-| Licencia SDK | ❌ No requiere | ✅ Requiere (habilitar con distribuidor) | ❌ No requiere |
+| Licencia SDK | ❌ No requiere | ⚠️ Usa tu licencia de uso; Multi-RFC para varios clientes | ❌ No requiere |
+| CONTPAQi local | ❌ No necesita (multiplataforma) | ✅ Windows + CONTPAQi | ✅ Windows + CONTPAQi |
 | Tiempo real | No (importación manual/semi) | Sí | Sí |
 | Asocia UUID al ADD | Sí (registro `AD`) | Sí (`TSdkAsocCFDI`) | — |
 | Complejidad técnica | Baja (gemelo de DIOT) | Media/alta (COM x86, host) | Baja/media |
@@ -83,11 +84,30 @@ flowchart LR
 
 ## Estrategia recomendada
 
-1. **Vía C (lectura) primero** — conciliación UUID↔póliza y catálogo de cuentas. Máximo valor,
-   mínimo riesgo, sin licencia. Es la "Fase 1" del pitch.
-2. **Vía A (TXT) en paralelo** — pre-armado y exportación de pólizas reutilizando el molde DIOT.
-   Primera capacidad de escritura, sin licencia.
-3. **Vía B (SDK) como profundización** — escritura en tiempo real, condicionada a la licencia SDK.
-   Reutiliza el mismo mapeo que la vía A.
+1. **Vía A (Contabilizador TXT) primero** — el gran diferenciador y el MVP. Genera el archivo de
+   pólizas (con UUID + folio asociados) desde los CFDIs ya parseados. Es **Python puro, sin SQL,
+   sin COM, sin licencia y sin CONTPAQi instalado** → funciona en **Mac/Windows/Linux**. El
+   contador lo importa en su CONTPAQi. Ver [nota multiplataforma](#nota-multiplataforma-el-mvp-no-requiere-contpaqi-local).
+2. **Vía C (lectura SQL)** — conciliación UUID↔póliza y auto-carga del catálogo de cuentas. Suma
+   valor cuando CONTPAQi **sí** está en la misma máquina (solo Windows). Sin licencia.
+3. **Vía B (SDK)** como profundización — escritura en tiempo real, condicionada al tier de licencia
+   (Mono/Multi-RFC; ver [`02-sdk-com.md`](02-sdk-com.md) §2). Reutiliza el mismo mapeo que la vía A.
+
+### Nota multiplataforma: el MVP no requiere CONTPAQi local
+
+La generación del TXT **no depende de que CONTPAQi esté instalado en la máquina que lo genera**.
+Esto habilita el caso de un despacho que trabaja en **Mac**: se genera el TXT ahí y el cliente lo
+importa en su Windows. La única entrada que CONTPAQi normalmente daría —el **catálogo de cuentas**—
+se desacopla y entra como **dato cargado**, con tres orígenes (de más a menos automático):
+
+1. **Auto-lectura por SQL** de la instalación local (Windows con CONTPAQi) — vía C.
+2. **Carga de archivo** exportado del catálogo (Excel/CSV, o el formato `CT_EST_Cuenta_NG`) — el
+   modo para **Mac / sin CONTPAQi local**.
+3. **Captura manual** de las cuentas por defecto del mapeo.
+
+> **Correctitud**: el catálogo que use TodoConta debe **reflejar el catálogo real** de la empresa
+> destino — CONTPAQi rechaza al importar cualquier cuenta inexistente. Por eso el origen confiable
+> es el catálogo **exportado del cliente** (o leído por SQL), no códigos inventados. Ver
+> [`04-mapeo-cfdi-poliza.md`](04-mapeo-cfdi-poliza.md) §3.
 
 Detalle y criterios de "listo para implementar" en [`05-roadmap.md`](05-roadmap.md).

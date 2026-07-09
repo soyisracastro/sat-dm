@@ -34,10 +34,26 @@ De `sat_descarga/procesador/cfdi_parser.py` (dataclass `CfdiData`, línea 122; y
 
 El `tipo_comprobante` afina: `E` (egreso/nota de crédito) invierte el sentido respecto de `I`.
 
-## 3. Catálogo de cuentas por defecto (configuración por empresa)
+## 3. Catálogo de cuentas — origen y configuración
 
-Estructura propuesta (`ConfigCuentasContpaq`), con **códigos** de cuenta (los que existen en
-`Cuentas.Codigo`, ver `03-lectura-sql-server.md` §4.1). Valores de ejemplo — el usuario los ajusta:
+El mapeo necesita **códigos de cuenta reales de la empresa destino**. El catálogo entra como
+**input** (no requiere CONTPAQi en la máquina que genera el TXT), con tres orígenes:
+
+1. **Archivo cargado** — Excel/CSV exportado del catálogo del cliente, o el formato
+   `CT_EST_Cuenta_NG` (ver `01-importacion-txt-polizas.md` §5). **Es el modo para Mac / sin
+   CONTPAQi local.** Se parsea a `(Codigo, Nombre, naturaleza, agrupador_sat)` y se guarda por
+   empresa.
+2. **Auto-lectura por SQL** de la instalación local (Windows con CONTPAQi) — ver
+   `03-lectura-sql-server.md` §4.1. Se enchufa como origen alterno del mismo catálogo.
+3. **Captura manual** de las ~10 cuentas por defecto de la tabla de abajo, si no hay catálogo.
+
+> **Correctitud crítica**: los códigos deben **existir en el catálogo real** de la empresa destino
+> — CONTPAQi rechaza al importar cualquier cuenta inexistente. Por eso el origen confiable es el
+> catálogo exportado del cliente (o leído por SQL); no inventar códigos. El generador **valida**
+> cada código del mapeo contra el catálogo cargado antes de exportar y avisa los faltantes.
+
+Estructura de configuración (`ConfigCuentasContpaq`) con **códigos** de cuenta (los que existen en
+`Cuentas.Codigo`). Valores de ejemplo — el usuario los ajusta eligiendo del catálogo cargado:
 
 | Clave de config | Uso | Ejemplo |
 |---|---|---|

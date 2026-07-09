@@ -169,7 +169,10 @@ AD▯5F2A1C0E-...-UUID-36-chars-...
 ## 8. Propuesta de implementación en sat-dm *(no implementado)*
 
 Gemelo estructural del módulo DIOT. **El layout es DATO, no código** — misma filosofía que
-`sat_descarga/diot/layout.py`.
+`sat_descarga/diot/layout.py`. **Multiplataforma**: generar el TXT es Python puro (encoding +
+formateo), sin SQL ni COM ni CONTPAQi local → corre igual en Mac/Windows/Linux. El **catálogo de
+cuentas** entra como input cargado (archivo) o auto-leído por SQL cuando aplica; ver
+`04-mapeo-cfdi-poliza.md` §3.
 
 **Módulo nuevo `sat_descarga/contpaq/`:**
 
