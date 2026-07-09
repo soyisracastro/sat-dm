@@ -165,6 +165,43 @@ def _instalar_efirma_renovada(rfc: str, cer_nuevo: str, key_nueva: str, password
             logger.warning("No se pudo recargar la sesión con la e.firma renovada: %s", e)
 
 
+def _verificar_renovacion_procesada(empresa: dict, password: str, salida: str,
+                                    key_nueva: str, emitir_fase) -> Optional[str]:
+    """
+    Tras un envío fallido del `.ren`, verifica si el SAT en realidad YA procesó
+    el trámite (glitch del portal después de aceptar la solicitud): busca el
+    último certificado del RFC en «Recuperación de certificados» y exige que
+    empareje con NUESTRA `.key` nueva. Devuelve la ruta del `.cer` emitido o
+    None (incluye cualquier fallo del portal: este chequeo es best-effort y
+    nunca debe tapar el error de envío original).
+
+    OJO: el login usa la e.firma vigente del catálogo; si el SAT ya la revocó
+    por la renovación, este login puede rebotar mientras propaga — en ese caso
+    devolvemos None y el usuario reintenta más tarde (el mismo fallback vuelve
+    a correr).
+    """
+    try:
+        from ...portal.renovacion import recuperar_renovacion_fiel
+
+        emitir_fase("recuperando", {"intento": 1, "max": 2})
+
+        def puente(fase, data):
+            # Solo las fases de la etapa de descarga: el login del chequeo no
+            # debe regresar la checklist del wizard al paso "enviando".
+            if fase in ("recuperando", "cer"):
+                emitir_fase(fase, data)
+
+        res = recuperar_renovacion_fiel(
+            empresa["cer_path"], empresa["key_path"], password,
+            directorio_salida=salida, key_nueva_path=key_nueva,
+            intentos=2, espera_s=15, on_progreso=puente,
+        )
+        return str(res["cer"]) if res.get("cer") else None
+    except Exception as e:  # noqa: BLE001 — best-effort
+        logger.info("[renovar] verificación post-fallo sin resultado: %s", e)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Renovación de e.firma
 # ---------------------------------------------------------------------------
@@ -271,12 +308,32 @@ def renovar_efirma(req: RenovarRequest):
                         )
 
             emitir_fase("enviando")
-            res = enviar_renovacion_fiel(
-                empresa["cer_path"], empresa["key_path"], password,
-                ren_path, directorio_salida=salida,
-                key_nueva_path=key_nueva, recuperar=True,
-                intentos_cert=6, espera_cert_s=30, on_progreso=puente,
-            )
+            try:
+                res = enviar_renovacion_fiel(
+                    empresa["cer_path"], empresa["key_path"], password,
+                    ren_path, directorio_salida=salida,
+                    key_nueva_path=key_nueva, recuperar=True,
+                    intentos_cert=6, espera_cert_s=30, on_progreso=puente,
+                )
+            except Exception as e_envio:
+                # Fallback: quizá un envío (este o uno previo que quedó en etapa
+                # "generada") SÍ fue procesado por el SAT sin que alcanzáramos a
+                # leer el número de operación — en ese caso el reenvío rebota.
+                # Se busca en «Recuperación de certificados» el último cert del
+                # RFC y se verifica que EMPAREJE con nuestra .key (criptográfico,
+                # sin falsos positivos): si empareja, la renovación ya ocurrió.
+                cer_rescatado = _verificar_renovacion_procesada(
+                    empresa, password, salida, key_nueva, emitir_fase,
+                )
+                if cer_rescatado is None:
+                    raise e_envio  # error real de envío: no hay trámite procesado
+                logger.info(
+                    "[renovar %s] el SAT ya había procesado la renovación; se "
+                    "recuperó el certificado emitido.", rfc,
+                )
+                res = {"numero_operacion": None, "acuse_pdf": None,
+                       "estado": "Renovación verificada tras reintento",
+                       "cer": cer_rescatado}
 
             renovada = False
             vencimiento = None

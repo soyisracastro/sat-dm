@@ -269,6 +269,11 @@ class TestRenovarFlujo:
 
         monkeypatch.setattr("sat_descarga.certifica.generar_renovacion_fiel", fake_generar)
         monkeypatch.setattr("sat_descarga.portal.renovacion.enviar_renovacion_fiel", enviar_caido)
+        # El chequeo de respaldo no encuentra trámite procesado (portal caído).
+        monkeypatch.setattr(
+            "sat_descarga.portal.renovacion.recuperar_renovacion_fiel",
+            lambda *a, **k: {"cer": None},
+        )
 
         r = client.post("/renovar", json={
             "rfc": rfc, "password": test_password, "confirmar": True,
@@ -303,6 +308,82 @@ class TestRenovarFlujo:
         assert data2["estado"] == "done" and data2["resultado"]["renovada"] is True
         assert len(generaciones) == 1  # no se regeneró
         assert config_store.get_renovacion_pendiente(rfc) is None
+
+    def test_envio_rebota_pero_el_sat_ya_habia_procesado(
+        self, client, monkeypatch, test_cer, test_key, test_password, vigente,
+    ):
+        """Glitch del portal DESPUÉS de aceptar el trámite: el (re)envío rebota
+        sin número de operación, pero la verificación de respaldo encuentra el
+        cert emitido (empareja con nuestra .key) → la renovación se completa
+        como éxito en el mismo job."""
+        rfc = _alta_fiel(client, test_cer, test_key, test_password)
+
+        def fake_generar(fiel, correo=None, password=None, salida_dir=None):
+            d = Path(salida_dir); d.mkdir(parents=True, exist_ok=True)
+            key = d / "Claveprivada_FIEL_nueva.key"
+            shutil.copy2(test_key, key)
+            ren = d / "Renovacion_FIEL.ren"
+            ren.write_bytes(b"REN")
+            return {"key": key, "ren": ren}
+
+        def enviar_rebota(cer, key, password, ren, on_progreso=None, **kw):
+            on_progreso("login_ok", {})
+            raise RuntimeError("No apareció el número de operación")
+
+        def fake_recuperar(cer, key, password, directorio_salida=None,
+                           key_nueva_path=None, intentos=2, espera_s=15,
+                           on_progreso=None, **kw):
+            # El chequeo usa la .key preservada para exigir emparejamiento.
+            assert key_nueva_path and Path(key_nueva_path).exists()
+            on_progreso("recuperando", {"intento": 1, "max": intentos})
+            return {"cer": Path(test_cer)}
+
+        monkeypatch.setattr("sat_descarga.certifica.generar_renovacion_fiel", fake_generar)
+        monkeypatch.setattr("sat_descarga.portal.renovacion.enviar_renovacion_fiel", enviar_rebota)
+        monkeypatch.setattr("sat_descarga.portal.renovacion.recuperar_renovacion_fiel", fake_recuperar)
+
+        r = client.post("/renovar", json={
+            "rfc": rfc, "password": test_password, "confirmar": True,
+        })
+        data = _esperar_job(client, r.json()["job_id"])
+        assert data["estado"] == "done", data
+        res = data["resultado"]
+        assert res["renovada"] is True and res["cer_pendiente"] is False
+        assert res["numero_operacion"] is None  # nunca lo entregó el portal
+        assert config_store.get_renovacion_pendiente(rfc) is None
+
+    def test_envio_rebota_y_no_hay_tramite_procesado(
+        self, client, monkeypatch, test_cer, test_key, test_password, vigente,
+    ):
+        """Si la verificación de respaldo no encuentra un cert que empareje, el
+        error de envío original se conserva y la etapa 'generada' persiste."""
+        rfc = _alta_fiel(client, test_cer, test_key, test_password)
+
+        def fake_generar(fiel, correo=None, password=None, salida_dir=None):
+            d = Path(salida_dir); d.mkdir(parents=True, exist_ok=True)
+            key = d / "Claveprivada_FIEL_nueva.key"
+            shutil.copy2(test_key, key)
+            ren = d / "Renovacion_FIEL.ren"
+            ren.write_bytes(b"REN")
+            return {"key": key, "ren": ren}
+
+        def enviar_caido(cer, key, password, ren, on_progreso=None, **kw):
+            raise RuntimeError("El portal del SAT no respondió")
+
+        def recuperar_sin_cert(*args, **kw):
+            return {"cer": None}
+
+        monkeypatch.setattr("sat_descarga.certifica.generar_renovacion_fiel", fake_generar)
+        monkeypatch.setattr("sat_descarga.portal.renovacion.enviar_renovacion_fiel", enviar_caido)
+        monkeypatch.setattr("sat_descarga.portal.renovacion.recuperar_renovacion_fiel", recuperar_sin_cert)
+
+        r = client.post("/renovar", json={
+            "rfc": rfc, "password": test_password, "confirmar": True,
+        })
+        data = _esperar_job(client, r.json()["job_id"])
+        assert data["estado"] == "error"
+        assert "no respondió" in data["error"]  # el error original, no el del chequeo
+        assert config_store.get_renovacion_pendiente(rfc)["etapa"] == "generada"
 
     def test_recuperar_con_pendiente_generada_409(self, client, test_cer, test_key, test_password):
         """Sin número de operación no hay nada que descargar: el reintento
