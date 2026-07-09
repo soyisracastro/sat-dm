@@ -209,17 +209,23 @@ export interface JobEvent {
     | 'captcha_required'
     | 'captcha_timeout'
     | 'log'
+    | 'fase'
     | 'done'
     | 'error'
     | 'cancelled'
     | string;
   estado?: string; // event=estado
   imagen?: string; // event=captcha_required (data:image/jpeg;base64,...)
-  intento?: number;
+  intento?: number; // captcha_required | fase=recuperando
   max?: number;
   resultado?: unknown; // event=done
   mensaje?: string; // event=log|error|cancelled
   nivel?: 'info' | 'ok' | 'warn' | 'error'; // event=log
+  /** event=fase — avance de los trámites de Certifica (renovación/CSD):
+   * generando | firmando | enviando | numero_operacion | acuse | recuperando | guardando */
+  fase?: string;
+  numero?: string; // fase=numero_operacion
+  acuse_pdf?: string; // fase=acuse
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +266,83 @@ export interface Empresa {
   regimenes_fiscales?: RegimenFiscalConfig[];
   /** Actividades económicas — descripción libre + marca opcional de la principal. */
   actividades_economicas?: ActividadEconomicaConfig[];
+  /** Renovación de e.firma enviada cuyo cert nuevo aún no se descarga. */
+  renovacion_pendiente?: RenovacionPendiente | null;
+  /** Certificados de Sello Digital solicitados desde la app. */
+  csds?: CsdInfo[];
+}
+
+// ---------------------------------------------------------------------------
+// Certifica: renovación de e.firma + CSD (jobs SSE, FIEL-only)
+// ---------------------------------------------------------------------------
+
+export interface RenovacionPendiente {
+  numero_operacion: string;
+  acuse_pdf?: string | null;
+  key_path: string;
+  solicitado_en: string;
+}
+
+export interface CsdInfo {
+  uso: string;
+  numero_operacion: string;
+  acuse_pdf?: string | null;
+  cer_path?: string | null;
+  key_path: string;
+  estado: 'pendiente' | 'emitido';
+  solicitado_en: string;
+  recuperado_en?: string | null;
+}
+
+// POST /renovar — irreversible: la UI pide confirmación explícita antes.
+export interface RenovarRequest {
+  rfc: string;
+  password: string;
+  confirmar: true;
+  correo?: string;
+}
+
+export interface RenovarRecuperarRequest {
+  rfc: string;
+}
+
+// Resultado (event=done) de /renovar y /renovar/recuperar
+export interface RenovarResultado {
+  numero_operacion: string | null;
+  acuse_pdf: string | null;
+  estado?: string | null;
+  cer: string | null;
+  vencimiento: string | null;
+  renovada: boolean;
+  /** true = el SAT aún no emite el cert; reintentar con /renovar/recuperar. */
+  cer_pendiente: boolean;
+}
+
+// POST /csd
+export interface CsdSolicitarRequest {
+  rfc: string;
+  password: string;
+  /** Contraseña de la .key nueva del CSD (mín. 8). */
+  password_csd: string;
+  uso: string;
+}
+
+export interface CsdRecuperarRequest {
+  rfc: string;
+  numero_operacion?: string;
+}
+
+// Resultado (event=done) de /csd y /csd/recuperar
+export interface CsdResultado {
+  numero_operacion: string | null;
+  acuse_pdf?: string | null;
+  estado?: string | null;
+  cer: string | null;
+  key?: string;
+  uso?: string;
+  /** true = «bajar después»: el cert se recupera con /csd/recuperar. */
+  cert_pendiente: boolean;
+  carpeta: string;
 }
 
 export interface EmpresaUpdatePatch {

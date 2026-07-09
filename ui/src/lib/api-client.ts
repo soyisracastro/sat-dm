@@ -19,6 +19,10 @@ import type {
   CiecCfdiRequest,
   CiecDocRequest,
   CfdiFielRequest,
+  RenovarRequest,
+  RenovarRecuperarRequest,
+  CsdSolicitarRequest,
+  CsdRecuperarRequest,
   JobIniciado,
   JobEstadoResponse,
   JobEvent,
@@ -410,6 +414,30 @@ export class SatApiClient {
 
   async opinionFiel(): Promise<DocumentoResponse> {
     return this.post<DocumentoResponse>('/opinion/fiel');
+  }
+
+  // -----------------------------------------------------------------------
+  // Certifica: renovación de e.firma + CSD (jobs SSE; FIEL-only, sin captcha)
+  // -----------------------------------------------------------------------
+
+  /** Renueva la e.firma EN LÍNEA (irreversible; requiere confirmar=true). → {job_id} */
+  async renovarEfirma(req: RenovarRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/renovar', req as unknown as Record<string, unknown>);
+  }
+
+  /** Descarga el cert de una renovación pendiente (reintento no destructivo). */
+  async renovarRecuperar(req: RenovarRecuperarRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/renovar/recuperar', req as unknown as Record<string, unknown>);
+  }
+
+  /** Genera y envía una solicitud de CSD de extremo a extremo. → {job_id} */
+  async csdSolicitar(req: CsdSolicitarRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/csd', req as unknown as Record<string, unknown>);
+  }
+
+  /** Descarga el cert de un CSD pendiente («bajar después»). → {job_id} */
+  async csdRecuperar(req: CsdRecuperarRequest): Promise<JobIniciado> {
+    return this.post<JobIniciado>('/csd/recuperar', req as unknown as Record<string, unknown>);
   }
 
   // -----------------------------------------------------------------------
