@@ -127,7 +127,12 @@ SAT falla **en el envío**, el reintento de `POST /renovar` REENVÍA el mismo
 `.ren` (no regenera: si el SAT hubiera procesado el envío sin que leyéramos el
 número, la `.key` original es la que empareja con el cert emitido); si falla
 **al recuperar el cert**, la UI retoma con `/renovar/recuperar` (409 si aún no
-hay número). `csds[]` se registra al obtener número de operación. Respaldo de
+hay número). Además, si el (re)envío rebota, el worker corre un **fallback de
+verificación**: busca el último cert del RFC en «Recuperación de certificados»
+y exige emparejamiento con nuestra `.key` — si empareja, el SAT ya había
+procesado el trámite (glitch tras aceptar la solicitud) y la renovación se
+completa como éxito en el mismo job; si no, se propaga el error de envío
+original. `csds[]` se registra al obtener número de operación. Respaldo de
 la e.firma anterior en `efirma/{RFC}/anterior_{stamp}/` antes de sustituir.
 El CSD no necesita etapa "generada": es repetible y no destructivo (un `.sdg`
 regenerado solo produce otro sello).
