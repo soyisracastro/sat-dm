@@ -1,18 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 
 import { useServer } from '@/providers/server-provider';
-import { useCiecJob } from '@/hooks/use-ciec-job';
+import { useJob } from '@/hooks/use-job';
+import { cn } from '@/lib/utils';
 import { Icon } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CaptchaModal } from '@/components/descarga/captcha-modal';
 import { JobProgress } from '@/components/descarga/job-progress';
 import { NavegadorStatusBanner } from '@/components/shared/navegador-status';
+import { RenovarEfirmaWizard } from '@/components/fiel/renovar-efirma-wizard';
 import { mensajeDeError } from '@/lib/errores';
 import { semaforoVencimiento } from '@/lib/vencimiento';
+import { formatDate } from '@/lib/formatting';
 import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
 import type { Empresa } from '@/lib/types';
 
@@ -34,9 +38,14 @@ function formatoFecha(iso: string | null | undefined): string | null {
   }
 }
 
+/**
+ * Fila expandida de una empresa: grid de 3 tarjetas (e.firma con renovación en
+ * línea, Constancia de Situación Fiscal y Opinión 32-D con descarga por el
+ * canal preferido) + link al expediente fiscal (próximamente).
+ */
 export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
   const { apiClient } = useServer();
-  const job = useCiecJob();
+  const job = useJob();
   // Estado FIEL por documento: /constancia/fiel y /opinion/fiel son endpoints
   // distintos y pueden correr en paralelo. Solo CIEC se serializa (el agente
   // rechaza jobs CIEC concurrentes con 409).
@@ -48,9 +57,11 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
   // Acción "abrir" (PDF o carpeta) en curso, para deshabilitar el botón mientras
   // el agente local ejecuta el `open`/`explorer`. Solo una a la vez por fila.
   const [accionBusy, setAccionBusy] = useState<{ kind: Documento; modo: ModoAbrir } | null>(null);
+  const [renovarOpen, setRenovarOpen] = useState(false);
 
   const sem = empresa.vencimiento ? semaforoVencimiento(empresa.vencimiento) : null;
   const tieneFiel = empresa.metodos.includes('fiel');
+  const archivada = !!empresa.archived_at;
   const metodo = metodoPortalPreferido(empresa);
   const ciecCorriendo =
     job.estado !== 'idle' &&
@@ -155,56 +166,92 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
     );
   }
 
-  function renderChip() {
-    if (!metodo) return null;
-    return (
-      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        <Icon
-          icon={metodo === 'fiel' ? 'ph:shield-check-light' : 'ph:key-light'}
-          className="size-3"
-        />
-        Usando: {etiquetaMetodo(metodo)}
-      </div>
-    );
-  }
+  // Estado de la tarjeta e.firma (dot + etiqueta, estilo boceto).
+  const efirmaEstado = !tieneFiel
+    ? { tone: 'muted' as const, label: 'Sin e.firma registrada' }
+    : empresa.renovacion_pendiente
+      ? { tone: 'warn' as const, label: 'Certificado nuevo pendiente' }
+      : sem?.vencida
+        ? { tone: 'warn' as const, label: 'Vencida' }
+        : sem && sem.estado !== 'verde'
+          ? { tone: 'warn' as const, label: 'Por renovar' }
+          : { tone: 'ok' as const, label: 'Vigente' };
 
   return (
     <div className="space-y-3">
       <NavegadorStatusBanner />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        {/* FIEL (info, sin descarga) */}
-        <section className="space-y-1 text-xs">
-          <div className="flex items-center gap-1.5 font-medium text-foreground">
-            <Icon icon="ph:shield-check-light" className="size-3.5" />
-            e.firma
-          </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {/* e.firma */}
+        <DocCardShell icon="ph:shield-check-light" titulo="e.firma">
+          <EstadoDot tone={efirmaEstado.tone} label={efirmaEstado.label} />
           {tieneFiel && sem ? (
-            <>
-              <div>Vence: {sem.fecha}</div>
-              <div className="text-muted-foreground">{sem.label}</div>
-            </>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {empresa.renovacion_pendiente ? (
+                <>
+                  La renovación ya se envió; solo falta descargar el certificado que
+                  emitió el SAT.
+                </>
+              ) : (
+                <>
+                  {sem.vencida ? 'Venció el' : 'Vence el'} {formatDate(sem.fecha)}
+                  {!sem.vencida && sem.dias >= 0 && (
+                    <> · {sem.dias === 0 ? 'hoy' : `en ${sem.dias} ${sem.dias === 1 ? 'día' : 'días'}`}</>
+                  )}
+                </>
+              )}
+            </p>
           ) : (
-            <div className="text-muted-foreground">Sin e.firma registrada</div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Esta empresa opera con CIEC. Registra su e.firma para la descarga masiva.
+            </p>
           )}
-        </section>
+          <div className="mt-auto flex items-center gap-1.5 pt-1">
+            {tieneFiel ? (
+              <Button
+                size="sm"
+                variant={empresa.renovacion_pendiente || (sem && sem.estado !== 'verde') ? 'default' : 'outline'}
+                className="flex-1"
+                onClick={() => setRenovarOpen(true)}
+              >
+                <Icon
+                  icon={empresa.renovacion_pendiente ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
+                  className="mr-1.5 size-3.5"
+                />
+                {empresa.renovacion_pendiente ? 'Descargar certificado' : 'Renovar e.firma'}
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" className="flex-1" asChild>
+                <Link href={`/empresas/detalle?rfc=${encodeURIComponent(empresa.rfc)}`}>
+                  <Icon icon="ph:plus-light" className="mr-1.5 size-3.5" />
+                  Registrar e.firma
+                </Link>
+              </Button>
+            )}
+          </div>
+        </DocCardShell>
 
         {/* Constancia de Situación Fiscal */}
-        <section className="space-y-2 text-xs">
-          <div className="flex items-center gap-1.5 font-medium text-foreground">
-            <Icon icon="ph:file-text-light" className="size-3.5" />
-            Constancia de Situación Fiscal
-          </div>
-          {renderChip()}
-          {empresa.csf_descargada_en && (
-            <div className="text-muted-foreground">
-              Última descarga: {formatoFecha(empresa.csf_descargada_en)}
+        <DocCardShell icon="ph:file-text-light" titulo="Constancia de Situación Fiscal">
+          {metodo && (
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <Icon
+                icon={metodo === 'fiel' ? 'ph:shield-check-light' : 'ph:key-light'}
+                className="size-3"
+              />
+              Usando {etiquetaMetodo(metodo)}
             </div>
           )}
-          <div className="flex items-center gap-1">
+          <p className="text-xs text-muted-foreground">
+            {empresa.csf_descargada_en
+              ? `Última descarga · ${formatoFecha(empresa.csf_descargada_en)}`
+              : 'Aún no la has descargado'}
+          </p>
+          <div className="mt-auto flex items-center gap-1 pt-1">
             <Button
               size="sm"
               variant="outline"
+              className="flex-1"
               disabled={botonDisabled('constancia')}
               onClick={() => bajar('constancia')}
               title={!metodo ? 'Agrega FIEL o CIEC en Empresas' : undefined}
@@ -215,26 +262,31 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
             {renderAccionesArchivo('constancia', empresa.csf_path)}
           </div>
           {!metodo && (
-            <p className="text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
+            <p className="text-xs text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
           )}
-        </section>
+        </DocCardShell>
 
         {/* Opinión de Cumplimiento 32-D */}
-        <section className="space-y-2 text-xs">
-          <div className="flex items-center gap-1.5 font-medium text-foreground">
-            <Icon icon="ph:clipboard-text-light" className="size-3.5" />
-            Opinión de Cumplimiento 32-D
-          </div>
-          {renderChip()}
-          {empresa.opinion_descargada_en && (
-            <div className="text-muted-foreground">
-              Última descarga: {formatoFecha(empresa.opinion_descargada_en)}
+        <DocCardShell icon="ph:clipboard-text-light" titulo="Opinión de Cumplimiento 32-D">
+          {metodo && (
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <Icon
+                icon={metodo === 'fiel' ? 'ph:shield-check-light' : 'ph:key-light'}
+                className="size-3"
+              />
+              Usando {etiquetaMetodo(metodo)}
             </div>
           )}
-          <div className="flex items-center gap-1">
+          <p className="text-xs text-muted-foreground">
+            {empresa.opinion_descargada_en
+              ? `Última descarga · ${formatoFecha(empresa.opinion_descargada_en)}`
+              : 'Aún no la has descargado'}
+          </p>
+          <div className="mt-auto flex items-center gap-1 pt-1">
             <Button
               size="sm"
               variant="outline"
+              className="flex-1"
               disabled={botonDisabled('opinion')}
               onClick={() => bajar('opinion')}
               title={!metodo ? 'Agrega FIEL o CIEC en Empresas' : undefined}
@@ -245,10 +297,26 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
             {renderAccionesArchivo('opinion', empresa.opinion_path)}
           </div>
           {!metodo && (
-            <p className="text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
+            <p className="text-xs text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
           )}
-        </section>
+        </DocCardShell>
       </div>
+
+      {/* Expediente fiscal: pantalla en camino — entrada deshabilitada a propósito. */}
+      {!archivada && (
+        <div className="flex justify-end">
+          <span title="Próximamente">
+            <button
+              type="button"
+              disabled
+              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground/50"
+            >
+              Ver expediente fiscal completo
+              <Icon icon="ph:caret-right-light" className="size-3.5" />
+            </button>
+          </span>
+        </div>
+      )}
 
       {job.estado !== 'idle' && (
         <JobProgress
@@ -272,6 +340,59 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
       )}
 
       <CaptchaModal captcha={job.captcha} onResolver={job.responderCaptcha} />
+
+      {tieneFiel && (
+        <RenovarEfirmaWizard
+          empresa={empresa}
+          open={renovarOpen}
+          onOpenChange={setRenovarOpen}
+          onDone={onJobDone}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Tarjeta del grid (estilo `emp-det-card` del boceto). */
+function DocCardShell({
+  icon,
+  titulo,
+  children,
+}: {
+  icon: string;
+  titulo: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex min-h-31 flex-col gap-2 rounded-xl border border-border bg-card p-3.5">
+      <div className="flex items-center gap-2 text-[13px] font-bold tracking-tight">
+        <Icon icon={icon} className="size-4 shrink-0 text-muted-foreground" />
+        {titulo}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EstadoDot({ tone, label }: { tone: 'ok' | 'warn' | 'muted'; label: string }) {
+  return (
+    <div
+      className={cn(
+        'inline-flex items-center gap-1.5 text-[12.5px] font-semibold',
+        tone === 'ok' && 'text-success',
+        tone === 'warn' && 'text-warning',
+        tone === 'muted' && 'text-muted-foreground',
+      )}
+    >
+      <span
+        className={cn(
+          'size-2 shrink-0 rounded-full',
+          tone === 'ok' && 'bg-success',
+          tone === 'warn' && 'bg-warning',
+          tone === 'muted' && 'bg-muted-foreground/40',
+        )}
+      />
+      {label}
     </div>
   );
 }
