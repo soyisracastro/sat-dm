@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -19,8 +19,10 @@ import { CfdiUploader } from '@/components/procesador-cfdi/cfdi-uploader';
 import { CfdiValidarButton } from '@/components/procesador-cfdi/cfdi-validar-button';
 import { ProcesadorEstado } from '@/components/shared/procesador-estado';
 import { ProcesadorSinEmpresa } from '@/components/shared/procesador-sin-empresa';
+import { useEmpresas } from '@/hooks/use-empresas';
 import { useProcesadorCfdi } from '@/hooks/use-procesador-cfdi';
 import { mensajeDeError } from '@/lib/errores';
+import { empresaPresentaDiot } from '@/lib/fiscal/regimenes-fiscales';
 import type { CfdiFlagsPatch } from '@/lib/types';
 import { useServer } from '@/providers/server-provider';
 
@@ -43,6 +45,18 @@ export default function ProcesadorCfdiPage() {
     sinEmpresa,
   } = useProcesadorCfdi();
   const { apiClient } = useServer();
+  const { empresas } = useEmpresas();
+
+  // ¿La empresa presenta DIOT? RESICO está relevado (override manual en la
+  // configuración de la empresa). Si no: sin columna DIOT, filtro ni contador.
+  const empresaActiva = empresas.find((e) => e.rfc === rfcActivo);
+  const mostrarDiot = empresaPresentaDiot(empresaActiva);
+
+  // Si la empresa dejó de presentar DIOT con un filtro «Estado DIOT» persistido
+  // de antes, se limpia solo (el control ya no existe para quitarlo a mano).
+  useEffect(() => {
+    if (!mostrarDiot && filtros.diot != null) setFiltro('diot', null);
+  }, [mostrarDiot, filtros.diot, setFiltro]);
 
   const total = data?.total ?? 0;
   // Buffer "vacío" = NO hay CFDIs de la empresa en la DB. Si los hay pero los
@@ -117,10 +131,11 @@ export default function ProcesadorCfdiPage() {
                 setFiltro={setFiltro}
                 reset={reset}
                 filtrosActivos={filtrosActivos}
+                mostrarDiot={mostrarDiot}
               />
 
               <div className="space-y-2">
-                <CfdiDiotCounter stats={stats} />
+                <CfdiDiotCounter stats={stats} mostrarDiot={mostrarDiot} />
                 <CfdiTable
                   data={data}
                   page={page}
@@ -128,14 +143,26 @@ export default function ProcesadorCfdiPage() {
                   loading={loading}
                   onPage={setPage}
                   onFlags={actualizarFlags}
+                  mostrarDiot={mostrarDiot}
                 />
                 <div className="flex items-start gap-2 text-xs text-muted-foreground">
                   <Icon icon="ph:info-light" className="mt-0.5 size-4 shrink-0" />
                   <span>
-                    Al generar la DIOT solo se incluyen las operaciones con el interruptor
-                    activado. Puedes excluir manualmente cualquier comprobante; los
-                    complementos de pago no aplican. La generación del TXT vive en la
-                    pantalla DIOT.
+                    {mostrarDiot ? (
+                      <>
+                        Al generar la DIOT solo se incluyen las operaciones con el
+                        interruptor activado. Puedes excluir manualmente cualquier
+                        comprobante; los complementos de pago no aplican. La generación
+                        del TXT vive en la pantalla DIOT.
+                      </>
+                    ) : (
+                      <>
+                        Esta empresa no presenta DIOT según su régimen fiscal (RESICO y
+                        otros relevados) o su configuración, por eso no ves el
+                        interruptor DIOT. Puedes cambiarlo en la configuración de la
+                        empresa.
+                      </>
+                    )}
                   </span>
                 </div>
               </div>

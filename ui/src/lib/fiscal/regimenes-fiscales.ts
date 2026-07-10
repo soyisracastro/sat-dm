@@ -44,3 +44,59 @@ export function getRegimenesByTipoPersona(
     (r) => r.tipoPersona === tipoPersona || r.tipoPersona === 'ambos',
   );
 }
+
+/** Clave del Régimen Simplificado de Confianza (RESICO), PF y PM. */
+export const CLAVE_RESICO = '626';
+
+/**
+ * Regímenes que por DEFAULT no presentan DIOT (la obligación del art. 32
+ * fracc. VIII LIVA sigue al IVA, no al régimen de ISR). Mapeo investigado
+ * contra RMF 2025/2026 y RFA 2025 — detalle y fundamentos en
+ * docs/diot-2025.md («¿Quién presenta la DIOT?»):
+ *
+ * - 626 RESICO (PF y PM): relevados por la regla 3.13.19 RMF.
+ * - 605, 607, 608, 610, 611, 614, 615, 616, 629: no son sujetos del IVA por
+ *   esos ingresos (sueldos, enajenación accidental, dividendos, intereses,
+ *   premios, sin obligaciones, REFIPRES).
+ * - 621 RIF: relevado si informa proveedores en la bimestral (art. 5-E LIVA
+ *   + art. 23 LIF).
+ * - 603, 606, 625: condicionales con default NO (no lucrativas sin actos
+ *   gravados; arrendamiento — casa habitación exenta y relevación ≤ $4 MDP
+ *   de la regla 2.8.1.17 RMF; plataformas con retención definitiva del
+ *   art. 18-M LIVA o ≤ $4 MDP).
+ *
+ * Los que default SÍ: 601, 612 (obligado salvo ingresos ≤ $4 MDP — el
+ * usuario lo apaga con el toggle), 620, 622 (facilidad semestral), 623, 624
+ * (el coordinado puede presentarla global). El toggle `presenta_diot` de la
+ * configuración de la empresa cubre todos los casos condicionales.
+ */
+const REGIMENES_SIN_DIOT_DEFAULT = new Set([
+  '603', '605', '606', '607', '608', '610', '611', '614', '615', '616',
+  '621', '625', '626', '629',
+]);
+
+/**
+ * Derivación por régimen: presenta DIOT si ALGÚN régimen configurado la trae
+ * por default. Sin regímenes configurados (o clave desconocida) se asume que
+ * sí presenta — es el default seguro; omitirla estando obligado genera multas.
+ */
+export function regimenesPresentanDiot(
+  regimenes?: { clave: string }[] | null,
+): boolean {
+  if (!regimenes || regimenes.length === 0) return true;
+  return regimenes.some((r) => !REGIMENES_SIN_DIOT_DEFAULT.has(r.clave));
+}
+
+/**
+ * ¿La empresa presenta DIOT? El override manual (`presenta_diot`, toggle en la
+ * configuración de la empresa) manda; sin override se deriva del régimen.
+ */
+export function empresaPresentaDiot(
+  empresa?: {
+    regimenes_fiscales?: { clave: string }[];
+    presenta_diot?: boolean | null;
+  } | null,
+): boolean {
+  if (typeof empresa?.presenta_diot === 'boolean') return empresa.presenta_diot;
+  return regimenesPresentanDiot(empresa?.regimenes_fiscales);
+}

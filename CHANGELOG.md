@@ -23,6 +23,14 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   reportan cuántos comprobantes se excluyeron manualmente) y el export
   XLSX/CSV agrega las columnas Deducible y DIOT al final. Migración 009 del
   buffer (`incluir_diot`, `deducible`) + `PATCH /procesador/cfdi/{uuid}`.
+  **La obligación DIOT se deriva del régimen fiscal configurado de la
+  empresa** (mapeo investigado contra RMF 2025/2026 y RFA 2025 — ver
+  docs/diot-2025.md «¿Quién presenta la DIOT?»): RESICO (regla 3.13.19),
+  sueldos, RIF y demás relevados no ven columna, filtro ni contador DIOT, y
+  la pantalla DIOT lo avisa. Toggle **«Presenta DIOT»** en la configuración
+  de la empresa (`presenta_diot`) para los casos condicionales: PF que
+  rebasa $4 MDP (regla 2.8.1.17), actividades exentas, coordinado que la
+  presenta global, plataformas con retención definitiva (art. 18-M LIVA).
 
 - **Tareas: centro de mando personal (Claude Design)**: nueva sección
   **/tareas** para pendientes fiscales, recordatorios y lo que el usuario

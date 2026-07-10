@@ -425,6 +425,9 @@ def list_empresas() -> list[dict]:
             "opinion_descargada_en": info.get("opinion_descargada_en"),
             "regimenes_fiscales": info.get("regimenes_fiscales", []),
             "actividades_economicas": info.get("actividades_economicas", []),
+            # None = sin configurar → la UI lo deriva del régimen (RESICO no
+            # presenta DIOT); bool = override manual del usuario.
+            "presenta_diot": info.get("presenta_diot"),
             "renovacion_pendiente": info.get("renovacion_pendiente"),
             "csds": info.get("csds", []),
         })
@@ -432,7 +435,7 @@ def list_empresas() -> list[dict]:
 
 
 # Campos editables por update_empresa(). Cualquier otra key del patch se ignora.
-_EDITABLE_FIELDS = {"regimenes_fiscales", "actividades_economicas"}
+_EDITABLE_FIELDS = {"regimenes_fiscales", "actividades_economicas", "presenta_diot"}
 
 
 def update_empresa(rfc: str, patch: dict):
@@ -442,6 +445,7 @@ def update_empresa(rfc: str, patch: dict):
     Valida shapes:
       - regimenes_fiscales:    list[{clave: str, descripcion: str}]
       - actividades_economicas: list[{descripcion: str, principal?: bool}]
+      - presenta_diot:         bool (override manual; ausente = derivar del régimen)
     Lanza ValueError si el shape es inválido y KeyError si el RFC no existe.
     """
     with _catalogo_lock:
@@ -451,6 +455,11 @@ def update_empresa(rfc: str, patch: dict):
 
         for key, value in patch.items():
             if key not in _EDITABLE_FIELDS:
+                continue
+            if key == "presenta_diot":
+                if not isinstance(value, bool):
+                    raise ValueError("presenta_diot debe ser bool")
+                data["empresas"][rfc][key] = value
                 continue
             if not isinstance(value, list):
                 raise ValueError(f"{key} debe ser una lista")

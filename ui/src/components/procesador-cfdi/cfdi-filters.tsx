@@ -22,6 +22,8 @@ interface Props {
   setFiltro: <K extends keyof CfdiFiltros>(key: K, value: CfdiFiltros[K]) => void;
   reset: () => void;
   filtrosActivos: number;
+  /** false = la empresa no presenta DIOT (p. ej. RESICO): sin filtro «Estado DIOT». */
+  mostrarDiot?: boolean;
 }
 
 const TIPOS: { value: CfdiTipo | 'todos'; label: string }[] = [
@@ -58,7 +60,13 @@ function FiltroGrupo({ label, children }: { label: string; children: React.React
   );
 }
 
-export function CfdiFiltersPanel({ filtros, setFiltro, reset, filtrosActivos }: Props) {
+export function CfdiFiltersPanel({
+  filtros,
+  setFiltro,
+  reset,
+  filtrosActivos,
+  mostrarDiot = true,
+}: Props) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -132,7 +140,12 @@ export function CfdiFiltersPanel({ filtros, setFiltro, reset, filtrosActivos }: 
           </div>
 
           <FiltroGrupo label="Clasificación">
-            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+            <div
+              className={cn(
+                'grid grid-cols-1 gap-3.5',
+                mostrarDiot ? 'sm:grid-cols-3' : 'sm:grid-cols-2',
+              )}
+            >
               <div className="space-y-2">
                 <Label>Tipo</Label>
                 <Select
@@ -173,26 +186,28 @@ export function CfdiFiltersPanel({ filtros, setFiltro, reset, filtrosActivos }: 
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Estado DIOT</Label>
-                <Select
-                  value={filtros.diot ?? 'todos'}
-                  onValueChange={(v) =>
-                    setFiltro('diot', v === 'todos' ? null : (v as CfdiEstadoDiot))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ESTADOS_DIOT.map((d) => (
-                      <SelectItem key={d.value} value={d.value}>
-                        {d.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {mostrarDiot && (
+                <div className="space-y-2">
+                  <Label>Estado DIOT</Label>
+                  <Select
+                    value={filtros.diot ?? 'todos'}
+                    onValueChange={(v) =>
+                      setFiltro('diot', v === 'todos' ? null : (v as CfdiEstadoDiot))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ESTADOS_DIOT.map((d) => (
+                        <SelectItem key={d.value} value={d.value}>
+                          {d.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </FiltroGrupo>
 

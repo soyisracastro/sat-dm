@@ -44,6 +44,8 @@ interface Props {
   onPage: (p: number) => void;
   /** Persiste flags por fila (interruptor DIOT / deducibilidad). */
   onFlags: (uuid: string, patch: CfdiFlagsPatch) => void;
+  /** false = la empresa no presenta DIOT (p. ej. RESICO): sin columna DIOT. */
+  mostrarDiot?: boolean;
 }
 
 /** Override optimista por uuid mientras el PATCH + recarga viajan al agente. */
@@ -112,7 +114,15 @@ function badgeEstado(estado: CfdiRecord['estado_sat']) {
   );
 }
 
-export function CfdiTable({ data, page, pageSize, loading, onPage, onFlags }: Props) {
+export function CfdiTable({
+  data,
+  page,
+  pageSize,
+  loading,
+  onPage,
+  onFlags,
+  mostrarDiot = true,
+}: Props) {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -174,11 +184,13 @@ export function CfdiTable({ data, page, pageSize, loading, onPage, onFlags }: Pr
                 Deducible
               </span>
             </TableHead>
-            <TableHead className="w-20">
-              <span title="Indica si el comprobante se incluye al generar la DIOT. Por defecto todas las operaciones elegibles pasan.">
-                DIOT
-              </span>
-            </TableHead>
+            {mostrarDiot && (
+              <TableHead className="w-20">
+                <span title="Indica si el comprobante se incluye al generar la DIOT. Por defecto todas las operaciones elegibles pasan.">
+                  DIOT
+                </span>
+              </TableHead>
+            )}
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
@@ -189,7 +201,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage, onFlags }: Pr
             const ov = overrides[c.uuid];
             const incluir = ov?.incluir_diot ?? c.incluir_diot;
             const deducible = ov?.deducible !== undefined ? ov.deducible : c.deducible;
-            const excluido = c.elegible_diot && !incluir;
+            const excluido = mostrarDiot && c.elegible_diot && !incluir;
             return (
               <Fragment key={c.uuid}>
                 <TableRow
@@ -257,29 +269,31 @@ export function CfdiTable({ data, page, pageSize, loading, onPage, onFlags }: Pr
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell>
-                    {c.elegible_diot ? (
-                      <Switch
-                        size="sm"
-                        checked={incluir}
-                        onCheckedChange={(v) =>
-                          aplicarFlags(c.uuid, { incluir_diot: v })
-                        }
-                        aria-label="Incluir en la DIOT"
-                      />
-                    ) : (
-                      <span
-                        className={cn(TONO_BASE_CLASE, TONO_CLASES.neutro)}
-                        title={
-                          c.tipo === 'P'
-                            ? 'Los complementos de pago no se declaran en la DIOT.'
-                            : 'Solo las operaciones recibidas de Ingreso/Egreso se declaran en la DIOT.'
-                        }
-                      >
-                        No aplica
-                      </span>
-                    )}
-                  </TableCell>
+                  {mostrarDiot && (
+                    <TableCell>
+                      {c.elegible_diot ? (
+                        <Switch
+                          size="sm"
+                          checked={incluir}
+                          onCheckedChange={(v) =>
+                            aplicarFlags(c.uuid, { incluir_diot: v })
+                          }
+                          aria-label="Incluir en la DIOT"
+                        />
+                      ) : (
+                        <span
+                          className={cn(TONO_BASE_CLASE, TONO_CLASES.neutro)}
+                          title={
+                            c.tipo === 'P'
+                              ? 'Los complementos de pago no se declaran en la DIOT.'
+                              : 'Solo las operaciones recibidas de Ingreso/Egreso se declaran en la DIOT.'
+                          }
+                        >
+                          No aplica
+                        </span>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Button
                       variant="ghost"
@@ -296,7 +310,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage, onFlags }: Pr
                 </TableRow>
                 {abierto && (
                   <TableRow>
-                    <TableCell colSpan={10} className="bg-muted/30">
+                    <TableCell colSpan={mostrarDiot ? 10 : 9} className="bg-muted/30">
                       <div className="grid grid-cols-2 gap-4 p-2 text-xs sm:grid-cols-4">
                         <div>
                           <div className="text-muted-foreground">UUID</div>

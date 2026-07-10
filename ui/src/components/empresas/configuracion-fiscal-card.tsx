@@ -11,9 +11,11 @@ import { Icon } from '@/components/ui/icon';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import {
   getRegimenesByTipoPersona,
+  regimenesPresentanDiot,
   type RegimenFiscalCatalogo,
 } from '@/lib/fiscal/regimenes-fiscales';
 import { tipoPersonaDeRfc } from '@/lib/fiscal/tipo-persona';
@@ -41,6 +43,17 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
   const [regimenQuery, setRegimenQuery] = useState('');
   const [popoverOpen, setPopoverOpen] = useState(false);
 
+  // Obligación DIOT: default derivado del régimen (RESICO, sueldos, RIF,
+  // etc. están relevados — ver regimenes-fiscales.ts); en cuanto el usuario
+  // toca el switch se vuelve override explícito y los cambios de régimen ya
+  // no lo mueven.
+  const [presentaDiot, setPresentaDiot] = useState<boolean>(
+    empresa.presenta_diot ?? regimenesPresentanDiot(empresa.regimenes_fiscales),
+  );
+  const [diotTocado, setDiotTocado] = useState<boolean>(
+    typeof empresa.presenta_diot === 'boolean',
+  );
+
   const [saving, setSaving] = useState(false);
   const [ok, setOk] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,18 +69,23 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
     : catalogo;
   const seleccionadas = new Set(regimenes.map((r) => r.clave));
 
-  function toggleRegimen(r: RegimenFiscalCatalogo) {
+  function aplicarRegimenes(next: RegimenFiscalConfig[]) {
     setOk(false);
-    setRegimenes((prev) =>
-      prev.some((p) => p.clave === r.clave)
-        ? prev.filter((p) => p.clave !== r.clave)
-        : [...prev, { clave: r.clave, descripcion: r.descripcion }],
+    setRegimenes(next);
+    // Sin override manual, el switch de DIOT sigue al régimen en vivo.
+    if (!diotTocado) setPresentaDiot(regimenesPresentanDiot(next));
+  }
+
+  function toggleRegimen(r: RegimenFiscalCatalogo) {
+    aplicarRegimenes(
+      regimenes.some((p) => p.clave === r.clave)
+        ? regimenes.filter((p) => p.clave !== r.clave)
+        : [...regimenes, { clave: r.clave, descripcion: r.descripcion }],
     );
   }
 
   function quitarRegimen(clave: string) {
-    setOk(false);
-    setRegimenes((prev) => prev.filter((r) => r.clave !== clave));
+    aplicarRegimenes(regimenes.filter((r) => r.clave !== clave));
   }
 
   function agregarActividad() {
@@ -120,6 +138,9 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
       await onGuardar({
         regimenes_fiscales: regimenes,
         actividades_economicas: actividades,
+        // Solo se persiste si el usuario lo fijó (o ya había override); sin
+        // override el agente lo deja ausente y la UI lo deriva del régimen.
+        ...(diotTocado ? { presenta_diot: presentaDiot } : {}),
       });
       setOk(true);
     } catch (e) {
@@ -239,6 +260,31 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
             ))}
           </div>
         )}
+      </div>
+
+      <Separator />
+
+      {/* Obligaciones */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="presenta-diot">Presenta DIOT</Label>
+          <p className="text-xs text-muted-foreground">
+            El default sale del régimen configurado: RESICO, sueldos, RIF y
+            otros relevados no presentan. Ajústalo a mano para los casos
+            condicionales — p. ej. persona física con ingresos mayores a $4
+            MDP (sí presenta), actividades exentas o coordinado que la
+            presenta global (no presenta).
+          </p>
+        </div>
+        <Switch
+          id="presenta-diot"
+          checked={presentaDiot}
+          onCheckedChange={(v) => {
+            setOk(false);
+            setDiotTocado(true);
+            setPresentaDiot(v);
+          }}
+        />
       </div>
 
       <Separator />

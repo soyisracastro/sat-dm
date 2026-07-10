@@ -23,6 +23,8 @@ import { SelectorPeriodo } from '@/components/diot/selector-periodo';
 import { TablaDiot } from '@/components/diot/tabla-diot';
 import { ProcesadorSinEmpresa } from '@/components/shared/procesador-sin-empresa';
 import { useDiot } from '@/hooks/use-diot';
+import { useEmpresas } from '@/hooks/use-empresas';
+import { empresaPresentaDiot } from '@/lib/fiscal/regimenes-fiscales';
 
 export default function DiotPage() {
   const {
@@ -46,6 +48,12 @@ export default function DiotPage() {
 
   const [confirmarPrellenado, setConfirmarPrellenado] = useState(false);
   const [detalleIndex, setDetalleIndex] = useState<number | null>(null);
+
+  // Aviso (no bloquea): la empresa activa está relevada de la DIOT — RESICO
+  // por régimen configurado, o el override manual de la configuración.
+  const { empresas } = useEmpresas();
+  const empresaActiva = empresas.find((e) => e.rfc === rfcActivo);
+  const relevada = Boolean(empresaActiva) && !empresaPresentaDiot(empresaActiva);
 
   // Re-prellenar pisa los renglones de origen CFDI. Si el último guardado fue
   // una edición manual, se confirma antes (los agregados a mano sobreviven).
@@ -107,6 +115,18 @@ export default function DiotPage() {
           </div>
 
           {/* Avisos */}
+          {relevada && (
+            <Alert variant="warning">
+              <Icon icon="ph:info-light" className="size-4" />
+              <AlertTitle>Esta empresa está relevada de presentar la DIOT</AlertTitle>
+              <AlertDescription>
+                Según su régimen fiscal configurado (RESICO y otros relevados) o el
+                ajuste manual de su configuración, esta empresa no está obligada a
+                enviar la DIOT. Puedes generar el TXT de todos modos; si sí presenta,
+                actívalo en la configuración de la empresa.
+              </AlertDescription>
+            </Alert>
+          )}
           {(resumen?.cfdis_sin_desglose ?? 0) > 0 && (
             <Alert variant="warning">
               <Icon icon="ph:warning-light" className="size-4" />

@@ -266,6 +266,11 @@ export interface Empresa {
   regimenes_fiscales?: RegimenFiscalConfig[];
   /** Actividades económicas — descripción libre + marca opcional de la principal. */
   actividades_economicas?: ActividadEconomicaConfig[];
+  /**
+   * ¿La empresa presenta DIOT? null/ausente = derivar del régimen configurado
+   * (RESICO está relevado); bool = override manual desde la configuración.
+   */
+  presenta_diot?: boolean | null;
   /** Renovación de e.firma enviada cuyo cert nuevo aún no se descarga. */
   renovacion_pendiente?: RenovacionPendiente | null;
   /** Certificados de Sello Digital solicitados desde la app. */
@@ -353,6 +358,8 @@ export interface CsdResultado {
 export interface EmpresaUpdatePatch {
   regimenes_fiscales?: RegimenFiscalConfig[];
   actividades_economicas?: ActividadEconomicaConfig[];
+  /** Override manual de la obligación DIOT (ausente = derivar del régimen). */
+  presenta_diot?: boolean;
 }
 
 export interface EmpresasResponse {

@@ -42,6 +42,8 @@ class ActividadEconomicaItem(BaseModel):
 class EmpresaUpdateRequest(BaseModel):
     regimenes_fiscales: Optional[list[RegimenFiscalItem]] = None
     actividades_economicas: Optional[list[ActividadEconomicaItem]] = None
+    # Override manual de la obligación DIOT; ausente = la UI deriva del régimen.
+    presenta_diot: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
