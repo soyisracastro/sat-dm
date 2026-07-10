@@ -15,6 +15,9 @@ export interface PaginaNav {
 // Nav plano del sidebar (Ajustes vive en el menú de cuenta; Ayuda en el footer).
 export const NAV_ITEMS: readonly PaginaNav[] = [
   { href: '/', label: 'Inicio', icon: 'ph:squares-four-light' },
+  // Tareas va 2.º a propósito (decisión de producto 2026-07-09): recorrió los
+  // atajos ⌘2..⌘9 existentes — anotado en el CHANGELOG de esa fecha.
+  { href: '/tareas', label: 'Tareas', icon: 'ph:clipboard-text-light' },
   { href: '/empresas', label: 'Empresas', icon: 'ph:buildings-light' },
   { href: '/descarga', label: 'Descargar CFDIs', icon: 'ph:download-simple-light' },
   { href: '/comprobantes', label: 'Comprobantes', icon: 'ph:files-light' },

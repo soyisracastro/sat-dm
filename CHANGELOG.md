@@ -8,6 +8,24 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Tareas: centro de mando personal (Claude Design)**: nueva sección
+  **/tareas** para pendientes fiscales, recordatorios y lo que el usuario
+  tenga en mente — **con o sin empresa vinculada**. Vista **lista** agrupada
+  por fecha (Vencidas/Hoy/Esta semana/Más adelante/Sin fecha) o por empresa,
+  y vista **tablero** (Por hacer / En curso / Hechas); búsqueda, filtro por
+  empresa, alta rápida con Enter, modal «Nueva tarea» y drawer de edición
+  con eliminar (confirmación inline). **Sugerencias de TodoConta** derivadas
+  del catálogo: renovar e.firma por vencer (≤ 30 días) y generar la DIOT del
+  mes (vence el 17) — aceptar las convierte en tarea y descartar persiste
+  para siempre. Persistencia en el agente
+  (`~/.sat-descarga/tareas.json`, endpoints `/tareas*`), no en el navegador;
+  el modelo ya reserva `gcal_event_id` para la **sincronización
+  unidireccional con Google Calendar** planeada en
+  [docs/tareas-gcal-sync.md](docs/tareas-gcal-sync.md). «Tareas» entra al
+  sidebar en 2.ª posición: **los atajos ⌘2..⌘9 se recorren un número**
+  (decisión de producto; la card de /ayuda se actualiza sola) y desde la
+  10.ª página (DIOT) ya no hay dígito — se llega por ⌘K.
+
 - **Inicio: Panel Ejecutivo (Claude Design)**: el dashboard deja las 4 cards de
   accesos y pasa a un **resumen de operación con datos reales** del catálogo y
   el historial: saludo con fecha y nombre de la cuenta, KPIs clicables (CFDIs
@@ -17,9 +35,10 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   **próximos vencimientos de e.firma** (liga al detalle de la empresa), **top
   de empresas con más movimiento** del mes y **descargas recientes** con liga
   al historial. Cada panel trae estado vacío propio para instalaciones nuevas.
-  El bloque **«Tareas de hoy»** se publica como estructura deshabilitada
-  («Próximamente»): reserva el lugar del centro de tareas que llega en el
-  siguiente sprint.
+  El bloque **«Tareas de hoy»** muestra las 5 tareas más urgentes con
+  contadores (vencidas / para hoy / esta semana) y sugerencias, sincronizado
+  en vivo con la sección Tareas; el KPI «Tareas abiertas» avisa cuántas
+  están vencidas.
 
 - **Renovación de e.firma y generación de CSD desde la app (Certifica)**: nuevo
   router del agente (`/renovar`, `/renovar/recuperar`, `/csd`, `/csd/recuperar`)

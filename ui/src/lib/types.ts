@@ -1657,3 +1657,58 @@ export interface CatalogosDiot {
   paises: Record<string, string>;
   campos: CampoDiotMeta[];
 }
+
+// ---------------------------------------------------------------------------
+// Tareas personales (centro de mando) — /tareas*
+// ---------------------------------------------------------------------------
+
+export type TareaTipo = 'fiscal' | 'manual' | 'recurrente';
+export type TareaEstado = 'pendiente' | 'curso' | 'hecho';
+export type TareaPrioridad = 'alta' | 'media' | 'baja';
+
+export interface Tarea {
+  id: string;
+  titulo: string;
+  /** RFC de la empresa vinculada, o null = tarea general. */
+  rfc: string | null;
+  tipo: TareaTipo;
+  estado: TareaEstado;
+  prioridad: TareaPrioridad;
+  /** Fecha límite "YYYY-MM-DD" o null (sin fecha). */
+  fecha: string | null;
+  origen: 'manual' | 'sugerencia';
+  /** Id determinista de la sugerencia aceptada (suprime re-derivarla). */
+  sugerencia_id: string | null;
+  creado_en: string;
+  actualizado_en: string;
+  completado_en: string | null;
+  /** Reservado: evento espejo en Google Calendar (docs/tareas-gcal-sync.md). */
+  gcal_event_id: string | null;
+}
+
+// GET /tareas
+export interface TareasResponse {
+  tareas: Tarea[];
+  sugerencias_descartadas: string[];
+}
+
+// POST /tareas
+export interface TareaCrearRequest {
+  titulo: string;
+  rfc?: string | null;
+  tipo?: TareaTipo;
+  estado?: TareaEstado;
+  prioridad?: TareaPrioridad;
+  fecha?: string | null;
+  sugerencia_id?: string;
+}
+
+// PATCH /tareas/{id} — solo se aplican los campos enviados
+export interface TareaPatchRequest {
+  titulo?: string;
+  rfc?: string | null;
+  tipo?: TareaTipo;
+  estado?: TareaEstado;
+  prioridad?: TareaPrioridad;
+  fecha?: string | null;
+}

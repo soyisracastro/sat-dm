@@ -133,9 +133,11 @@ export function CommandPalette({
                     >
                       <Icon icon={item.icon} className="size-4.5 shrink-0 text-muted-foreground" />
                       {item.label}
-                      <CommandShortcut>
-                        {formatearAtajo({ tecla: String(i + 1) }, mac)}
-                      </CommandShortcut>
+                      {i < 9 && (
+                        <CommandShortcut>
+                          {formatearAtajo({ tecla: String(i + 1) }, mac)}
+                        </CommandShortcut>
+                      )}
                     </CommandItem>
                   ))}
                   {PAGINAS_EXTRA.map((item) => (

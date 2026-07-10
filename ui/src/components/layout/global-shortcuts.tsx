@@ -59,8 +59,10 @@ export function GlobalShortcuts() {
     // ⌘N: el query param lo lee /empresas para abrir el alta (y lo limpia).
     { tecla: 'n', accion: () => router.push('/empresas?alta=1') },
     { tecla: 'f1', mod: false, accion: () => router.push('/ayuda') },
-    // ⌘1..⌘7 por posición en NAV_ITEMS (ver nota de orden en lib/navegacion.ts).
-    ...NAV_ITEMS.flatMap((item, i): AtajoGlobal[] => [
+    // ⌘1..⌘9 por posición en NAV_ITEMS (ver nota de orden en lib/navegacion.ts).
+    // Solo hay 9 dígitos: a partir de la 10.ª página ya no hay atajo numérico
+    // (navegable por ⌘K); `Digit10` no existe como e.code.
+    ...NAV_ITEMS.slice(0, 9).flatMap((item, i): AtajoGlobal[] => [
       { tecla: `Digit${i + 1}`, esCode: true, accion: () => router.push(item.href) },
       { tecla: `Numpad${i + 1}`, esCode: true, accion: () => router.push(item.href) },
     ]),
