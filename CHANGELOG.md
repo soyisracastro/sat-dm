@@ -8,6 +8,19 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Inicio: Panel Ejecutivo (Claude Design)**: el dashboard deja las 4 cards de
+  accesos y pasa a un **resumen de operación con datos reales** del catálogo y
+  el historial: saludo con fecha y nombre de la cuenta, KPIs clicables (CFDIs
+  del mes con tendencia vs. el mes anterior, empresas activas, e.firmas por
+  vencer), gráfica de **CFDIs descargados por mes** (últimos 6), donut del
+  **estado de la cartera** (al día / e.firma por vencer / solo CIEC), lista de
+  **próximos vencimientos de e.firma** (liga al detalle de la empresa), **top
+  de empresas con más movimiento** del mes y **descargas recientes** con liga
+  al historial. Cada panel trae estado vacío propio para instalaciones nuevas.
+  El bloque **«Tareas de hoy»** se publica como estructura deshabilitada
+  («Próximamente»): reserva el lugar del centro de tareas que llega en el
+  siguiente sprint.
+
 - **Renovación de e.firma y generación de CSD desde la app (Certifica)**: nuevo
   router del agente (`/renovar`, `/renovar/recuperar`, `/csd`, `/csd/recuperar`)
   que corre cada trámite como **job SSE** de extremo a extremo: genera la
