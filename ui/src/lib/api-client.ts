@@ -40,6 +40,8 @@ import type {
   CfdiListResponse,
   CfdiStats,
   CfdiFiltros,
+  CfdiFlagsPatch,
+  CfdiFlagsResponse,
   CargarDesdeEmpresaRequest,
   ProcesadorCargarResponse,
   ReporteTotalesMes,
@@ -698,6 +700,18 @@ export class SatApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...filtros, rfc }),
     });
+  }
+
+  /** Actualiza flags por fila (interruptor DIOT / clasificación deducible). */
+  async procesadorActualizarCfdi(
+    rfc: string,
+    uuid: string,
+    patch: CfdiFlagsPatch,
+  ): Promise<CfdiFlagsResponse> {
+    return this.patch<CfdiFlagsResponse>(
+      `/procesador/cfdi/${encodeURIComponent(uuid)}`,
+      { rfc, ...patch },
+    );
   }
 
   /** Vacía el buffer y los filtros de UNA empresa (las demás no se tocan). */

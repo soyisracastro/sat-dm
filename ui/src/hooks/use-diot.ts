@@ -219,10 +219,13 @@ export function useDiot(): UseDiotState {
       if (epochRef.current !== epoch) return;
       aplicarEstado(estado);
       const n = estado.resumen?.proveedores ?? estado.filas.length;
+      const excluidos = estado.resumen?.cfdis_excluidos ?? 0;
+      const sufijoExcluidos =
+        excluidos > 0 ? ` · ${excluidos} excluido${excluidos === 1 ? '' : 's'} manualmente en Comprobantes` : '';
       toast.success(
         n > 0
-          ? `${n} proveedor${n === 1 ? '' : 'es'} prellenado${n === 1 ? '' : 's'} desde ${estado.resumen?.cfdis_considerados ?? 0} CFDIs`
-          : 'No hay CFDIs recibidos en el buffer para este periodo',
+          ? `${n} proveedor${n === 1 ? '' : 'es'} prellenado${n === 1 ? '' : 's'} desde ${estado.resumen?.cfdis_considerados ?? 0} CFDIs${sufijoExcluidos}`
+          : `No hay CFDIs recibidos en el buffer para este periodo${sufijoExcluidos}`,
         { id: 'diot-prellenar' },
       );
     } catch (e) {

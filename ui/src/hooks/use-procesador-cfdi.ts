@@ -19,6 +19,7 @@ const FILTROS_INICIALES: CfdiFiltros = {
   solo_con_errores: false,
   monto_min: null,
   monto_max: null,
+  diot: null,
 };
 
 const CONFIG: ProcesadorConfig<CfdiFiltros, CfdiListResponse, CfdiStats> = {

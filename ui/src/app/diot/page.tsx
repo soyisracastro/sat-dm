@@ -160,8 +160,9 @@ export default function DiotPage() {
                   <Icon icon="ph:info-light" className="mt-0.5 size-4 shrink-0" />
                   <span>
                     Criterio del prellenado: CFDIs recibidos emitidos en el periodo (las notas de
-                    crédito van a devoluciones). Todo es editable antes de generar el TXT; verifica
-                    el archivo subiéndolo a la aplicación DIOT del SAT.
+                    crédito van a devoluciones); los comprobantes que excluiste con el interruptor
+                    DIOT en Comprobantes no se consideran. Todo es editable antes de generar el
+                    TXT; verifica el archivo subiéndolo a la aplicación DIOT del SAT.
                   </span>
                 </div>
               </>

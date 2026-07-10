@@ -309,7 +309,7 @@ def test_db_borrar_limpia_solo_la_empresa(db):
     assert db.filtros_get(key=f"actuales:{MI_RFC}") == {
         "desde": None, "hasta": None, "tipo": None, "direccion": None,
         "busqueda": None, "solo_con_errores": False,
-        "monto_min": None, "monto_max": None,
+        "monto_min": None, "monto_max": None, "diot": None,
     }
     # La otra empresa sigue intacta.
     assert db.count({"mi_rfc": "CCC030303CCC"}) == 1

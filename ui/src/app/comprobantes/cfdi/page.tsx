@@ -1,12 +1,15 @@
 'use client';
 
+import { useCallback } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 import { PageHeading } from '@/components/layout/page-heading';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { CfdiCargarMasButton } from '@/components/procesador-cfdi/cfdi-cargar-mas-button';
 import { CfdiClearButton } from '@/components/procesador-cfdi/cfdi-clear-button';
+import { CfdiDiotCounter } from '@/components/procesador-cfdi/cfdi-diot-counter';
 import { CfdiExportButtons } from '@/components/procesador-cfdi/cfdi-export-buttons';
 import { CfdiFiltersPanel } from '@/components/procesador-cfdi/cfdi-filters';
 import { CfdiReportes } from '@/components/procesador-cfdi/cfdi-reportes';
@@ -17,6 +20,9 @@ import { CfdiValidarButton } from '@/components/procesador-cfdi/cfdi-validar-but
 import { ProcesadorEstado } from '@/components/shared/procesador-estado';
 import { ProcesadorSinEmpresa } from '@/components/shared/procesador-sin-empresa';
 import { useProcesadorCfdi } from '@/hooks/use-procesador-cfdi';
+import { mensajeDeError } from '@/lib/errores';
+import type { CfdiFlagsPatch } from '@/lib/types';
+import { useServer } from '@/providers/server-provider';
 
 export default function ProcesadorCfdiPage() {
   const {
@@ -36,6 +42,7 @@ export default function ProcesadorCfdiPage() {
     rfcActivo,
     sinEmpresa,
   } = useProcesadorCfdi();
+  const { apiClient } = useServer();
 
   const total = data?.total ?? 0;
   // Buffer "vacío" = NO hay CFDIs de la empresa en la DB. Si los hay pero los
@@ -43,11 +50,28 @@ export default function ProcesadorCfdiPage() {
   // y los filtros siguen visibles para que el usuario los ajuste.
   const bufferVacio = hidratado && stats !== null && stats.total_global === 0;
 
+  // La tabla pinta el cambio optimista; recargar() es la única fuente de
+  // verdad después (refresca lista + stats: contador y filtro DIOT activo).
+  // En error, la data fresca revierte lo optimista y se avisa con un toast.
+  const actualizarFlags = useCallback(
+    async (uuid: string, patch: CfdiFlagsPatch) => {
+      if (!rfcActivo) return;
+      try {
+        await apiClient.procesadorActualizarCfdi(rfcActivo, uuid, patch);
+      } catch (e) {
+        toast.error(`No se pudo actualizar el comprobante: ${mensajeDeError(e)}`);
+      } finally {
+        recargar();
+      }
+    },
+    [apiClient, rfcActivo, recargar],
+  );
+
   return (
     <div className="space-y-6">
       <PageHeading
         title="Procesador de CFDI"
-        description="Carga XMLs, filtra y genera reportes."
+        description="Carga XMLs, filtra, clasifica deducibilidad y prepara tus facturas para la DIOT."
         action={
           <Button variant="outline" size="sm" asChild>
             <Link href="/comprobantes">
@@ -95,13 +119,26 @@ export default function ProcesadorCfdiPage() {
                 filtrosActivos={filtrosActivos}
               />
 
-              <CfdiTable
-                data={data}
-                page={page}
-                pageSize={pageSize}
-                loading={loading}
-                onPage={setPage}
-              />
+              <div className="space-y-2">
+                <CfdiDiotCounter stats={stats} />
+                <CfdiTable
+                  data={data}
+                  page={page}
+                  pageSize={pageSize}
+                  loading={loading}
+                  onPage={setPage}
+                  onFlags={actualizarFlags}
+                />
+                <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Icon icon="ph:info-light" className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    Al generar la DIOT solo se incluyen las operaciones con el interruptor
+                    activado. Puedes excluir manualmente cualquier comprobante; los
+                    complementos de pago no aplican. La generación del TXT vive en la
+                    pantalla DIOT.
+                  </span>
+                </div>
+              </div>
 
               {total > 0 && <CfdiReportes rfc={rfcActivo} filtros={filtros} />}
             </>

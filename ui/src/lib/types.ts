@@ -434,6 +434,17 @@ export interface ApiErrorDetail {
 
 export type CfdiTipo = 'I' | 'E' | 'T' | 'N' | 'P';
 
+/**
+ * Estado DIOT de un comprobante (filtro «Estado DIOT», migración 009):
+ * - 'pasa'     = elegible y con el interruptor encendido (default)
+ * - 'excluido' = elegible pero apagado por el usuario
+ * - 'noaplica' = no elegible (P/N/T y emitidos)
+ */
+export type CfdiEstadoDiot = 'pasa' | 'excluido' | 'noaplica';
+
+/** Clasificación manual de deducibilidad; null = «Sin analizar». */
+export type CfdiDeducible = 'Deducible' | 'No deducible';
+
 export interface CfdiFiltros {
   desde: string | null;
   hasta: string | null;
@@ -456,6 +467,8 @@ export interface CfdiFiltros {
    * Espejo de la columna `cfdis.emisor_en_lista_negra` (migración 006).
    */
   emisor_lista_negra?: string | null;
+  /** Filtro por estado DIOT (interruptor de Comprobantes). */
+  diot?: CfdiEstadoDiot | null;
 }
 
 export interface CfdiRecord {
@@ -501,6 +514,11 @@ export interface CfdiRecord {
   validado_listas_en: string | null;
   warnings: string[];
   cargado_en: string;
+  /** ¿La fila es elegible para la DIOT? (recibidos de tipo I/E). Derivada. */
+  elegible_diot: boolean;
+  /** Interruptor «pasa a la DIOT» (solo tiene efecto en filas elegibles). */
+  incluir_diot: boolean;
+  deducible: CfdiDeducible | null;
 }
 
 export interface CfdiListResponse {
@@ -520,6 +538,29 @@ export interface CfdiStats {
   isr_retenido: number;
   con_errores: number;
   por_tipo: Record<string, number>;
+  // Contadores GLOBALES del buffer (scope de la empresa, sin filtros de UI)
+  // para la línea «X de Y operaciones pasan a la DIOT» sobre la tabla.
+  diot_elegibles: number;
+  diot_pasan: number;
+  diot_no_aplica: number;
+  deducible_no: number;
+  deducible_sin_clasificar: number;
+}
+
+/** Patch de flags editables por comprobante (PATCH /procesador/cfdi/{uuid}). */
+export interface CfdiFlagsPatch {
+  incluir_diot?: boolean;
+  /** 'Sin analizar' regresa la clasificación a null en el agente. */
+  deducible?: CfdiDeducible | 'Sin analizar';
+}
+
+export interface CfdiFlagsResponse {
+  ok: boolean;
+  item: CfdiRecord;
+  contadores: Pick<
+    CfdiStats,
+    'diot_elegibles' | 'diot_pasan' | 'diot_no_aplica' | 'deducible_no' | 'deducible_sin_clasificar'
+  >;
 }
 
 export interface ReporteTotalesMes {
@@ -1638,6 +1679,8 @@ export interface EstadoDiot {
 
 export interface ResumenPrellenadoDiot {
   cfdis_considerados: number;
+  /** Elegibles del periodo que el usuario apagó con el interruptor DIOT en Comprobantes. */
+  cfdis_excluidos?: number;
   cfdis_sin_desglose: number;
   proveedores: number;
 }

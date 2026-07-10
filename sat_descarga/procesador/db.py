@@ -103,7 +103,24 @@ def filtros_vacios() -> CfdiFiltros:
         "solo_con_errores": False,
         "monto_min": None,
         "monto_max": None,
+        "diot": None,           # 'pasa' | 'excluido' | 'noaplica' o None
     }
+
+
+# Elegibilidad DIOT por fila — MISMA regla que diot/agregacion.py::
+# prellenar_desde_procesador: operaciones recibidas (receptor = dueño,
+# emisor ≠ dueño) de tipo I/E. La columna `mi_rfc` ya se guarda normalizada
+# (normalizar_mi_rfc), por eso la expresión compara contra la columna y es
+# autocontenida por fila. Los COALESCE evitan el tri-estado NULL de SQL al
+# usar `NOT (...)` en el filtro «noaplica» y en los contadores.
+SQL_ELEGIBLE_DIOT = (
+    "(tipo IN ('I','E')"
+    " AND UPPER(TRIM(COALESCE(receptor_rfc,''))) = mi_rfc"
+    " AND UPPER(TRIM(COALESCE(emisor_rfc,''))) != mi_rfc)"
+)
+
+# Valores válidos de la clasificación manual de deducibilidad (NULL = sin analizar).
+DEDUCIBLE_VALORES = ("Deducible", "No deducible")
 
 
 # ---------------------------------------------------------------------------
@@ -680,7 +697,8 @@ class ProcesadorDB:
             cur_total = self._conn.execute(f"SELECT COUNT(*) FROM cfdis {sql}", params)
             total = cur_total.fetchone()[0]
             cur = self._conn.execute(
-                f"SELECT * FROM cfdis {sql} ORDER BY fecha DESC, uuid LIMIT ? OFFSET ?",
+                f"SELECT *, {SQL_ELEGIBLE_DIOT} AS elegible_diot FROM cfdis {sql} "
+                "ORDER BY fecha DESC, uuid LIMIT ? OFFSET ?",
                 (*params, page_size, offset),
             )
             items = [_row_to_dict(r) for r in cur.fetchall()]
@@ -691,7 +709,9 @@ class ProcesadorDB:
         sql, params = _construir_where(filtros)
         with self._lock:
             cur = self._conn.execute(
-                f"SELECT * FROM cfdis {sql} ORDER BY fecha DESC, uuid", params
+                f"SELECT *, {SQL_ELEGIBLE_DIOT} AS elegible_diot FROM cfdis {sql} "
+                "ORDER BY fecha DESC, uuid",
+                params,
             )
             while True:
                 rows = cur.fetchmany(500)
@@ -728,6 +748,70 @@ class ProcesadorDB:
                 "UPDATE cfdis SET estado_sat = ?, validado_en = ? WHERE uuid = ?",
                 (estado, ahora, uuid),
             )
+
+    # ------------------------------------------------------------------
+    # Flags editables por comprobante (interruptor DIOT / deducibilidad)
+    # ------------------------------------------------------------------
+
+    def actualizar_flags_cfdi(
+        self, uuid: str, mi_rfc: str, campos: dict
+    ) -> Optional[dict]:
+        """Actualiza flags editables de UNA fila (uuid, mi_rfc).
+
+        `campos` es un subset de:
+        - 'incluir_diot': 0 | 1 — SOLO en filas elegibles para la DIOT;
+          levanta ValueError si la fila no lo es (contrato explícito: la UI
+          nunca muestra el interruptor en filas no elegibles).
+        - 'deducible': 'Deducible' | 'No deducible' | None (= sin analizar).
+
+        Devuelve la fila actualizada (shape de _row_to_dict) o None si el
+        uuid no existe bajo esa empresa.
+        """
+        dueno = normalizar_mi_rfc(mi_rfc)
+        asignaciones: list[str] = []
+        valores: list[Any] = []
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                f"SELECT {SQL_ELEGIBLE_DIOT} AS elegible FROM cfdis "
+                "WHERE uuid = ? AND mi_rfc = ?",
+                (uuid, dueno),
+            )
+            fila = cur.fetchone()
+            if fila is None:
+                return None
+
+            if "incluir_diot" in campos:
+                if not fila["elegible"]:
+                    raise ValueError(
+                        "El comprobante no es elegible para la DIOT (solo se "
+                        "declaran operaciones recibidas de Ingreso/Egreso)."
+                    )
+                asignaciones.append("incluir_diot = ?")
+                valores.append(1 if campos["incluir_diot"] else 0)
+
+            if "deducible" in campos:
+                deducible = campos["deducible"]
+                if deducible is not None and deducible not in DEDUCIBLE_VALORES:
+                    raise ValueError(f"Valor de deducible inválido: {deducible!r}")
+                asignaciones.append("deducible = ?")
+                valores.append(deducible)
+
+            if not asignaciones:
+                raise ValueError(
+                    "Nada que actualizar: envía incluir_diot y/o deducible."
+                )
+
+            self._conn.execute(
+                f"UPDATE cfdis SET {', '.join(asignaciones)} "
+                "WHERE uuid = ? AND mi_rfc = ?",
+                (*valores, uuid, dueno),
+            )
+            cur = self._conn.execute(
+                f"SELECT *, {SQL_ELEGIBLE_DIOT} AS elegible_diot FROM cfdis "
+                "WHERE uuid = ? AND mi_rfc = ?",
+                (uuid, dueno),
+            )
+            return _row_to_dict(cur.fetchone())
 
     def uuids_sin_validar(
         self, mi_rfc: str, limit: Optional[int] = None
@@ -1094,6 +1178,16 @@ def _construir_where(filtros: Optional[CfdiFiltros]) -> tuple[str, tuple]:
             clauses.append("emisor_en_lista_negra = ?")
             params.append(emisor_lista)
 
+    # Estado DIOT: 'pasa' (elegible e incluido) | 'excluido' (elegible
+    # apagado por el usuario) | 'noaplica' (P/N/T y emitidos).
+    diot = filtros.get("diot")
+    if diot == "pasa":
+        clauses.append(f"({SQL_ELEGIBLE_DIOT} AND incluir_diot = 1)")
+    elif diot == "excluido":
+        clauses.append(f"({SQL_ELEGIBLE_DIOT} AND incluir_diot = 0)")
+    elif diot == "noaplica":
+        clauses.append(f"NOT {SQL_ELEGIBLE_DIOT}")
+
     if not clauses:
         return "", ()
     return "WHERE " + " AND ".join(clauses), tuple(params)
@@ -1116,4 +1210,8 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     else:
         d["warnings"] = []
     d.pop("warnings_json", None)
+    # Flags DIOT/deducibilidad (migración 009). elegible_diot solo viene
+    # cuando el SELECT lo computa; incluir_diot default 1 = pasa.
+    d["elegible_diot"] = bool(d.get("elegible_diot"))
+    d["incluir_diot"] = bool(d.get("incluir_diot", 1))
     return d

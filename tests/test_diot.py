@@ -190,6 +190,23 @@ def _cargar(db, xmls: list[bytes]) -> None:
     db.agregar([parse_cfdi(x) for x in xmls], mi_rfc=MI_RFC)
 
 
+def test_prellenar_respeta_incluir_diot(db):
+    """Los comprobantes con el interruptor DIOT apagado en Comprobantes no
+    entran al prellenado y se reportan en `cfdis_excluidos`."""
+    _cargar(db, [
+        _xml("I1", traslados=TRASLADO_16),
+        _xml("I2", traslados=TRASLADO_16),
+    ])
+    db.actualizar_flags_cfdi("I2", MI_RFC, {"incluir_diot": 0})
+
+    resultado = prellenar_desde_procesador(MI_RFC, "2026-05", db=db)
+    assert resultado["resumen"]["cfdis_considerados"] == 1
+    assert resultado["resumen"]["cfdis_excluidos"] == 1
+    (fila,) = resultado["filas"]
+    assert fila["valor_16"] == 1000  # solo I1; sin el skip serían 2000
+    assert fila["num_cfdis"] == 1
+
+
 def test_prellenar_agrupa_por_proveedor_y_mapea_tasas(db):
     _cargar(db, [
         _xml("I1", traslados=TRASLADO_16 + TRASLADO_8 + TRASLADO_0 + TRASLADO_EXENTO,
@@ -200,7 +217,8 @@ def test_prellenar_agrupa_por_proveedor_y_mapea_tasas(db):
     resultado = prellenar_desde_procesador(MI_RFC, "2026-05", db=db)
     filas = resultado["filas"]
     assert resultado["resumen"] == {
-        "cfdis_considerados": 3, "cfdis_sin_desglose": 0, "proveedores": 2,
+        "cfdis_considerados": 3, "cfdis_excluidos": 0,
+        "cfdis_sin_desglose": 0, "proveedores": 2,
     }
     alfa = next(f for f in filas if f["rfc"] == PROV_A)
     assert alfa["valor_16"] == 2000       # dos facturas de 1000
@@ -469,18 +487,22 @@ def test_migracion_007_a_008_preserva_datos_y_estima(tmp_path):
     sube a v008 sin perder datos; las filas viejas quedan sin desglose (la DIOT
     las estima desde el IVA) y las nuevas traen el desglose exacto.
 
-    El v007 se simula ocultando la migración 008 del directorio mientras se
-    puebla la DB "a la vieja" (INSERT sin las columnas nuevas); el `finally`
-    restaura la migración SIEMPRE — de no hacerlo rompería el resto de la suite.
+    El v007 se simula ocultando TODAS las migraciones posteriores a la 007
+    mientras se puebla la DB "a la vieja" (INSERT sin las columnas nuevas); el
+    `finally` las restaura SIEMPRE — de no hacerlo rompería el resto de la suite.
     """
-    mig = db_mod.MIGRATIONS_DIR / "008_desglose_iva.sql"
-    fuera = tmp_path / "008_desglose_iva.sql.bak"
+    ocultas = [
+        (mig, tmp_path / f"{mig.name}.bak")
+        for mig in sorted(db_mod.MIGRATIONS_DIR.glob("*.sql"))
+        if int(mig.name[:3]) > 7
+    ]
     db_path = tmp_path / "procesador.db"
 
     db_mod.resetear_singleton_para_tests()
     try:
-        # 1) DB "vieja" en v007: la 008 no está en el directorio de migraciones.
-        shutil.move(str(mig), str(fuera))
+        # 1) DB "vieja" en v007: nada posterior en el directorio de migraciones.
+        for mig, fuera in ocultas:
+            shutil.move(str(mig), str(fuera))
         vieja = db_mod.ProcesadorDB(db_path)
         try:
             with vieja.cursor() as c:
@@ -498,17 +520,18 @@ def test_migracion_007_a_008_preserva_datos_y_estima(tmp_path):
         finally:
             vieja.close()
     finally:
-        # Restaurar la migración pase lo que pase (crítico para la suite).
-        if fuera.exists():
-            shutil.move(str(fuera), str(mig))
+        # Restaurar las migraciones pase lo que pase (crítico para la suite).
+        for mig, fuera in ocultas:
+            if fuera.exists():
+                shutil.move(str(fuera), str(mig))
         db_mod.resetear_singleton_para_tests()
 
-    # 2) La app nueva reabre la misma DB → aplica la 008 ANTES de cualquier INSERT.
+    # 2) La app nueva reabre la misma DB → aplica 008+ ANTES de cualquier INSERT.
     nueva = db_mod.ProcesadorDB(db_path)
     try:
         with nueva.cursor() as c:
             c.execute("SELECT value FROM _meta WHERE key='schema_version'")
-            assert c.fetchone()[0] == "8"
+            assert c.fetchone()[0] == str(db_mod.schema_version_actual())
             c.execute("SELECT base_iva_16 FROM cfdis WHERE uuid='LEGACY-1'")
             assert c.fetchone()[0] is None  # fila legacy: sin desglose, no se pierde
 

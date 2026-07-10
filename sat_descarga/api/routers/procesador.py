@@ -6,7 +6,7 @@ Endpoints: /procesador/cfdi/*, /procesador/pagos/*, /procesador/nomina/* y
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -58,6 +58,15 @@ class ProcesadorFiltrosRequest(BaseModel):
     solo_con_errores: Optional[bool] = False
     monto_min: Optional[float] = None
     monto_max: Optional[float] = None
+    diot: Optional[str] = None  # 'pasa' | 'excluido' | 'noaplica' | None
+
+
+class CfdiFlagsRequest(BaseModel):
+    """Flags editables por comprobante. 'Sin analizar' se persiste como NULL."""
+
+    rfc: str
+    incluir_diot: Optional[bool] = None
+    deducible: Optional[Literal["Sin analizar", "Deducible", "No deducible"]] = None
 
 
 def _filtros_de_query(
@@ -71,6 +80,7 @@ def _filtros_de_query(
     monto_max: Optional[float],
     direccion: Optional[str] = None,
     emisor_lista_negra: Optional[str] = None,
+    diot: Optional[str] = None,
 ) -> dict:
     """Construye el dict de filtros para `procesador.db` (acotado al dueño)."""
     return {
@@ -84,6 +94,7 @@ def _filtros_de_query(
         "monto_min": monto_min,
         "monto_max": monto_max,
         "emisor_lista_negra": emisor_lista_negra,
+        "diot": diot,
     }
 
 
@@ -341,6 +352,7 @@ def procesador_listar(
     monto_min: Optional[float] = None,
     monto_max: Optional[float] = None,
     emisor_lista_negra: Optional[str] = None,
+    diot: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
 ):
@@ -349,7 +361,7 @@ def procesador_listar(
     filtros = _filtros_de_query(
         _rfc_requerido(rfc),
         desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
-        direccion, emisor_lista_negra,
+        direccion, emisor_lista_negra, diot,
     )
     db = abrir_db()
     return db.listar(filtros, page=page, page_size=page_size)
@@ -366,13 +378,15 @@ def procesador_stats(
     solo_con_errores: bool = False,
     monto_min: Optional[float] = None,
     monto_max: Optional[float] = None,
+    diot: Optional[str] = None,
 ):
     """KPIs agregados (stats cards)."""
     from ...procesador import abrir_db
     from ...procesador.reportes_cfdi import stats_generales
     filtros = _filtros_de_query(
         _rfc_requerido(rfc),
-        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
+        direccion, diot=diot,
     )
     return stats_generales(abrir_db(), filtros)
 
@@ -389,6 +403,7 @@ def procesador_reporte(
     solo_con_errores: bool = False,
     monto_min: Optional[float] = None,
     monto_max: Optional[float] = None,
+    diot: Optional[str] = None,
 ):
     """Reportes específicos: `totales-mes`, `top-contrapartes`, `integridad`."""
     from ...procesador import abrir_db
@@ -396,7 +411,8 @@ def procesador_reporte(
 
     filtros = _filtros_de_query(
         _rfc_requerido(rfc),
-        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
+        direccion, diot=diot,
     )
     db = abrir_db()
     if nombre == "totales-mes":
@@ -432,6 +448,43 @@ def procesador_borrar(rfc: str):
     return {"ok": True}
 
 
+@router.patch("/procesador/cfdi/{uuid}")
+def procesador_actualizar_cfdi(uuid: str, req: CfdiFlagsRequest):
+    """Actualiza flags editables (incluir_diot / deducible) de un CFDI.
+
+    - `incluir_diot` solo se acepta en filas elegibles para la DIOT (400 si no).
+    - `deducible` acepta 'Sin analizar' (→ NULL), 'Deducible' o 'No deducible'.
+    Devuelve la fila actualizada + contadores globales para que la UI refresque
+    la línea-resumen sin otro roundtrip.
+    """
+    from ...procesador import abrir_db
+    from ...procesador.reportes_cfdi import contadores_diot_deducible
+
+    mi_rfc = _rfc_requerido(req.rfc)
+    campos: dict = {}
+    if req.incluir_diot is not None:
+        campos["incluir_diot"] = req.incluir_diot
+    if "deducible" in req.model_fields_set:
+        campos["deducible"] = None if req.deducible == "Sin analizar" else req.deducible
+    if not campos:
+        raise HTTPException(
+            status_code=400,
+            detail="Nada que actualizar: envía incluir_diot y/o deducible.",
+        )
+
+    db = abrir_db()
+    try:
+        item = db.actualizar_flags_cfdi(uuid, mi_rfc, campos)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El CFDI {uuid} no está en el buffer de {mi_rfc}.",
+        )
+    return {"ok": True, "item": item, "contadores": contadores_diot_deducible(db, mi_rfc)}
+
+
 @router.get("/procesador/cfdi/exportar")
 def procesador_exportar(
     rfc: str,
@@ -444,6 +497,7 @@ def procesador_exportar(
     solo_con_errores: bool = False,
     monto_min: Optional[float] = None,
     monto_max: Optional[float] = None,
+    diot: Optional[str] = None,
 ):
     """Descarga el buffer filtrado como XLSX o CSV."""
     from ...procesador import abrir_db
@@ -451,7 +505,8 @@ def procesador_exportar(
 
     filtros = _filtros_de_query(
         _rfc_requerido(rfc),
-        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max, direccion,
+        desde, hasta, tipo, busqueda, solo_con_errores, monto_min, monto_max,
+        direccion, diot=diot,
     )
     db = abrir_db()
 
