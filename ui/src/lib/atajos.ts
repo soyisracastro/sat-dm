@@ -66,12 +66,13 @@ export function formatearAtajo(
   return `Ctrl+${atajo.shift ? 'Shift+' : ''}${atajo.tecla}`;
 }
 
-// Tabla de referencia (card "Atajos de teclado" en /ayuda). Los ⌘1..⌘7 se
-// asignan por el ORDEN de NAV_ITEMS en lib/navegacion.ts — ver nota ahí.
+// Tabla de referencia (card "Atajos de teclado" en /ayuda). Los ⌘1..⌘9 se
+// asignan por el ORDEN de NAV_ITEMS en lib/navegacion.ts — ver nota ahí
+// (a partir de la 10.ª página ya no hay dígito; se llega por ⌘K).
 export const ATAJOS: readonly Atajo[] = [
   { id: 'palette', tecla: 'K', descripcion: 'Buscar página o acción', grupo: 'Navegación' },
   { id: 'empresas', tecla: 'E', descripcion: 'Cambiar de empresa activa', grupo: 'Navegación' },
-  { id: 'paginas', tecla: '1…7', descripcion: 'Ir a la página N del menú (en su orden)', grupo: 'Navegación' },
+  { id: 'paginas', tecla: '1…9', descripcion: 'Ir a la página N del menú (en su orden)', grupo: 'Navegación' },
   { id: 'descarga-rapida', tecla: 'D', shift: true, descripcion: 'Ir a Descarga rápida', grupo: 'Navegación' },
   { id: 'ajustes', tecla: ',', descripcion: 'Abrir Ajustes', grupo: 'Navegación' },
   { id: 'ayuda', tecla: 'F1', mod: false, descripcion: 'Abrir Ayuda', grupo: 'Navegación' },

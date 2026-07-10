@@ -33,6 +33,10 @@ import type {
   SolicitudesResponse,
   HistorialResponse,
   DocumentoResponse,
+  Tarea,
+  TareasResponse,
+  TareaCrearRequest,
+  TareaPatchRequest,
   CfdiListResponse,
   CfdiStats,
   CfdiFiltros,
@@ -553,6 +557,33 @@ export class SatApiClient {
   /** Abre en el SO una descarga del historial: su carpeta o el archivo (PDF). */
   async abrir(ruta: string, modo: 'carpeta' | 'archivo' = 'carpeta'): Promise<{ ok: boolean }> {
     return this.post<{ ok: boolean }>('/abrir', { ruta, modo });
+  }
+
+  // -----------------------------------------------------------------------
+  // Tareas personales
+  // -----------------------------------------------------------------------
+
+  /** Tareas del usuario + ids de sugerencias descartadas. */
+  async listTareas(): Promise<TareasResponse> {
+    return this.request<TareasResponse>('/tareas');
+  }
+
+  async crearTarea(req: TareaCrearRequest): Promise<Tarea> {
+    return this.post<Tarea>('/tareas', { ...req });
+  }
+
+  /** Patch parcial: solo se aplican los campos enviados. */
+  async actualizarTarea(id: string, patch: TareaPatchRequest): Promise<Tarea> {
+    return this.patch<Tarea>(`/tareas/${encodeURIComponent(id)}`, { ...patch });
+  }
+
+  async eliminarTarea(id: string): Promise<{ ok: boolean }> {
+    return this.del<{ ok: boolean }>(`/tareas/${encodeURIComponent(id)}`);
+  }
+
+  /** Persiste el descarte de una sugerencia derivada (no vuelve a aparecer). */
+  async descartarSugerencia(id: string): Promise<{ ok: boolean }> {
+    return this.post<{ ok: boolean }>('/tareas/sugerencias/descartar', { id });
   }
 
   // -----------------------------------------------------------------------

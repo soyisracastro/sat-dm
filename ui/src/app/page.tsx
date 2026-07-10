@@ -8,9 +8,10 @@ import { EstadoCarteraDonut } from '@/components/inicio/estado-cartera';
 import { GraficaCfdisMes } from '@/components/inicio/grafica-cfdis-mes';
 import { KpiTile, type KpiTendencia } from '@/components/inicio/kpi-tile';
 import { ProximosVencimientos } from '@/components/inicio/proximos-vencimientos';
-import { TareasProximamente } from '@/components/inicio/tareas-proximamente';
+import { TareasHoy } from '@/components/inicio/tareas-hoy';
 import { useEmpresas } from '@/hooks/use-empresas';
 import { useHistorial } from '@/hooks/use-historial';
+import { useTareas } from '@/hooks/use-tareas';
 import { formatNumber } from '@/lib/formatting';
 import {
   cfdisPorMes,
@@ -18,6 +19,7 @@ import {
   estadoCartera,
   proximosVencimientos,
 } from '@/lib/inicio-stats';
+import { diasDesdeHoy } from '@/lib/tareas';
 import { useAuth } from '@/providers/auth-provider';
 
 /** "Miércoles · 8 de julio de 2026" (capitalizado, con separador del diseño). */
@@ -44,6 +46,7 @@ export default function InicioPage() {
   const { license } = useAuth();
   const { empresas } = useEmpresas();
   const { descargas, loading: cargandoHistorial } = useHistorial();
+  const { tareas } = useTareas();
 
   // La fecha se calcula tras montar: bajo `output: export` el HTML se
   // prerenderiza en build y un `new Date()` en el render inicial dejaría la
@@ -75,6 +78,10 @@ export default function InicioPage() {
 
   const nombre = primerNombre(license?.email);
   const nActivas = cartera.activas.length;
+  const tareasAbiertas = tareas.filter((t) => t.estado !== 'hecho');
+  const tareasVencidas = tareasAbiertas.filter(
+    (t) => t.fecha && diasDesdeHoy(t.fecha) < 0,
+  ).length;
 
   return (
     <div className="space-y-5">
@@ -90,6 +97,8 @@ export default function InicioPage() {
           Resumen de tu operación
           {nActivas > 0 &&
             ` · ${nActivas} ${nActivas === 1 ? 'empresa activa' : 'empresas activas'}`}
+          {tareasAbiertas.length > 0 &&
+            ` · ${tareasAbiertas.length} ${tareasAbiertas.length === 1 ? 'tarea abierta' : 'tareas abiertas'}`}
           .
         </p>
       </div>
@@ -98,10 +107,24 @@ export default function InicioPage() {
       <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-4">
         <KpiTile
           icono="ph:clipboard-text-light"
-          tono="neutro"
-          valor="—"
+          tono={tareasVencidas > 0 ? 'ambar' : 'neutro'}
+          valor={formatNumber(tareasAbiertas.length)}
           etiqueta="Tareas abiertas"
-          badge="Próximamente"
+          href="/tareas"
+          valorEnAlerta={tareasVencidas > 0}
+          tendencia={
+            tareasVencidas > 0
+              ? {
+                  texto: `${tareasVencidas} ${tareasVencidas === 1 ? 'vencida' : 'vencidas'}`,
+                  tono: 'neutra',
+                  icono: 'ph:warning-circle-light',
+                }
+              : {
+                  texto: 'sin vencidas',
+                  tono: 'positiva',
+                  icono: 'ph:check-circle-light',
+                }
+          }
         />
         <KpiTile
           icono="ph:download-simple-light"
@@ -138,8 +161,8 @@ export default function InicioPage() {
         />
       </div>
 
-      {/* Tareas — la sección llega en el siguiente sprint */}
-      <TareasProximamente />
+      {/* Tareas de hoy (mismo estado que /tareas, sincronizado por evento) */}
+      <TareasHoy empresas={empresas} />
 
       {/* Analítica de operación */}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.35fr_1fr]">
