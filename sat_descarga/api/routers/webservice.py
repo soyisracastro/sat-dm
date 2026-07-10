@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from ...core.fiel import FIEL
 from ...webservice.solicitud import solicitar_descarga
-from ...webservice.verificacion import verificar_solicitud
+from ...webservice.verificacion import verificar_solicitud, consultar_solicitud
 from ...core.config import TIPO_CFDI, TIPO_EMITIDO
 from ..state import (
     _session,
@@ -26,6 +26,9 @@ from ..state import (
     _autocargar_empresa_default,
     _descargas_base,
     _registrar_descarga,
+    _salida_descarga_ws,
+    _iniciar_descarga_ws,
+    _terminar_descarga_ws,
     SolicitudRequest,
 )
 
@@ -221,24 +224,38 @@ def verificar(req: VerificarRequest):
 
     Si poll=True, bloquea hasta que la solicitud termine (puede tardar horas).
     Para uso interactivo, usar poll=False y hacer polling periódico desde el cliente.
+
+    Con poll=False los estados de falla (4=error, 5=rechazada, 6=vencida) NO son
+    excepción: se persisten en el catálogo y se devuelven al cliente como datos.
+    Antes se convertían en HTTP 400 y la solicitud quedaba "Procesando" para
+    siempre en el catálogo local.
     """
     fiel = _get_fiel()
     token = _renovar_token()
 
     try:
-        estado = verificar_solicitud(
-            token=token,
-            rfc_solicitante=fiel.rfc,
-            id_solicitud=req.id_solicitud,
-            fiel=fiel,
-            poll=req.poll,
-        )
-        _actualizar_solicitud_ws(
-            fiel.rfc, req.id_solicitud, estado.cod_estado,
-            package_ids=estado.package_ids if estado.package_ids else None,
-            mensaje=estado.mensaje,
-            numero_cfdis=estado.numero_cfdis,
-        )
+        if req.poll:
+            estado = verificar_solicitud(
+                token=token,
+                rfc_solicitante=fiel.rfc,
+                id_solicitud=req.id_solicitud,
+                fiel=fiel,
+                poll=True,
+            )
+        else:
+            estado = consultar_solicitud(
+                token=token,
+                rfc_solicitante=fiel.rfc,
+                id_solicitud=req.id_solicitud,
+                fiel=fiel,
+            )
+        if estado.cod_estado:
+            _actualizar_solicitud_ws(
+                fiel.rfc, req.id_solicitud, _estado_catalogo(estado.cod_estado),
+                package_ids=estado.package_ids if estado.package_ids else None,
+                mensaje=estado.mensaje,
+                numero_cfdis=estado.numero_cfdis,
+            )
         return {
             "cod_estado": estado.cod_estado,
             "mensaje": estado.mensaje,
@@ -269,62 +286,76 @@ def descargar(
     from ...webservice.descarga import descargar_todos
 
     fiel = _get_fiel()
-    token = _renovar_token()
 
-    salida = directorio_salida or _salida_descarga_ws(fiel.rfc, id_solicitud)
-
-    # Verificar estado actual — la petición DEBE ir firmada (xmldsig) con la FIEL,
-    # si no, el SAT devuelve un EstadoSolicitud vacío y se ve como "no está lista".
-    try:
-        estado = verificar_solicitud(
-            token=token,
-            rfc_solicitante=fiel.rfc,
-            id_solicitud=id_solicitud,
-            fiel=fiel,
-            poll=False,
-        )
-    except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    if not estado.terminada:
+    # Dedup contra el poller en background: si él ya está bajando esta solicitud,
+    # no la bajamos doble. La UI trata el 409 como "ya se está resolviendo".
+    if not _iniciar_descarga_ws(id_solicitud):
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"La solicitud no está lista (cod_estado={estado.cod_estado}). "
-                "Espera a que el SAT termine de procesarla."
-            ),
+            detail="La descarga de esta solicitud ya está en curso.",
         )
-
-    if not estado.package_ids:
-        return {"ok": True, "archivos": [], "total": 0, "mensaje": "Sin CFDIs para el periodo."}
-
-    # Renovar token antes de descargar (puede haber expirado durante el polling)
-    token = _renovar_token()
 
     try:
-        zips = descargar_todos(
-            token=token,
-            rfc_solicitante=fiel.rfc,
-            package_ids=estado.package_ids,
-            directorio_salida=salida,
-            fiel=fiel,
-            extraer=extraer,
-        )
-        _registrar_descarga(
-            fiel.rfc, "ws", "cfdi",
-            descripcion=f"Descarga WS · solicitud {id_solicitud[:8]}…",
-            ruta=salida, total=estado.numero_cfdis,
-        )
-        _actualizar_solicitud_ws(
-            fiel.rfc, id_solicitud, "descargada", package_ids=estado.package_ids,
-        )
-        return {
-            "ok": True,
-            "archivos": [str(z) for z in zips],
-            "total": len(zips),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        token = _renovar_token()
+
+        salida = directorio_salida or _salida_descarga_ws(fiel.rfc, id_solicitud)
+
+        # Verificar estado actual — la petición DEBE ir firmada (xmldsig) con la FIEL,
+        # si no, el SAT devuelve un EstadoSolicitud vacío y se ve como "no está lista".
+        try:
+            estado = verificar_solicitud(
+                token=token,
+                rfc_solicitante=fiel.rfc,
+                id_solicitud=id_solicitud,
+                fiel=fiel,
+                poll=False,
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        if not estado.terminada:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"La solicitud no está lista (cod_estado={estado.cod_estado}). "
+                    "Espera a que el SAT termine de procesarla."
+                ),
+            )
+
+        if not estado.package_ids:
+            return {"ok": True, "archivos": [], "total": 0, "mensaje": "Sin CFDIs para el periodo."}
+
+        # Renovar token antes de descargar (puede haber expirado durante el polling)
+        token = _renovar_token()
+
+        try:
+            zips = descargar_todos(
+                token=token,
+                rfc_solicitante=fiel.rfc,
+                package_ids=estado.package_ids,
+                directorio_salida=salida,
+                fiel=fiel,
+                extraer=extraer,
+            )
+            _registrar_descarga(
+                fiel.rfc, "ws", "cfdi",
+                descripcion=f"Descarga WS · solicitud {id_solicitud[:8]}…",
+                ruta=salida, total=estado.numero_cfdis,
+            )
+            _actualizar_solicitud_ws(
+                fiel.rfc, id_solicitud, "descargada", package_ids=estado.package_ids,
+            )
+            return {
+                "ok": True,
+                "archivos": [str(z) for z in zips],
+                "total": len(zips),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _terminar_descarga_ws(id_solicitud)
 
 
 @router.post("/descarga-completa")
@@ -450,6 +481,12 @@ def descarga_inteligente(req: DescargaInteligente):
 # ---------------------------------------------------------------------------
 
 
+def _estado_catalogo(cod_estado: str) -> str:
+    """Normaliza el EstadoSolicitud del SAT al estado del catálogo local: el 6
+    (vencida) se guarda como "vencida" para que la UI lo pinte como terminal."""
+    return "vencida" if cod_estado == "6" else cod_estado
+
+
 def _guardar_solicitud_ws(rfc: str, id_solicitud: str, req: "SolicitudRequest") -> None:
     """Guarda la solicitud WS recién creada en el catálogo por empresa. Best-effort.
 
@@ -493,26 +530,3 @@ def _actualizar_solicitud_ws(
         logger.warning("No se pudo actualizar la solicitud en el historial", exc_info=True)
 
 
-def _salida_descarga_ws(rfc: str, id_solicitud: str) -> str:
-    """Calcula la carpeta de salida para `/descargar` siguiendo la convención CIEC
-    (`{base}/cfdi/{RFC}/{emitidos|recibidos}/{desde}_a_{hasta}/`), recuperando del
-    catálogo lo que el usuario solicitó. Si el registro no existe o le falta info,
-    cae al directorio base por RFC (compatible hacia atrás)."""
-    from ...cli import config_store
-    from ...core import paths
-    from datetime import date as _date
-
-    base = _descargas_base()
-    try:
-        sol = config_store.get_solicitud(rfc, id_solicitud) or {}
-    except Exception:  # noqa: BLE001
-        sol = {}
-    tipo = sol.get("tipo_comprobante")
-    fi, ff = sol.get("fecha_inicio"), sol.get("fecha_fin")
-    if tipo in ("E", "R") and fi and ff:
-        try:
-            return str(paths.dir_cfdi(rfc, tipo, _date.fromisoformat(fi),
-                                      _date.fromisoformat(ff), salida_base=base))
-        except ValueError:
-            pass  # fechas malformadas → fallback
-    return str(paths.dir_cfdi_base(rfc, salida_base=base))

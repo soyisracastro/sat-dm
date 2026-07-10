@@ -3,25 +3,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
-import { notifyDescargaCompleta, notifyDescargaError } from '@/lib/notify';
 import type { Solicitud } from '@/lib/types';
 import type { SatApiClient } from '@/lib/api-client';
 import { mensajeDeError } from '@/lib/errores';
 
 // Estados que NO han terminado: las solicitudes con estos estados deben re-pollearse.
-// "3"/"4"/"5"/"descargada" son terminales (lista/error/rechazada/descargada).
+// "3"/"4"/"5"/"vencida"/"descargada" son terminales.
 const ESTADOS_NO_TERMINALES = new Set(['solicitada', '1', '2']);
 const POLL_INTERVAL_MS = 15_000;
 
-// Transiciones a estos estados disparan notificación.
+// Transición a "lista": dispara la auto-descarga. Las NOTIFICACIONES de
+// éxito/error viven en el watcher global (use-solicitudes-watcher), que cubre
+// todas las empresas — aquí solo orquestamos la descarga de la empresa activa.
 const ESTADO_LISTA = '3';
-const ESTADOS_ERROR = new Set(['4', '5']);
 
-// Clave en localStorage que `useDescarga` usa para trackear la solicitud
-// que está en el "active flow" (la última de un Ambos, o la única si es E o R).
+// `useDescarga` guarda la solicitud del "active flow" (la última de un Ambos,
+// o la única si es E o R) en localStorage POR EMPRESA, como JSON {id, ts}.
 // Esa la maneja el propio hook (polling + auto-descarga), así que NO debemos
 // disparar /descargar para ella desde aquí — provocaría doble HTTP request.
-const ACTIVE_FLOW_LS_KEY = 'sat-dm-request-id';
+function activeFlowId(rfc: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(`sat-dm-request-id:${rfc}`);
+    if (!raw) return null;
+    return (JSON.parse(raw) as { id?: string }).id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface UseSolicitudesState {
   solicitudes: Solicitud[];
@@ -122,11 +131,11 @@ export function useSolicitudes(rfc: string | null): UseSolicitudesState {
 
 /**
  * Compara el estado actual de cada solicitud contra el snapshot previo y,
- * para las que transitan desde no-terminal:
- *   - hacia "lista" (3): dispara notificación de éxito Y auto-descarga
- *     (apiClient.descargar). Skip si la solicitud la maneja el active flow
- *     (useDescarga, vía localStorage) o si ya la descargamos automáticamente.
- *   - hacia "error" (4/5): dispara notificación de error.
+ * para las que transitan desde no-terminal hacia "lista" (3), dispara la
+ * auto-descarga (apiClient.descargar). Skip si la solicitud la maneja el
+ * active flow (useDescarga, vía localStorage por empresa) o si ya la
+ * descargamos automáticamente. Las notificaciones de éxito/error las emite
+ * el watcher global (cubre también las empresas NO activas).
  *
  * En el primer load `prev` está vacío y no se dispara nada (evita ruido al
  * cargar la página).
@@ -148,8 +157,7 @@ function procesarTransiciones(
     return;
   }
 
-  const activeFlowId =
-    typeof window !== 'undefined' ? window.localStorage.getItem(ACTIVE_FLOW_LS_KEY) : null;
+  const flujoActivo = activeFlowId(rfc);
 
   for (const s of actuales) {
     const prevEstado = prev.get(s.id_solicitud);
@@ -159,17 +167,12 @@ function procesarTransiciones(
     if (!ESTADOS_NO_TERMINALES.has(prevEstado)) continue;
 
     if (s.estado === ESTADO_LISTA) {
-      notifyDescargaCompleta({
-        canal: 'ws',
-        rfc,
-        count: s.numero_cfdis,
-        jobId: s.id_solicitud,
-      });
       // Auto-descarga: skip si el active flow ya la tiene tomada o si ya
       // disparamos en este ciclo. Si falla, lo logueamos pero NO mostramos
-      // error al usuario (el row queda en "Lista" y puede bajarse manual).
+      // error al usuario (el row queda en "Lista" y puede bajarse manual;
+      // el poller del agente también la reintentará por su cuenta).
       if (
-        s.id_solicitud !== activeFlowId &&
+        s.id_solicitud !== flujoActivo &&
         !autoDescargadas.has(s.id_solicitud)
       ) {
         autoDescargadas.add(s.id_solicitud);
@@ -180,13 +183,6 @@ function procesarTransiciones(
             console.warn('[auto-descarga] falló para', s.id_solicitud, e);
           });
       }
-    } else if (ESTADOS_ERROR.has(s.estado)) {
-      notifyDescargaError({
-        canal: 'ws',
-        rfc,
-        motivo: s.mensaje,
-        jobId: s.id_solicitud,
-      });
     }
   }
 }

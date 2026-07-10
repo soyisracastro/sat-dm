@@ -106,3 +106,72 @@ def test_solicitudes_historial(client):
     )
     sols = client.get("/empresas/CAUI890921DAA/solicitudes").json()["solicitudes"]
     assert len(sols) == 1 and sols[0]["id_solicitud"] == "abc-1"
+
+
+# ---------------------------------------------------------------------------
+# Solicitudes: vencimiento local + actividad global (watcher multi-empresa)
+# ---------------------------------------------------------------------------
+
+def _envejecer_solicitud(rfc, id_solicitud, horas=100):
+    """Retro-fecha el timestamp de una solicitud en el JSON (simula colgada)."""
+    import json
+    from datetime import datetime, timedelta
+
+    path = config_store._solicitudes_path(rfc)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for s in data["solicitudes"]:
+        if s["id_solicitud"] == id_solicitud:
+            s["timestamp"] = (
+                datetime.now() - timedelta(hours=horas)
+            ).isoformat(timespec="seconds")
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_solicitudes_listado_marca_vencidas(client):
+    """GET /empresas/{rfc}/solicitudes aplica el vencimiento local (>72 h)."""
+    config_store.add_empresa_ciec("CAUI890921DAA", "X", "ciec")
+    config_store.save_solicitud(
+        rfc="CAUI890921DAA", id_solicitud="colgada-1",
+        fecha_inicio="2026-01-01", fecha_fin="2026-06-30", tipo="CFDI · recibidos",
+    )
+    config_store.update_solicitud("CAUI890921DAA", "colgada-1", "2")
+    _envejecer_solicitud("CAUI890921DAA", "colgada-1")
+
+    sols = client.get("/empresas/CAUI890921DAA/solicitudes").json()["solicitudes"]
+    assert sols[0]["estado"] == "vencida"
+    assert "72 horas" in sols[0]["mensaje"]
+
+
+def test_solicitudes_actividad_global(client):
+    """/solicitudes/actividad junta las solicitudes de todas las empresas no
+    archivadas, con rfc + nombre, y aplica el vencimiento local."""
+    client.post("/empresas/ciec", json={"rfc": "AAA010101AAA", "nombre": "Uno", "ciec": "x"})
+    client.post("/empresas/ciec", json={"rfc": "BBB020202BBB", "nombre": "Dos", "ciec": "y"})
+    client.post("/empresas/ciec", json={"rfc": "CCC030303CCC", "nombre": "Tres", "ciec": "z"})
+
+    config_store.save_solicitud(
+        rfc="AAA010101AAA", id_solicitud="id-a",
+        fecha_inicio="2026-01-01", fecha_fin="2026-01-31", tipo="CFDI · recibidos",
+    )
+    config_store.save_solicitud(
+        rfc="BBB020202BBB", id_solicitud="id-b",
+        fecha_inicio="2026-01-01", fecha_fin="2026-01-31", tipo="CFDI · emitidos",
+    )
+    config_store.update_solicitud("BBB020202BBB", "id-b", "2")
+    _envejecer_solicitud("BBB020202BBB", "id-b")
+    config_store.save_solicitud(
+        rfc="CCC030303CCC", id_solicitud="id-c",
+        fecha_inicio="2026-01-01", fecha_fin="2026-01-31", tipo="CFDI · recibidos",
+    )
+    # Empresa archivada: sus solicitudes NO deben aparecer.
+    client.post("/empresas/CCC030303CCC/archive")
+
+    sols = client.get("/solicitudes/actividad").json()["solicitudes"]
+    por_id = {s["id_solicitud"]: s for s in sols}
+
+    assert set(por_id) == {"id-a", "id-b"}
+    assert por_id["id-a"]["rfc"] == "AAA010101AAA"
+    assert por_id["id-a"]["nombre"] == "Uno"
+    assert por_id["id-a"]["estado"] == "solicitada"
+    # La colgada >72 h sale ya como vencida (sin esperar al poller).
+    assert por_id["id-b"]["estado"] == "vencida"

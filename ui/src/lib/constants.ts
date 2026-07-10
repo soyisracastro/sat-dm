@@ -85,6 +85,14 @@ export const COD_ESTADO_LABELS: Map<number, CodEstadoInfo> = new Map([
       description: 'La solicitud fue rechazada por el SAT.',
     },
   ],
+  [
+    6,
+    {
+      label: 'Vencida',
+      color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+      description: 'La solicitud venció sin resolverse. Crea una nueva solicitud.',
+    },
+  ],
 ]);
 
 // ---------------------------------------------------------------------------

@@ -275,6 +275,75 @@ class TestSolicitudes:
         assert len(pendientes) == 1
         assert pendientes[0]["id_solicitud"] == "s2"
 
+    def test_pendientes_excluye_vencidas_y_descargadas(self, test_rfc):
+        for i, estado in enumerate(["2", "vencida", "descargada", "4", "5", "3"]):
+            config_store.save_solicitud(
+                rfc=test_rfc, id_solicitud=f"p{i}",
+                fecha_inicio="2025-01-01", fecha_fin="2025-12-31", tipo="E",
+            )
+            config_store.update_solicitud(test_rfc, f"p{i}", estado)
+        pendientes = config_store.get_solicitudes_pendientes(test_rfc)
+        assert [p["id_solicitud"] for p in pendientes] == ["p0"]
+
+
+class TestSolicitudesVencimiento:
+    """`marcar_solicitudes_vencidas`: cierra lo que el SAT dejó colgado >72 h."""
+
+    def _solicitud(self, rfc, id_sol, estado="2", timestamp=None):
+        config_store.save_solicitud(
+            rfc=rfc, id_solicitud=id_sol,
+            fecha_inicio="2025-01-01", fecha_fin="2025-12-31", tipo="E",
+        )
+        if estado != "solicitada":
+            config_store.update_solicitud(rfc, id_sol, estado)
+        if timestamp is not None:
+            # Manipula el timestamp directamente en el JSON (simula antigüedad).
+            path = config_store._solicitudes_path(rfc)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for s in data["solicitudes"]:
+                if s["id_solicitud"] == id_sol:
+                    if timestamp == "":
+                        s.pop("timestamp", None)
+                    else:
+                        s["timestamp"] = timestamp
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_reciente_no_vence(self, test_rfc):
+        self._solicitud(test_rfc, "fresca", estado="2")
+        assert config_store.marcar_solicitudes_vencidas(test_rfc) == []
+        assert config_store.get_solicitud(test_rfc, "fresca")["estado"] == "2"
+
+    def test_vieja_pendiente_vence(self, test_rfc):
+        from datetime import datetime, timedelta
+        vieja = (datetime.now() - timedelta(hours=100)).isoformat(timespec="seconds")
+        self._solicitud(test_rfc, "colgada", estado="2", timestamp=vieja)
+        vencidas = config_store.marcar_solicitudes_vencidas(test_rfc)
+        assert [v["id_solicitud"] for v in vencidas] == ["colgada"]
+        sol = config_store.get_solicitud(test_rfc, "colgada")
+        assert sol["estado"] == "vencida"
+        assert "72 horas" in sol["mensaje"]
+
+    def test_vieja_terminal_no_se_toca(self, test_rfc):
+        from datetime import datetime, timedelta
+        vieja = (datetime.now() - timedelta(hours=100)).isoformat(timespec="seconds")
+        self._solicitud(test_rfc, "bajada", estado="descargada", timestamp=vieja)
+        self._solicitud(test_rfc, "lista", estado="3", timestamp=vieja)
+        assert config_store.marcar_solicitudes_vencidas(test_rfc) == []
+        assert config_store.get_solicitud(test_rfc, "bajada")["estado"] == "descargada"
+        assert config_store.get_solicitud(test_rfc, "lista")["estado"] == "3"
+
+    def test_sin_timestamp_es_legacy_y_vence(self, test_rfc):
+        self._solicitud(test_rfc, "legacy", estado="1", timestamp="")
+        vencidas = config_store.marcar_solicitudes_vencidas(test_rfc)
+        assert [v["id_solicitud"] for v in vencidas] == ["legacy"]
+
+    def test_idempotente(self, test_rfc):
+        from datetime import datetime, timedelta
+        vieja = (datetime.now() - timedelta(hours=100)).isoformat(timespec="seconds")
+        self._solicitud(test_rfc, "colgada", estado="2", timestamp=vieja)
+        assert len(config_store.marcar_solicitudes_vencidas(test_rfc)) == 1
+        assert config_store.marcar_solicitudes_vencidas(test_rfc) == []
+
 
 # ---------------------------------------------------------------------------
 # Concurrencia y escritura atómica del catálogo

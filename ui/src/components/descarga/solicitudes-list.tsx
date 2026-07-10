@@ -11,8 +11,10 @@ import { SolicitudRowExpanded } from '@/components/descarga/solicitud-row-expand
 import type { Solicitud } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
-// Mapeo del estado SAT (o "solicitada"/"descargada") → tono + ícono del badge.
-// Códigos SAT: 1=En cola · 2=Procesando · 3=Lista · 4=Error · 5=Rechazada.
+// Mapeo del estado SAT (o "solicitada"/"vencida"/"descargada") → tono + ícono.
+// Códigos SAT: 1=En cola · 2=Procesando · 3=Lista · 4=Error · 5=Rechazada ·
+// 6=Vencida. "vencida" también se marca localmente cuando una solicitud lleva
+// más de 72 h (el SLA del SAT) sin resolverse.
 const ESTADO_META: Record<
   string,
   { label: string; tone: StatusTone; icon?: string; pulse?: boolean }
@@ -23,6 +25,7 @@ const ESTADO_META: Record<
   '3': { label: 'Lista', tone: 'success', icon: 'ph:check-circle-light' },
   '4': { label: 'Error', tone: 'error', icon: 'ph:x-circle-light' },
   '5': { label: 'Rechazada', tone: 'error', icon: 'ph:x-circle-light' },
+  vencida: { label: 'Vencida', tone: 'error', icon: 'ph:hourglass-medium-light' },
   descargada: { label: 'Descargada', tone: 'success', icon: 'ph:download-simple-light' },
 };
 

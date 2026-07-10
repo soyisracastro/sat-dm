@@ -10,6 +10,7 @@ import { StartupSplash } from '@/components/layout/startup-splash';
 import { StatusBar } from '@/components/layout/status-bar';
 import { Titlebar } from '@/components/layout/titlebar';
 import { useEfirmaReminder } from '@/hooks/use-efirma-reminder';
+import { useSolicitudesWatcher } from '@/hooks/use-solicitudes-watcher';
 import { useAuth } from '@/providers/auth-provider';
 import LoginPage from '@/app/login/page';
 
@@ -21,6 +22,10 @@ export function AppShell({ children }: AppShellProps) {
   // Side-effect: dispara la notificación diaria si alguna e.firma del
   // catálogo vence en ≤30 días (dedup global por día en localStorage).
   useEfirmaReminder();
+  // Side-effect: observa las solicitudes WS de TODAS las empresas (el agente
+  // las resuelve en background con el poller) y notifica éxitos/fallas por
+  // empresa — en rojo cuando algo falló o venció.
+  useSolicitudesWatcher();
 
   const { license, loading } = useAuth();
 

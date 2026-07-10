@@ -19,6 +19,7 @@ con los tests (monkeypatchean/limpian vía `server._limpiar_session()`).
 
 import logging
 import os
+import threading
 from datetime import date
 from typing import Optional
 
@@ -157,6 +158,56 @@ def _registrar_descarga(rfc, canal, tipo, descripcion="", ruta="", total=None):
         )
     except Exception:  # noqa: BLE001 - el historial no debe romper una descarga
         logger.warning("No se pudo registrar la descarga en el historial", exc_info=True)
+
+
+def _salida_descarga_ws(rfc: str, id_solicitud: str) -> str:
+    """Calcula la carpeta de salida para la descarga WS siguiendo la convención
+    CIEC (`{base}/cfdi/{RFC}/{emitidos|recibidos}/{desde}_a_{hasta}/`), recuperando
+    del catálogo lo que el usuario solicitó. Si el registro no existe o le falta
+    info, cae al directorio base por RFC (compatible hacia atrás). La usan el
+    endpoint /descargar y el poller en background."""
+    from ..cli import config_store
+    from ..core import paths
+    from datetime import date as _date
+
+    base = _descargas_base()
+    try:
+        sol = config_store.get_solicitud(rfc, id_solicitud) or {}
+    except Exception:  # noqa: BLE001
+        sol = {}
+    tipo = sol.get("tipo_comprobante")
+    fi, ff = sol.get("fecha_inicio"), sol.get("fecha_fin")
+    if tipo in ("E", "R") and fi and ff:
+        try:
+            return str(paths.dir_cfdi(rfc, tipo, _date.fromisoformat(fi),
+                                      _date.fromisoformat(ff), salida_base=base))
+        except ValueError:
+            pass  # fechas malformadas → fallback
+    return str(paths.dir_cfdi_base(rfc, salida_base=base))
+
+
+# ---------------------------------------------------------------------------
+# Descargas WS en curso — dedup entre el endpoint /descargar y el poller en
+# background: ambos pueden ver la misma solicitud "Lista" al mismo tiempo y
+# sin este candado bajarían los mismos ZIPs dos veces.
+# ---------------------------------------------------------------------------
+
+_descargas_ws_en_curso: set = set()
+_descargas_ws_lock = threading.Lock()
+
+
+def _iniciar_descarga_ws(id_solicitud: str) -> bool:
+    """Reserva la descarga de una solicitud. False si ya está en curso."""
+    with _descargas_ws_lock:
+        if id_solicitud in _descargas_ws_en_curso:
+            return False
+        _descargas_ws_en_curso.add(id_solicitud)
+        return True
+
+
+def _terminar_descarga_ws(id_solicitud: str) -> None:
+    with _descargas_ws_lock:
+        _descargas_ws_en_curso.discard(id_solicitud)
 
 
 # ---------------------------------------------------------------------------

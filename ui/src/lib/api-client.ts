@@ -31,6 +31,7 @@ import type {
   EmpresaUpdatePatch,
   ActivarEmpresaResponse,
   SolicitudesResponse,
+  SolicitudesActividadResponse,
   HistorialResponse,
   DocumentoResponse,
   Tarea,
@@ -542,6 +543,14 @@ export class SatApiClient {
     return this.del<{ ok: boolean }>(
       `/empresas/${encodeURIComponent(rfc)}/solicitudes/${encodeURIComponent(idSolicitud)}`,
     );
+  }
+
+  /**
+   * Solicitudes WS de TODAS las empresas no archivadas (con rfc + nombre).
+   * La consume el watcher global para notificar éxitos/fallas por empresa.
+   */
+  async solicitudesActividad(): Promise<SolicitudesActividadResponse> {
+    return this.request<SolicitudesActividadResponse>('/solicitudes/actividad');
   }
 
   /** Historial de descargas completadas de TODAS las empresas (recientes primero). */

@@ -39,6 +39,7 @@ ESTADO_EN_PROCESO = "2"     # Procesando
 ESTADO_TERMINADA = "3"      # Lista para descargar
 ESTADO_ERROR = "4"          # Error en el servidor del SAT
 ESTADO_RECHAZADA = "5"      # Límites excedidos u otro rechazo
+ESTADO_VENCIDA = "6"        # La solicitud/paquetes expiraron sin descargarse
 
 
 @dataclass
@@ -114,6 +115,30 @@ def verificar_solicitud(
         f"La solicitud {id_solicitud} no terminó después de "
         f"{POLL_MAX_ATTEMPTS} intentos."
     )
+
+
+def consultar_solicitud(
+    token: str,
+    rfc_solicitante: str,
+    id_solicitud: str,
+    fiel: FIEL = None,
+) -> EstadoSolicitud:
+    """
+    Una sola consulta de estado que NO lanza en estados 4/5 (error/rechazada):
+    devuelve el EstadoSolicitud tal cual para que el caller lo persista.
+
+    A diferencia de `verificar_solicitud` (que hace polling y convierte 4/5 en
+    RuntimeError), esta sonda es para los flujos que necesitan REGISTRAR el
+    estado final de una solicitud fallida en el catálogo — el endpoint
+    /verificar del agente y el poller en background. Renueva el token una vez
+    si el SAT reporta que expiró (CodEstatus=300).
+    """
+    estado = _consultar_una_vez(token, rfc_solicitante, id_solicitud, fiel)
+    if estado.cod_estatus == "300" and fiel is not None:
+        logger.info("[Verificacion] Token expirado, renovando...")
+        token = _auth.obtener_token(fiel)
+        estado = _consultar_una_vez(token, rfc_solicitante, id_solicitud, fiel)
+    return estado
 
 
 def _consultar_una_vez(
