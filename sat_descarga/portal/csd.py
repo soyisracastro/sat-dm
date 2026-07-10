@@ -83,11 +83,16 @@ class CSDPortalClient:
     ACUSE_PREFIX = "Acuse_GeneracionSellos"
     ETIQUETA = "CSD"                      # prefijo de los logs
 
-    def __init__(self, cer_path: str, key_path: str, password: str, headless: bool = True):
+    def __init__(self, cer_path: str, key_path: str, password: str, headless: bool = True,
+                 on_progreso=None):
         self.cer_path = cer_path
         self.key_path = key_path
         self.password = password
         self.headless = headless
+        # Callback opcional de progreso `(fase: str, data: dict) -> None` para que
+        # el API pueda reflejar el avance por SSE (los wizards de la UI). No-op si
+        # es None; nunca debe tumbar el trámite.
+        self._on_progreso = on_progreso
         # RFC del titular (para nombrar archivos y la Recuperación).
         self.rfc = ""
         try:
@@ -95,6 +100,15 @@ class CSDPortalClient:
             self.rfc = FIEL(cer_path, key_path, password).rfc
         except Exception as e:  # noqa: BLE001
             logger.warning("[CSD] no se pudo leer el RFC del .cer: %s", e)
+
+    def _emitir(self, fase: str, **data):
+        if self._on_progreso is None:
+            return
+        try:
+            self._on_progreso(fase, data)
+        except Exception as e:  # noqa: BLE001 — el progreso es cosmético
+            logger.warning("[%s] callback de progreso falló en %s: %s",
+                           self.ETIQUETA, fase, e)
 
     # ------------------------------------------------------------------
     # Orquestación
@@ -138,11 +152,14 @@ class CSDPortalClient:
             page = context.new_page()
             try:
                 self._login(page)
+                self._emitir("login_ok")
 
                 # --- Subir el archivo del trámite (.sdg / .ren) ---
+                self._emitir("subiendo", archivo=os.path.basename(sdg_path))
                 num = self._subir_sdg(page, sdg_path)
                 res["numero_operacion"] = num
                 logger.info("[%s] Número de operación: %s", self.ETIQUETA, num)
+                self._emitir("numero_operacion", numero=num)
                 (out_dir / f"numero_operacion_{self.rfc}_{stamp}.txt").write_text(
                     num, encoding="utf-8"
                 )
@@ -151,6 +168,8 @@ class CSDPortalClient:
                 estado, acuse = self._seguimiento(context, page, out_dir, stamp)
                 res["estado"] = estado
                 res["acuse_pdf"] = acuse
+                self._emitir("acuse", estado=estado,
+                             acuse_pdf=str(acuse) if acuse else None)
 
                 # --- Recuperar el .cer emitido ---
                 if recuperar:
@@ -159,6 +178,7 @@ class CSDPortalClient:
                         key_nueva_path, intentos_cert, espera_cert_s,
                     )
                     res["cer"] = cer
+                    self._emitir("cer", path=str(cer) if cer else None)
                 return res
             finally:
                 browser.close()
@@ -190,9 +210,11 @@ class CSDPortalClient:
             page = context.new_page()
             try:
                 self._login(page)
+                self._emitir("login_ok")
                 cer = self._recuperar_cert(
                     context, page, out_dir, stamp, key_nueva_path, intentos, espera_s
                 )
+                self._emitir("cer", path=str(cer) if cer else None)
                 return {"cer": cer}
             finally:
                 browser.close()
@@ -381,6 +403,7 @@ class CSDPortalClient:
             key_bytes = Path(key_nueva_path).read_bytes()
 
         for intento in range(1, intentos + 1):
+            self._emitir("recuperando", intento=intento, max=intentos)
             cer_bytes, serie = self._buscar_y_bajar_ultimo(context, page)
             if cer_bytes:
                 ok_par = (key_bytes is None) or _mismo_par(cer_bytes, key_bytes, self.password)
@@ -490,6 +513,7 @@ def enviar_solicitud_csd_fiel(
     recuperar: bool = True,
     intentos_cert: int = 6,
     espera_cert_s: int = 30,
+    on_progreso=None,
 ) -> dict:
     """
     Envía un `.sdg` (Solicitud de CSD) al portal CertiSAT Web con e.firma y devuelve
@@ -497,9 +521,11 @@ def enviar_solicitud_csd_fiel(
 
     `key_nueva_path` es la `.key` que se generó junto al `.sdg`: si se pasa, se usa
     para confirmar que el CSD recuperado es el correcto (empareja con esa llave).
-    El browser corre headless (la e.firma no tiene captcha).
+    El browser corre headless (la e.firma no tiene captcha). `on_progreso(fase, data)`
+    refleja el avance (login_ok/subiendo/numero_operacion/acuse/recuperando/cer).
     """
-    client = CSDPortalClient(cer_path, key_path, password, headless=headless)
+    client = CSDPortalClient(cer_path, key_path, password, headless=headless,
+                             on_progreso=on_progreso)
     return client.enviar(
         sdg_path, directorio_salida=directorio_salida, key_nueva_path=key_nueva_path,
         recuperar=recuperar, intentos_cert=intentos_cert, espera_cert_s=espera_cert_s,
@@ -515,10 +541,12 @@ def recuperar_ultimo_csd_fiel(
     headless: bool = True,
     intentos: int = 10,
     espera_s: int = 30,
+    on_progreso=None,
 ) -> dict:
     """Descarga el último CSD emitido del RFC desde CertiSAT Web (para cuando el
     `.cer` no estaba listo al enviar). Devuelve {"cer": Path|None}."""
-    client = CSDPortalClient(cer_path, key_path, password, headless=headless)
+    client = CSDPortalClient(cer_path, key_path, password, headless=headless,
+                             on_progreso=on_progreso)
     return client.recuperar(
         directorio_salida=directorio_salida, key_nueva_path=key_nueva_path,
         intentos=intentos, espera_s=espera_s,

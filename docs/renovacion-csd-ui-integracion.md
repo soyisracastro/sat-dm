@@ -1,5 +1,11 @@
 # Integración a la UI — Renovación de e.firma y CSD (handoff para el sprint)
 
+> **Estado 2026-07-09: IMPLEMENTADO.** La capa de integración ya existe:
+> router `api/routers/certifica.py` + wizards del renderer
+> (`ui/src/components/fiel/{renovar-efirma,generar-csd}-wizard.tsx`).
+> Ver «Cómo quedó» al final; el resto del doc se conserva como referencia
+> del diseño original.
+
 El **núcleo Python está completo y probado contra el SAT real** (ver
 [renovacion-efirma-csd.md](renovacion-efirma-csd.md)). Lo que falta para exponerlo
 en la app es la **capa de integración**: endpoints del agente + pantallas del
@@ -86,8 +92,60 @@ operación → acuse → recuperando cert).
 
 ## Checklist del sprint
 
-- [ ] Endpoints `api/server.py` como jobs SSE (espejo de `/ciec/*`).
-- [ ] Pantallas del renderer: generar → enviar (progreso) → descargar cert (después).
-- [ ] Confirmación destructiva + avisos de la ventana post-renovación.
-- [ ] Sustitución cert/.key en el catálogo al renovar (+ respaldo).
+- [x] Endpoints como jobs SSE (router `certifica.py`).
+- [x] Pantallas del renderer: wizards de 4 pasos con progreso por fases.
+- [x] Confirmación destructiva + avisos de la ventana post-renovación.
+- [x] Sustitución cert/.key en el catálogo al renovar (+ respaldo `anterior_*`).
 - [ ] QA empacado en Windows (playwright/chromium ya cubierto por `portal/setup.py`).
+
+## Cómo quedó (2026-07-09, difiere del plan de arriba a propósito)
+
+**Endpoints fusionados: UN job por trámite** (en vez de `generar` síncrono +
+`enviar`/`recuperar`). La generación local tarda <1 s y separarla creaba estados
+huérfanos (`.ren`/`.sdg` generados sin enviar) que la UI tendría que administrar;
+la confirmación irreversible ocurre ANTES de arrancar el job. Rutas reales
+(`sat_descarga/api/routers/certifica.py`):
+
+- `POST /renovar` — job: genera el `.ren`, firma, envía, recupera el `.cer` y
+  sustituye la e.firma del catálogo. Requiere `confirmar: true` y e.firma
+  vigente (400 si venció). 409 si ya hay una renovación pendiente.
+- `POST /renovar/recuperar` — job no destructivo: baja el cert pendiente
+  (password del keychain) y completa la sustitución.
+- `POST /csd` — job: genera `.key`+`.sdg`, envía y recupera (intentos cortos:
+  «bajar después» es first-class). `uso` = sucursal/OU, default
+  "Facturación general".
+- `POST /csd/recuperar` — job: baja el `.cer` de un CSD pendiente.
+
+Progreso por SSE con eventos `{"event":"fase","fase":…}`
+(`generando → firmando → enviando → numero_operacion → acuse → recuperando →
+guardando`), emitidos por el callback `on_progreso` de `portal/csd.py`.
+
+**Persistencia por etapa** (`cli/config_store.py`): `renovacion_pendiente` se
+escribe con `etapa: "generada"` ANTES del envío (con `ren_path`/`key_path`) y
+pasa a `etapa: "enviada"` al capturar el número de operación. Si el portal del
+SAT falla **en el envío**, el reintento de `POST /renovar` REENVÍA el mismo
+`.ren` (no regenera: si el SAT hubiera procesado el envío sin que leyéramos el
+número, la `.key` original es la que empareja con el cert emitido); si falla
+**al recuperar el cert**, la UI retoma con `/renovar/recuperar` (409 si aún no
+hay número). Además, si el (re)envío rebota, el worker corre un **fallback de
+verificación**: busca el último cert del RFC en «Recuperación de certificados»
+y exige emparejamiento con nuestra `.key` — si empareja, el SAT ya había
+procesado el trámite (glitch tras aceptar la solicitud) y la renovación se
+completa como éxito en el mismo job; si no, se propaga el error de envío
+original. `csds[]` se registra al obtener número de operación. Respaldo de
+la e.firma anterior en `efirma/{RFC}/anterior_{stamp}/` antes de sustituir.
+El CSD no necesita etapa "generada": es repetible y no destructivo (un `.sdg`
+regenerado solo produce otro sello).
+
+**Contraseña del CSD** (decisión de producto 2026-07-09): la elige el usuario en
+el wizard (mín. 8) y se guarda en el **keychain** (`csd:{RFC}`) **y** en un
+`.txt` junto a la `.key` (`*_contraseña.txt`) — excepción consciente a la regla
+"contraseñas solo en keychain", para que la app pueda timbrar CFDI/nómina con el
+sello más adelante y el usuario conserve una copia legible. En renovación, la
+contraseña de la `.key` nueva = la de la e.firma vigente (sin teclear otra).
+
+**Renderer**: `RenovarEfirmaWizard` (fila expandida de /empresas y card e.firma
+del detalle) y `GenerarCsdWizard` (sin trigger visible: se conectará desde el
+Expediente fiscal; QA con `/empresas/detalle?rfc=…&labs=csd`). Ambos sobre el
+hook genérico `useJob` (`use-job.ts`). La vía manual de actualizar `.cer`/`.key`
+se conserva en el detalle (vencida → trámite presencial).

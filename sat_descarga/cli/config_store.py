@@ -425,6 +425,8 @@ def list_empresas() -> list[dict]:
             "opinion_descargada_en": info.get("opinion_descargada_en"),
             "regimenes_fiscales": info.get("regimenes_fiscales", []),
             "actividades_economicas": info.get("actividades_economicas", []),
+            "renovacion_pendiente": info.get("renovacion_pendiente"),
+            "csds": info.get("csds", []),
         })
     return result
 
@@ -550,6 +552,122 @@ def set_opinion_descargada(rfc: str, path: str):
         data["empresas"][rfc]["opinion_path"] = path
         data["empresas"][rfc]["opinion_descargada_en"] = datetime.now().isoformat(timespec="seconds")
         save_empresas(data)
+
+
+# ---------------------------------------------------------------------------
+# Certifica: renovación de e.firma y Certificados de Sello Digital (CSD)
+# ---------------------------------------------------------------------------
+
+def respaldar_efirma_anterior(rfc: str) -> Optional[Path]:
+    """
+    Antes de sustituir la e.firma por la renovada, copia (best-effort) los
+    fiel.cer/fiel.key actuales a ~/.sat-descarga/efirma/{RFC}/anterior_{stamp}/.
+    El cert viejo deja de servir en cuanto el SAT emite el nuevo, pero el
+    respaldo permite forense/recuperación manual. Nunca lanza; devuelve la
+    carpeta del respaldo o None si no había nada que respaldar o falló.
+    """
+    try:
+        origen = EFIRMA_DIR / rfc
+        cer = origen / "fiel.cer"
+        key = origen / "fiel.key"
+        if not cer.exists() and not key.exists():
+            return None
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        destino = origen / f"anterior_{stamp}"
+        destino.mkdir(parents=True, exist_ok=True)
+        for src in (cer, key):
+            if src.exists():
+                shutil.copy2(src, destino / src.name)
+        return destino
+    except Exception as e:  # noqa: BLE001 — un respaldo que falla no debe frenar el trámite
+        logger.warning("No se pudo respaldar la e.firma anterior de %s: %s", rfc, e)
+        return None
+
+
+def set_renovacion_pendiente(rfc: str, data: dict):
+    """
+    Persiste el estado de una renovación ENVIADA cuyo certificado nuevo aún no
+    se descarga (el SAT tarda minutos en emitirlo). Se guarda en cuanto hay
+    número de operación: si la app muere a media recuperación, la UI puede
+    retomar con /renovar/recuperar. Shape:
+    {numero_operacion, acuse_pdf, key_path, solicitado_en}.
+    """
+    with _catalogo_lock:
+        catalogo = load_empresas()
+        if rfc not in catalogo["empresas"]:
+            return
+        catalogo["empresas"][rfc]["renovacion_pendiente"] = {
+            **data,
+            "solicitado_en": data.get("solicitado_en")
+            or datetime.now().isoformat(timespec="seconds"),
+        }
+        save_empresas(catalogo)
+
+
+def get_renovacion_pendiente(rfc: str) -> Optional[dict]:
+    data = load_empresas()
+    empresa = data["empresas"].get(rfc) or {}
+    return empresa.get("renovacion_pendiente")
+
+
+def clear_renovacion_pendiente(rfc: str):
+    with _catalogo_lock:
+        catalogo = load_empresas()
+        if rfc in catalogo["empresas"]:
+            catalogo["empresas"][rfc].pop("renovacion_pendiente", None)
+            save_empresas(catalogo)
+
+
+def registrar_csd(rfc: str, entry: dict) -> dict:
+    """
+    Agrega un CSD solicitado a la lista `csds` de la empresa. Entry:
+    {uso, numero_operacion, acuse_pdf, cer_path, key_path,
+     estado: "pendiente"|"emitido", solicitado_en, recuperado_en}.
+    Devuelve el registro persistido.
+    """
+    registro = {
+        "estado": "pendiente",
+        "cer_path": None,
+        "recuperado_en": None,
+        **entry,
+        "solicitado_en": entry.get("solicitado_en")
+        or datetime.now().isoformat(timespec="seconds"),
+    }
+    with _catalogo_lock:
+        catalogo = load_empresas()
+        if rfc not in catalogo["empresas"]:
+            raise KeyError(f"No se encontró empresa con RFC {rfc}")
+        catalogo["empresas"][rfc].setdefault("csds", []).append(registro)
+        save_empresas(catalogo)
+    return registro
+
+
+def update_csd(rfc: str, numero_operacion: str, patch: dict) -> bool:
+    """Actualiza el CSD identificado por su número de operación. True si lo encontró."""
+    with _catalogo_lock:
+        catalogo = load_empresas()
+        empresa = catalogo["empresas"].get(rfc)
+        if empresa is None:
+            return False
+        for csd in empresa.get("csds", []):
+            if csd.get("numero_operacion") == numero_operacion:
+                csd.update(patch)
+                save_empresas(catalogo)
+                return True
+        return False
+
+
+def get_csd_pendiente(rfc: str, numero_operacion: Optional[str] = None) -> Optional[dict]:
+    """El CSD pendiente de recuperar (por número de operación, o el más reciente)."""
+    data = load_empresas()
+    empresa = data["empresas"].get(rfc) or {}
+    pendientes = [c for c in empresa.get("csds", []) if c.get("estado") == "pendiente"]
+    if numero_operacion:
+        for c in pendientes:
+            if c.get("numero_operacion") == numero_operacion:
+                return c
+        return None
+    return pendientes[-1] if pendientes else None
 
 
 def get_empresa(rfc: str) -> dict:

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -9,13 +9,15 @@ import { PageHeading } from '@/components/layout/page-heading';
 import { EmpresaAddDialog } from '@/components/empresas/empresa-add-dialog';
 import { EmpresaStatusGroup } from '@/components/empresas/empresa-status-group';
 import { EmpresaRowExpanded } from '@/components/empresas/empresa-row-expanded';
+import { EmpresaTipoBadge } from '@/components/empresas/empresa-tipo-badge';
+import { EmpresasStats } from '@/components/empresas/empresas-stats';
+import { EmpresasToolbar } from '@/components/empresas/empresas-toolbar';
 import {
   ResourceList,
   type ResourceListColumn,
 } from '@/components/shared/resource-list';
 import { Icon } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Dialog,
@@ -26,10 +28,18 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import {
+  filtrarEmpresas,
+  ordenarEmpresas,
+  type FiltroEstado,
+  type FiltroTipo,
+  type OrdenEmpresas,
+} from '@/lib/empresas-filtro';
 import type { Empresa } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
 type Confirmacion = 'archive' | 'unarchive' | 'delete';
+type Vista = 'activas' | 'archivadas';
 
 // `useSearchParams` (lo usa EmpresasContenido para el alta por ⌘N) requiere
 // un <Suspense> envolvente bajo export estático — misma convención que
@@ -59,6 +69,13 @@ function EmpresasContenido() {
   const [busy, setBusy] = useState<string | null>(null);
   const [accionError, setAccionError] = useState<string | null>(null);
 
+  // Vista + filtros de la lista (todo client-side).
+  const [vista, setVista] = useState<Vista>('activas');
+  const [q, setQ] = useState('');
+  const [tipo, setTipo] = useState<FiltroTipo>('todas');
+  const [estadoFiltro, setEstadoFiltro] = useState<FiltroEstado>('todos');
+  const [orden, setOrden] = useState<OrdenEmpresas>('nombre');
+
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -84,9 +101,24 @@ function EmpresasContenido() {
     }
   }
 
+  function cambiarVista(v: Vista) {
+    setVista(v);
+    setTipo('todas');
+  }
+
   const activas = empresas.filter((e) => !e.archived_at);
   const archivadas = empresas.filter((e) => !!e.archived_at);
   const activeRfc = activas.find((e) => e.default)?.rfc ?? null;
+
+  const enVista = vista === 'activas' ? activas : archivadas;
+  const filtradas = useMemo(
+    () =>
+      ordenarEmpresas(
+        filtrarEmpresas(enVista, { q, tipo, estado: vista === 'activas' ? estadoFiltro : 'todos' }),
+        orden,
+      ),
+    [enVista, q, tipo, estadoFiltro, orden, vista],
+  );
 
   const columnas: ResourceListColumn<Empresa>[] = [
     {
@@ -106,21 +138,28 @@ function EmpresasContenido() {
       ),
     },
     {
-      key: 'estado',
-      header: 'Estado',
-      width: 'w-48',
-      render: (e) => <EmpresaStatusGroup empresa={e} />,
+      key: 'tipo',
+      header: 'Tipo',
+      width: 'w-20',
+      hideOnMobile: true,
+      render: (e) => <EmpresaTipoBadge rfc={e.rfc} />,
     },
+    ...(vista === 'activas'
+      ? [
+          {
+            key: 'estado',
+            header: 'Estado',
+            width: 'w-40',
+            render: (e) => <EmpresaStatusGroup empresa={e} />,
+          } satisfies ResourceListColumn<Empresa>,
+        ]
+      : []),
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeading
-        title={
-          activas.length > 0
-            ? `${activas.length} ${activas.length === 1 ? 'empresa' : 'empresas'}`
-            : 'Empresas'
-        }
+        title="Empresas"
         description="Gestiona las empresas y sus RFCs"
         action={
           <Button onClick={() => setAddOpen(true)}>
@@ -143,22 +182,73 @@ function EmpresasContenido() {
         <EmptyState onAdd={() => setAddOpen(true)} />
       ) : (
         <>
-          {activas.length > 0 && (
+          {/* Vista: activas / archivadas */}
+          <div className="flex gap-1 border-b border-border">
+            <VistaTab
+              on={vista === 'activas'}
+              onClick={() => cambiarVista('activas')}
+              icon="ph:buildings-light"
+              label="Activas"
+              count={activas.length}
+            />
+            <VistaTab
+              on={vista === 'archivadas'}
+              onClick={() => cambiarVista('archivadas')}
+              icon="ph:archive-light"
+              label="Archivadas"
+              count={archivadas.length}
+            />
+          </div>
+
+          {vista === 'activas' ? (
+            <EmpresasStats empresas={activas} />
+          ) : (
+            <Alert>
+              <Icon icon="ph:archive-light" className="size-4" />
+              <AlertDescription>
+                No aparecen en descargas ni en el resto de la app. Guardamos su
+                información{' '}
+                <span className="font-semibold text-foreground">por si regresan</span> y
+                puedes restaurarlas cuando quieras.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <EmpresasToolbar
+            empresas={enVista}
+            q={q}
+            onQ={setQ}
+            tipo={tipo}
+            onTipo={setTipo}
+            estado={estadoFiltro}
+            onEstado={setEstadoFiltro}
+            orden={orden}
+            onOrden={setOrden}
+            conEstado={vista === 'activas'}
+          />
+
+          {filtradas.length === 0 ? (
+            <EmptyFiltro vista={vista} q={q} />
+          ) : (
             <ResourceList
-              items={activas}
+              items={filtradas}
               getKey={(e) => e.rfc}
-              activeId={activeRfc}
-              onRowClick={(e) =>
-                withBusy(e.rfc, () => seleccionar(e.rfc, e.metodos))
+              activeId={vista === 'activas' ? activeRfc : undefined}
+              dimmed={vista === 'archivadas'}
+              onRowClick={
+                vista === 'activas'
+                  ? (e) => withBusy(e.rfc, () => seleccionar(e.rfc, e.metodos))
+                  : undefined
               }
               columns={columnas}
               actionsHeader="Acciones"
               actions={(e) => (
                 <EmpresaRowActions
                   empresa={e}
-                  archived={false}
+                  archived={vista === 'archivadas'}
                   busy={busy === e.rfc}
                   onArchive={() => withBusy(e.rfc, () => archive(e.rfc))}
+                  onUnarchive={() => withBusy(e.rfc, () => unarchive(e.rfc))}
                   onDelete={() => withBusy(e.rfc, () => remove(e.rfc))}
                 />
               )}
@@ -168,42 +258,6 @@ function EmpresasContenido() {
                 ),
               }}
             />
-          )}
-
-          {archivadas.length > 0 && (
-            <details className="group rounded-lg border border-border bg-card">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
-                <Icon
-                  icon="ph:caret-right-light"
-                  className="size-4 transition-transform group-open:rotate-90"
-                />
-                <span>Empresas archivadas</span>
-                <Badge variant="secondary">{archivadas.length}</Badge>
-              </summary>
-              <div className="border-t border-border p-3">
-                <ResourceList
-                  items={archivadas}
-                  getKey={(e) => e.rfc}
-                  columns={columnas}
-                  dimmed
-                  actionsHeader="Acciones"
-                  actions={(e) => (
-                    <EmpresaRowActions
-                      empresa={e}
-                      archived
-                      busy={busy === e.rfc}
-                      onUnarchive={() => withBusy(e.rfc, () => unarchive(e.rfc))}
-                      onDelete={() => withBusy(e.rfc, () => remove(e.rfc))}
-                    />
-                  )}
-                  expandable={{
-                    render: (e) => (
-                      <EmpresaRowExpanded empresa={e} onJobDone={refresh} />
-                    ),
-                  }}
-                />
-              </div>
-            </details>
           )}
         </>
       )}
@@ -225,6 +279,61 @@ function EmpresasContenido() {
         addFiel={addFiel}
         addCiec={addCiec}
       />
+    </div>
+  );
+}
+
+function VistaTab({
+  on,
+  onClick,
+  icon,
+  label,
+  count,
+}: {
+  on: boolean;
+  onClick: () => void;
+  icon: string;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        '-mb-px inline-flex items-center gap-1.5 border-b-2 px-1.5 py-2 text-[13px] font-semibold transition-colors',
+        on
+          ? 'border-primary text-primary'
+          : 'border-transparent text-muted-foreground hover:text-foreground',
+      )}
+    >
+      <Icon icon={icon} className="size-3.75" />
+      {label}
+      <span
+        className={cn(
+          'rounded-full px-1.5 text-[11px] font-bold tabular-nums',
+          on ? 'bg-accent text-primary' : 'bg-secondary text-muted-foreground',
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+function EmptyFiltro({ vista, q }: { vista: Vista; q: string }) {
+  const sinArchivadas = vista === 'archivadas' && !q;
+  return (
+    <div className="flex flex-col items-center gap-2.5 rounded-lg border border-border bg-card px-5 py-12 text-center text-muted-foreground">
+      <Icon
+        icon={sinArchivadas ? 'ph:archive-light' : 'ph:magnifying-glass-light'}
+        className="size-6.5 opacity-40"
+      />
+      <p className="text-[13.5px]">
+        {sinArchivadas
+          ? 'No tienes empresas archivadas.'
+          : `Ninguna empresa coincide con «${q || 'los filtros'}».`}
+      </p>
     </div>
   );
 }
@@ -276,6 +385,12 @@ function EmpresaRowActions({
     <div className="inline-flex items-center gap-1">
       {!archived ? (
         <>
+          {/* Expediente fiscal: pantalla en camino — deshabilitado a propósito. */}
+          <span title="Expediente fiscal (próximamente)">
+            <Button variant="ghost" size="icon" disabled aria-label="Expediente fiscal (próximamente)">
+              <Icon icon="ph:folder-light" className="size-4" />
+            </Button>
+          </span>
           <Button
             asChild
             variant="ghost"
@@ -302,7 +417,7 @@ function EmpresaRowActions({
           size="icon"
           disabled={busy}
           onClick={() => setConfirm('unarchive')}
-          title="Desarchivar"
+          title="Restaurar (desarchivar)"
         >
           <Icon
             icon="ph:archive-tray-light"
@@ -315,7 +430,7 @@ function EmpresaRowActions({
         size="icon"
         disabled={busy}
         onClick={() => setConfirm('delete')}
-        title="Eliminar"
+        title={archived ? 'Eliminar definitivamente' : 'Eliminar'}
       >
         <Icon icon="ph:trash-light" className="size-4" />
       </Button>

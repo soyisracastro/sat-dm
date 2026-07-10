@@ -7,7 +7,7 @@
  * Interpolación: {count}, {rfc}, {motivo}, {n}, {dias}.
  */
 
-export type DescargaCanal = 'ws' | 'ciec';
+export type DescargaCanal = 'ws' | 'ciec' | 'fiel';
 
 interface Pool {
   success: string[];
@@ -37,6 +37,17 @@ const POOLS_DESCARGA: Record<DescargaCanal, Pool> = {
     error: [
       'La descarga CIEC de {rfc} falló. {motivo}',
       'No pudimos completar la descarga del portal. {motivo}',
+    ],
+  },
+  fiel: {
+    success: [
+      'Listo: terminó el trámite con la e.firma de {rfc}.',
+      'El portal del SAT respondió. Operación de {rfc} completada.',
+      'Trámite con e.firma completado para {rfc}.',
+    ],
+    error: [
+      'El trámite con la e.firma de {rfc} falló. {motivo}',
+      'No pudimos completar la operación en el portal. {motivo}',
     ],
   },
 };

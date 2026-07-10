@@ -28,7 +28,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { VencimientoBadge } from '@/components/fiel/vencimiento-badge';
+import { RenovarEfirmaWizard } from '@/components/fiel/renovar-efirma-wizard';
+import { GenerarCsdWizard } from '@/components/fiel/generar-csd-wizard';
 import { ConfiguracionFiscalCard } from '@/components/empresas/configuracion-fiscal-card';
+import { useServer } from '@/providers/server-provider';
+import { cn } from '@/lib/utils';
+import { RENOVACION_EFIRMA_HABILITADA } from '@/lib/features';
 import { colorEmpresa, tipoPersona } from '@/lib/empresa-visual';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import type { Empresa } from '@/lib/types';
@@ -37,8 +42,12 @@ import { mensajeDeError } from '@/lib/errores';
 export function EmpresaDetalle() {
   const searchParams = useSearchParams();
   const rfc = searchParams.get('rfc') ?? '';
-  const { empresas, loading, addCiec, addFiel, removeEfirma, activarSesion, update } =
+  // QA del wizard de CSD sin trigger visible: /empresas/detalle?rfc=…&labs=csd
+  // (se conectará de verdad cuando exista la pantalla de Expediente fiscal).
+  const labsCsd = searchParams.get('labs') === 'csd';
+  const { empresas, loading, refresh, addCiec, addFiel, removeEfirma, activarSesion, update } =
     useEmpresas();
+  const { refreshHealth } = useServer();
   const empresa = empresas.find((e) => e.rfc === rfc);
 
   const volver = (
@@ -126,8 +135,42 @@ export function EmpresaDetalle() {
           await activarSesion(empresa.rfc);
         }}
         onQuitar={() => removeEfirma(empresa.rfc)}
+        onRenovada={() => {
+          refresh();
+          refreshHealth();
+        }}
       />
+
+      {labsCsd && empresa.metodos.includes('fiel') && (
+        <CsdLabsSection empresa={empresa} onDone={refresh} />
+      )}
     </div>
+  );
+}
+
+/** Punto de entrada de QA del wizard de CSD (solo con ?labs=csd). */
+function CsdLabsSection({ empresa, onDone }: { empresa: Empresa; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const pendiente = (empresa.csds ?? []).some((c) => c.estado === 'pendiente');
+  return (
+    <Card className="space-y-3 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Icon icon="ph:seal-check-light" className="size-4 text-primary" />
+          <span className="text-sm font-medium">Certificados de Sello Digital</span>
+          <Badge variant="secondary">labs</Badge>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Icon icon="ph:plus-light" className="size-3.5" />
+          {pendiente ? 'CSD pendiente…' : 'Generar CSD'}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Asistente en pruebas: genera la .key y el .sdg, los firma con la e.firma y
+        tramita el sello ante el SAT.
+      </p>
+      <GenerarCsdWizard empresa={empresa} open={open} onOpenChange={setOpen} onDone={onDone} />
+    </Card>
   );
 }
 
@@ -241,16 +284,26 @@ function FielSection({
   empresa,
   onGuardar,
   onQuitar,
+  onRenovada,
 }: {
   empresa: Empresa;
   onGuardar: (cer: File, key: File, password: string) => Promise<void>;
   onQuitar: () => Promise<void>;
+  /** Refresca catálogo/health tras una renovación en línea exitosa. */
+  onRenovada: () => void;
 }) {
   const tiene = empresa.metodos.includes('fiel');
   const tieneCiec = empresa.metodos.includes('ciec');
   const sem = tiene ? semaforoVencimiento(empresa.vencimiento) : null;
   const avisaRenovar = sem !== null && sem.estado !== 'verde';
+  // Con la renovación en línea deshabilitada no se exponen los estados de
+  // trámite (no hay forma de avanzarlos); la vía manual de actualizar
+  // archivos .cer/.key sigue disponible (no toca el portal del SAT).
+  const pendiente = RENOVACION_EFIRMA_HABILITADA && !!empresa.renovacion_pendiente;
+  // 'enviada' (falta bajar el cert) vs 'generada' (reenviar el mismo .ren).
+  const pendienteEnviada = RENOVACION_EFIRMA_HABILITADA && !!empresa.renovacion_pendiente?.numero_operacion;
   const [mostrarForm, setMostrarForm] = useState(!tiene);
+  const [renovarOpen, setRenovarOpen] = useState(false);
   const [confirmQuitar, setConfirmQuitar] = useState(false);
   const [quitando, setQuitando] = useState(false);
   const [cer, setCer] = useState<File | null>(null);
@@ -300,8 +353,15 @@ function FielSection({
 
   // Empresa ya tiene FIEL y el form está colapsado → resumen + botones.
   if (tiene && !mostrarForm) {
+    // Resaltado del boceto: la card «grita» cuando la e.firma está por vencer.
+    const resaltada =
+      avisaRenovar && sem && !sem.vencida
+        ? sem.estado === 'rojo'
+          ? 'border-destructive/60 ring-2 ring-destructive/15'
+          : 'border-warning/60 ring-2 ring-warning/15'
+        : undefined;
     return (
-      <Card className="space-y-3 p-5">
+      <Card className={cn('space-y-3 p-5', resaltada)}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Icon icon="ph:shield-check-light" className="size-4 text-primary" />
@@ -309,9 +369,37 @@ function FielSection({
             {ok && <Guardado />}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setMostrarForm(true)}>
-              Renovar e.firma
-            </Button>
+            {sem?.vencida ? (
+              // Vencida: la renovación en línea ya no aplica; la vía es subir
+              // los archivos nuevos del trámite presencial.
+              <Button variant="default" size="sm" onClick={() => setMostrarForm(true)}>
+                <Icon icon="ph:upload-light" className="size-3.5" />
+                Actualizar archivos (.cer/.key)
+              </Button>
+            ) : RENOVACION_EFIRMA_HABILITADA ? (
+              <Button
+                variant={pendiente || avisaRenovar ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setRenovarOpen(true)}
+              >
+                <Icon
+                  icon={pendienteEnviada ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
+                  className="size-3.5"
+                />
+                {pendienteEnviada
+                  ? 'Descargar certificado'
+                  : pendiente
+                    ? 'Reanudar renovación'
+                    : 'Renovar e.firma'}
+              </Button>
+            ) : (
+              <span title="Disponible próximamente">
+                <Button variant={avisaRenovar ? 'default' : 'outline'} size="sm" disabled>
+                  <Icon icon="ph:arrow-clockwise-light" className="size-3.5" />
+                  Renovar e.firma
+                </Button>
+              </span>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -323,9 +411,15 @@ function FielSection({
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          {sem ? `Vence el ${sem.fecha} · ${sem.label}` : 'Certificado registrado.'}
+          {pendienteEnviada
+            ? 'Renovación enviada: solo falta descargar el certificado que emitió el SAT.'
+            : pendiente
+              ? 'El envío de la renovación falló en ese momento; tu e.firma sigue intacta. Reanuda para reenviar la misma solicitud.'
+              : sem
+                ? `Vence el ${sem.fecha} · ${sem.label}`
+                : 'Certificado registrado.'}
         </p>
-        {avisaRenovar && sem && (
+        {avisaRenovar && sem && !pendiente && (
           <Alert
             variant={sem.estado === 'rojo' ? 'destructive' : 'default'}
             className={
@@ -337,11 +431,32 @@ function FielSection({
             <AlertDescription className="text-xs">
               {sem.vencida
                 ? `Esta e.firma venció el ${sem.fecha}. Renuévala con el nuevo .cer y .key — o quítala y sigue trabajando con tu CIEC mientras la renuevas.`
-                : `Esta e.firma ${sem.label.toLowerCase()} (vence el ${sem.fecha}). Conviene renovarla.`}
+                : RENOVACION_EFIRMA_HABILITADA
+                  ? `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en línea desde aquí — no necesitas ir al SAT.`
+                  : `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en el SAT y actualiza aquí los archivos nuevos (.cer/.key).`}
             </AlertDescription>
           </Alert>
         )}
+        {!sem?.vencida && (
+          <button
+            type="button"
+            onClick={() => setMostrarForm(true)}
+            className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+          >
+            ¿Ya renovaste en el SAT? Actualizar archivos (.cer/.key)
+          </button>
+        )}
         {error && <p className="text-xs text-destructive">{error}</p>}
+
+        {RENOVACION_EFIRMA_HABILITADA && (
+          <RenovarEfirmaWizard
+            empresa={empresa}
+            open={renovarOpen}
+            onOpenChange={setRenovarOpen}
+            onDone={onRenovada}
+            onActualizarArchivos={() => setMostrarForm(true)}
+          />
+        )}
 
         <Dialog open={confirmQuitar} onOpenChange={(o) => !o && setConfirmQuitar(false)}>
           <DialogContent>

@@ -22,6 +22,7 @@ SERVICE = "sat-dm"
 # Métodos de autenticación cuyas credenciales guardamos.
 FIEL = "fiel"   # contraseña de la llave privada (.key)
 CIEC = "ciec"   # contraseña CIEC del portal
+CSD = "csd"     # contraseña de la .key del Certificado de Sello Digital
 
 
 def _keyring():

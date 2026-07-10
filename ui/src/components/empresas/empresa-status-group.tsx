@@ -5,11 +5,12 @@ import type { Empresa } from '@/lib/types';
 
 type Tone = 'verde' | 'amarillo' | 'rojo' | 'gris';
 
-const TONE_BG: Record<Tone, string> = {
-  verde: 'bg-emerald-500',
-  amarillo: 'bg-amber-500',
-  rojo: 'bg-red-500',
-  gris: 'bg-muted-foreground/40',
+// Chips estilo boceto v2: fondo suave del tono + icono en color (no sólido).
+const TONE_CHIP: Record<Tone, string> = {
+  verde: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
+  amarillo: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  rojo: 'bg-red-500/12 text-red-600 dark:text-red-400',
+  gris: 'bg-secondary text-muted-foreground/60',
 };
 
 function StatusDot({ tone, title, icon }: { tone: Tone; title: string; icon: string }) {
@@ -18,11 +19,11 @@ function StatusDot({ tone, title, icon }: { tone: Tone; title: string; icon: str
       title={title}
       aria-label={title}
       className={cn(
-        'inline-flex size-5 items-center justify-center rounded-full text-white',
-        TONE_BG[tone],
+        'inline-flex size-6 items-center justify-center rounded-md',
+        TONE_CHIP[tone],
       )}
     >
-      <Icon icon={icon} className="size-3" aria-hidden />
+      <Icon icon={icon} className="size-3.5" aria-hidden />
     </span>
   );
 }
