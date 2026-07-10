@@ -18,6 +18,7 @@ import { mensajeDeError } from '@/lib/errores';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import { formatDate } from '@/lib/formatting';
 import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
+import { RENOVACION_EFIRMA_HABILITADA } from '@/lib/features';
 import type { Empresa } from '@/lib/types';
 
 interface Props {
@@ -167,9 +168,11 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
   }
 
   // Renovación pendiente: 'enviada' (falta bajar el cert) vs 'generada' (el
-  // envío falló y se reanuda reenviando el mismo .ren).
-  const renEnviada = !!empresa.renovacion_pendiente?.numero_operacion;
-  const renGenerada = !!empresa.renovacion_pendiente && !renEnviada;
+  // envío falló y se reanuda reenviando el mismo .ren). Con la renovación
+  // deshabilitada no se exponen los estados de trámite (no hay forma de
+  // avanzarlos): la card muestra el semáforo normal.
+  const renEnviada = RENOVACION_EFIRMA_HABILITADA && !!empresa.renovacion_pendiente?.numero_operacion;
+  const renGenerada = RENOVACION_EFIRMA_HABILITADA && !!empresa.renovacion_pendiente && !renEnviada;
 
   // Estado de la tarjeta e.firma (dot + etiqueta, estilo boceto).
   const efirmaEstado = !tieneFiel
@@ -220,22 +223,31 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
           )}
           <div className="mt-auto flex items-center gap-1.5 pt-1">
             {tieneFiel ? (
-              <Button
-                size="sm"
-                variant={empresa.renovacion_pendiente || (sem && sem.estado !== 'verde') ? 'default' : 'outline'}
-                className="flex-1"
-                onClick={() => setRenovarOpen(true)}
-              >
-                <Icon
-                  icon={renEnviada ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
-                  className="mr-1.5 size-3.5"
-                />
-                {renEnviada
-                  ? 'Descargar certificado'
-                  : renGenerada
-                    ? 'Reanudar renovación'
-                    : 'Renovar e.firma'}
-              </Button>
+              RENOVACION_EFIRMA_HABILITADA ? (
+                <Button
+                  size="sm"
+                  variant={empresa.renovacion_pendiente || (sem && sem.estado !== 'verde') ? 'default' : 'outline'}
+                  className="flex-1"
+                  onClick={() => setRenovarOpen(true)}
+                >
+                  <Icon
+                    icon={renEnviada ? 'ph:download-simple-light' : 'ph:arrow-clockwise-light'}
+                    className="mr-1.5 size-3.5"
+                  />
+                  {renEnviada
+                    ? 'Descargar certificado'
+                    : renGenerada
+                      ? 'Reanudar renovación'
+                      : 'Renovar e.firma'}
+                </Button>
+              ) : (
+                <span className="flex-1" title="Disponible próximamente">
+                  <Button size="sm" variant="outline" className="w-full" disabled>
+                    <Icon icon="ph:arrow-clockwise-light" className="mr-1.5 size-3.5" />
+                    Renovar e.firma
+                  </Button>
+                </span>
+              )
             ) : (
               <Button size="sm" variant="outline" className="flex-1" asChild>
                 <Link href={`/empresas/detalle?rfc=${encodeURIComponent(empresa.rfc)}`}>
@@ -357,7 +369,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
 
       <CaptchaModal captcha={job.captcha} onResolver={job.responderCaptcha} />
 
-      {tieneFiel && (
+      {tieneFiel && RENOVACION_EFIRMA_HABILITADA && (
         <RenovarEfirmaWizard
           empresa={empresa}
           open={renovarOpen}

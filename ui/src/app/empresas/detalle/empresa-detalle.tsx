@@ -33,6 +33,7 @@ import { GenerarCsdWizard } from '@/components/fiel/generar-csd-wizard';
 import { ConfiguracionFiscalCard } from '@/components/empresas/configuracion-fiscal-card';
 import { useServer } from '@/providers/server-provider';
 import { cn } from '@/lib/utils';
+import { RENOVACION_EFIRMA_HABILITADA } from '@/lib/features';
 import { colorEmpresa, tipoPersona } from '@/lib/empresa-visual';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import type { Empresa } from '@/lib/types';
@@ -295,9 +296,12 @@ function FielSection({
   const tieneCiec = empresa.metodos.includes('ciec');
   const sem = tiene ? semaforoVencimiento(empresa.vencimiento) : null;
   const avisaRenovar = sem !== null && sem.estado !== 'verde';
-  const pendiente = !!empresa.renovacion_pendiente;
+  // Con la renovación en línea deshabilitada no se exponen los estados de
+  // trámite (no hay forma de avanzarlos); la vía manual de actualizar
+  // archivos .cer/.key sigue disponible (no toca el portal del SAT).
+  const pendiente = RENOVACION_EFIRMA_HABILITADA && !!empresa.renovacion_pendiente;
   // 'enviada' (falta bajar el cert) vs 'generada' (reenviar el mismo .ren).
-  const pendienteEnviada = !!empresa.renovacion_pendiente?.numero_operacion;
+  const pendienteEnviada = RENOVACION_EFIRMA_HABILITADA && !!empresa.renovacion_pendiente?.numero_operacion;
   const [mostrarForm, setMostrarForm] = useState(!tiene);
   const [renovarOpen, setRenovarOpen] = useState(false);
   const [confirmQuitar, setConfirmQuitar] = useState(false);
@@ -372,7 +376,7 @@ function FielSection({
                 <Icon icon="ph:upload-light" className="size-3.5" />
                 Actualizar archivos (.cer/.key)
               </Button>
-            ) : (
+            ) : RENOVACION_EFIRMA_HABILITADA ? (
               <Button
                 variant={pendiente || avisaRenovar ? 'default' : 'outline'}
                 size="sm"
@@ -388,6 +392,13 @@ function FielSection({
                     ? 'Reanudar renovación'
                     : 'Renovar e.firma'}
               </Button>
+            ) : (
+              <span title="Disponible próximamente">
+                <Button variant={avisaRenovar ? 'default' : 'outline'} size="sm" disabled>
+                  <Icon icon="ph:arrow-clockwise-light" className="size-3.5" />
+                  Renovar e.firma
+                </Button>
+              </span>
             )}
             <Button
               variant="ghost"
@@ -420,7 +431,9 @@ function FielSection({
             <AlertDescription className="text-xs">
               {sem.vencida
                 ? `Esta e.firma venció el ${sem.fecha}. Renuévala con el nuevo .cer y .key — o quítala y sigue trabajando con tu CIEC mientras la renuevas.`
-                : `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en línea desde aquí — no necesitas ir al SAT.`}
+                : RENOVACION_EFIRMA_HABILITADA
+                  ? `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en línea desde aquí — no necesitas ir al SAT.`
+                  : `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en el SAT y actualiza aquí los archivos nuevos (.cer/.key).`}
             </AlertDescription>
           </Alert>
         )}
@@ -435,13 +448,15 @@ function FielSection({
         )}
         {error && <p className="text-xs text-destructive">{error}</p>}
 
-        <RenovarEfirmaWizard
-          empresa={empresa}
-          open={renovarOpen}
-          onOpenChange={setRenovarOpen}
-          onDone={onRenovada}
-          onActualizarArchivos={() => setMostrarForm(true)}
-        />
+        {RENOVACION_EFIRMA_HABILITADA && (
+          <RenovarEfirmaWizard
+            empresa={empresa}
+            open={renovarOpen}
+            onOpenChange={setRenovarOpen}
+            onDone={onRenovada}
+            onActualizarArchivos={() => setMostrarForm(true)}
+          />
+        )}
 
         <Dialog open={confirmQuitar} onOpenChange={(o) => !o && setConfirmQuitar(false)}>
           <DialogContent>

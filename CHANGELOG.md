@@ -20,8 +20,14 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   first-class: el envío devuelve el número de operación al instante y el
   certificado se descarga cuando el SAT lo emite; la contraseña del sello se
   guarda en el keychain y en un `.txt` junto a la `.key` para el timbrado
-  futuro). El estado pendiente se persiste en el catálogo, así que la descarga
-  se puede retomar aunque se cierre la app. FIEL-only (CertiSAT no acepta CIEC).
+  futuro). El estado pendiente se persiste en el catálogo por etapas, así que
+  la renovación se **reanuda desde donde se atoró** si el portal del SAT falla
+  (reenvía el mismo `.ren` si el envío no se logró, o solo descarga el cert si
+  ya se envió; incluye un fallback que verifica —por emparejamiento con la
+  `.key`— si el SAT ya había procesado el trámite pese al error). FIEL-only
+  (CertiSAT no acepta CIEC). **Nota:** la _Renovar e.firma_ se publica
+  **deshabilitada** («Disponible próximamente») hasta estabilizar la ejecución
+  del agente empacado en Windows; se reactiva con un flag (`features.ts`).
 
 - **Empresas: rediseño de la lista (Claude Design, boceto Desktop v2)**: vistas
   **Activas/Archivadas** como pestañas con contadores (las archivadas explican
