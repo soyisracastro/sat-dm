@@ -14,7 +14,7 @@ import logging
 import os
 import shutil
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -719,6 +719,22 @@ def set_default(rfc: str):
 # Solicitudes
 # ---------------------------------------------------------------------------
 
+# Estados de una solicitud WS en el catálogo:
+#   "solicitada"  — creada, aún sin verificar contra el SAT
+#   "1"/"2"       — en cola / procesando (según el SAT)
+#   "3"           — lista para descargar
+#   "4"/"5"       — error del SAT / rechazada
+#   "vencida"     — no-terminal por más de SOLICITUD_VENCIMIENTO_HORAS; el SAT
+#                   ya no la va a resolver (su SLA es 72 h) y dejamos de pollearla
+#   "descargada"  — paquetes descargados con éxito
+ESTADOS_PENDIENTES = frozenset({"solicitada", "1", "2"})
+
+# El SAT se compromete a resolver una solicitud en máximo 72 horas. Pasado ese
+# plazo (con margen) la marcamos vencida localmente para que no quede "abierta"
+# para siempre — el usuario puede volver a solicitarla.
+SOLICITUD_VENCIMIENTO_HORAS = 72
+
+
 def _solicitudes_dir() -> Path:
     d = get_config_dir() / "solicitudes"
     d.mkdir(parents=True, exist_ok=True)
@@ -841,9 +857,45 @@ def delete_solicitud(rfc: str, id_solicitud: str) -> bool:
 
 
 def get_solicitudes_pendientes(rfc: str) -> list[dict]:
+    """Solicitudes que siguen vivas en el SAT (en cola/procesando) y por tanto
+    deben seguirse verificando. Excluye terminales: lista (3), error (4),
+    rechazada (5), vencida y descargada."""
     with _solicitudes_lock:
         data = _load_solicitudes(rfc)
-    return [s for s in data["solicitudes"] if s["estado"] not in ("terminada", "error")]
+    return [s for s in data["solicitudes"] if s["estado"] in ESTADOS_PENDIENTES]
+
+
+def marcar_solicitudes_vencidas(
+    rfc: str, horas: int = SOLICITUD_VENCIMIENTO_HORAS,
+) -> list[dict]:
+    """Marca como "vencida" toda solicitud pendiente (solicitada/1/2) con más de
+    `horas` desde su creación. El SAT no resuelve solicitudes más allá de su SLA
+    de 72 h; sin esto, una solicitud que el SAT dejó colgada (p. ej. en semanas
+    de fallas) se pollearía para siempre. Devuelve las recién vencidas (copia)."""
+    limite = datetime.now() - timedelta(hours=horas)
+    vencidas: list[dict] = []
+    with _solicitudes_lock:
+        data = _load_solicitudes(rfc)
+        for sol in data["solicitudes"]:
+            if sol.get("estado") not in ESTADOS_PENDIENTES:
+                continue
+            ts = sol.get("timestamp")
+            try:
+                creada = datetime.fromisoformat(ts) if ts else None
+            except ValueError:
+                creada = None
+            # Sin timestamp o malformado = registro legacy, por definición viejo.
+            if creada is not None and creada > limite:
+                continue
+            sol["estado"] = "vencida"
+            sol["mensaje"] = (
+                f"El SAT no resolvió la solicitud en {horas} horas. "
+                "Vuelve a solicitar el periodo."
+            )
+            vencidas.append(dict(sol))
+        if vencidas:
+            _save_solicitudes(rfc, data)
+    return vencidas
 
 
 def list_solicitudes(rfc: str) -> list[dict]:

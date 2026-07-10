@@ -99,7 +99,21 @@ async def lifespan(app: "FastAPI"):
         warmup_async()
     except Exception:
         logger.exception("No se pudo iniciar el warm-up del navegador")
+
+    # Poller de solicitudes WS en background (hilo daemon): verifica y descarga
+    # las solicitudes pendientes de TODAS las empresas, aunque el usuario cambie
+    # de empresa o de pantalla. Arranca con delay y solo toca el keychain cuando
+    # una empresa tiene solicitudes pendientes (ver api/poller.py).
+    try:
+        from .poller import iniciar_poller, detener_poller
+
+        iniciar_poller()
+    except Exception:
+        logger.exception("No se pudo iniciar el poller de solicitudes WS")
+        detener_poller = None
     yield
+    if detener_poller is not None:
+        detener_poller()
 
 
 app = FastAPI(

@@ -68,7 +68,7 @@ export default function DescargaPage() {
     solicitar,
     descargar,
     reset,
-  } = useDescarga();
+  } = useDescarga(fielStatus.rfc);
   const {
     solicitudes,
     loading: loadingSolicitudes,

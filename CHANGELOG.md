@@ -8,6 +8,19 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Las solicitudes WS se resuelven solas en background, por todas las
+  empresas a la vez.** Un poller del agente (cada 60 s) verifica contra el SAT
+  las solicitudes pendientes de TODAS las empresas — cada una con su propia
+  e.firma, sin tocar la sesión activa — y cuando una queda lista **descarga los
+  paquetes automáticamente** a la carpeta de la empresa y la registra en el
+  historial, aunque el usuario haya cambiado de empresa, esté en otra pantalla
+  o la app lleve rato abierta en otra cosa. También retoma solicitudes que
+  quedaron «Lista» sin bajarse (p. ej. si la app se cerró a media descarga).
+  La UI estrena un watcher global que notifica por empresa: toast/notificación
+  nativa al completarse una descarga y notificación **en rojo** cuando una
+  solicitud falla, es rechazada o vence — con el nombre de la empresa para
+  saber a cuál irle a revisar.
+
 - **Comprobantes: control DIOT y deducibilidad por comprobante (Claude
   Design)**: el Procesador de CFDI ahora define qué operaciones pasan al
   generador de la DIOT. Columna **«DIOT»** con interruptor por comprobante
@@ -188,6 +201,19 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   deducción 002) lista para timbrado.
 
 ### Bug fix
+
+- **Descarga WS: las solicitudes ya no se mezclan entre empresas y ninguna se
+  queda «Procesando» para siempre.** El «Estado de la solicitud» se guardaba en
+  una llave global de localStorage, así que al cambiar de empresa la página
+  retomaba el polling de una solicitud de OTRA empresa (y `/verificar` iba
+  firmado con la e.firma equivocada) — la misma solicitud aparecía «Verificando
+  estado…» en todas las empresas. Ahora el flujo activo va aislado por RFC (la
+  llave legacy se limpia sola al actualizar). Además: (1) los estados de falla
+  del SAT (4=error, 5=rechazada, 6=vencida) ahora SÍ se persisten en el
+  catálogo — antes `/verificar` los convertía en HTTP 400 y la solicitud jamás
+  salía de «Procesando»; (2) toda solicitud pendiente con más de **72 h** (el
+  SLA del SAT) se marca **«Vencida»** automáticamente, con su badge rojo y el
+  aviso de volver a solicitar el periodo.
 
 - **Descarga CIEC: el login ya no truena con «Execution context was destroyed»
   cuando el SAT tarda en responder el captcha** (TODOCONTA-DESKTOP-T): si el

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useServer } from '@/providers/server-provider';
+import { ApiError } from '@/lib/api-client';
 import { VERIFICAR_POLL_INTERVAL_MS } from '@/lib/constants';
 import type { SolicitudRequest } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
@@ -21,22 +22,48 @@ export type DescargaState =
   | 'error';
 
 // ---------------------------------------------------------------------------
-// LocalStorage key
+// LocalStorage: flujo activo POR EMPRESA
+//
+// La llave lleva el RFC (`sat-dm-request-id:XAXX010101000`). Antes era una
+// llave global única: al cambiar de empresa, la página retomaba el polling de
+// una solicitud de OTRA empresa y el "Estado de la solicitud" aparecía en
+// todas (y /verificar iba firmado con la FIEL equivocada). Ver PR.
 // ---------------------------------------------------------------------------
 
-const LS_KEY = 'sat-dm-request-id';
+// Llave global legacy (pre-fix). Se elimina al montar para que una solicitud
+// vieja no "resucite" en todas las empresas tras actualizar.
+const LS_LEGACY_KEY = 'sat-dm-request-id';
+// Una solicitud pendiente >72h ya venció para el SAT: no vale la pena retomarla.
+const RESUME_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 
-function loadRequestId(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(LS_KEY);
+function lsKey(rfc: string): string {
+  return `sat-dm-request-id:${rfc}`;
 }
 
-function saveRequestId(id: string | null) {
-  if (typeof window === 'undefined') return;
+function loadRequestId(rfc: string | null): string | null {
+  if (typeof window === 'undefined' || !rfc) return null;
+  const raw = localStorage.getItem(lsKey(rfc));
+  if (!raw) return null;
+  try {
+    const { id, ts } = JSON.parse(raw) as { id?: string; ts?: number };
+    if (!id) return null;
+    if (typeof ts === 'number' && Date.now() - ts > RESUME_MAX_AGE_MS) {
+      localStorage.removeItem(lsKey(rfc));
+      return null;
+    }
+    return id;
+  } catch {
+    localStorage.removeItem(lsKey(rfc));
+    return null;
+  }
+}
+
+function saveRequestId(rfc: string | null, id: string | null) {
+  if (typeof window === 'undefined' || !rfc) return;
   if (id) {
-    localStorage.setItem(LS_KEY, id);
+    localStorage.setItem(lsKey(rfc), JSON.stringify({ id, ts: Date.now() }));
   } else {
-    localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(lsKey(rfc));
   }
 }
 
@@ -62,7 +89,13 @@ export interface UseDescargaReturn {
 // Hook implementation
 // ---------------------------------------------------------------------------
 
+/**
+ * Flujo activo de descarga WS de UNA empresa (`rfc`): solicitar → polling →
+ * descarga automática. El estado persistido en localStorage va aislado por
+ * RFC, así que cambiar de empresa nunca arrastra la solicitud de otra.
+ */
 export function useDescarga(
+  rfc: string | null,
   pollIntervalMs: number = VERIFICAR_POLL_INTERVAL_MS,
 ): UseDescargaReturn {
   const { apiClient } = useServer();
@@ -78,6 +111,9 @@ export function useDescarga(
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  // El RFC vigente, para que los callbacks asíncronos no escriban en la llave
+  // de otra empresa si el usuario cambió mientras el request estaba en vuelo.
+  const rfcRef = useRef(rfc);
   // RequestID para la cual ya disparamos la descarga automática al pasar a 'ready'.
   // Permite re-descargar manualmente (descargar() puede llamarse de nuevo) sin
   // que el efecto auto-dispare otra vez por el mismo state→ready transition.
@@ -109,6 +145,20 @@ export function useDescarga(
         const res = await apiClient.verificar({ id_solicitud: id, poll: false });
         if (!mountedRef.current) return;
 
+        // Sin cod_estado = el SAT no reconoce la solicitud para esta e.firma
+        // (típicamente pertenece a otra empresa, o ya caducó en el SAT).
+        // Cerramos el flujo y limpiamos para no pollearla eternamente.
+        if (!res.cod_estado) {
+          setError(
+            res.mensaje ||
+              'El SAT no reconoce esta solicitud para la empresa activa. Crea una nueva solicitud.',
+          );
+          setState('error');
+          stopPolling();
+          saveRequestId(rfcRef.current, null);
+          return;
+        }
+
         // SAT returns cod_estado as string, coerce to number
         const codEstadoNum = Number(res.cod_estado);
         setCodEstado(codEstadoNum);
@@ -120,11 +170,13 @@ export function useDescarga(
           setPackageIds(res.package_ids);
           setState('ready');
           stopPolling();
-        } else if (codEstadoNum === 4 || codEstadoNum === 5) {
-          // Error or rejected
+        } else if (codEstadoNum === 4 || codEstadoNum === 5 || codEstadoNum === 6) {
+          // Error, rechazada o vencida: estado final — el agente ya lo persistió
+          // en el catálogo; aquí cerramos el flujo activo.
           setError(res.mensaje || 'La solicitud fue rechazada o tuvo un error.');
           setState('error');
           stopPolling();
+          saveRequestId(rfcRef.current, null);
         }
         // cod_estado 1 or 2: keep polling
       } catch (err) {
@@ -133,6 +185,12 @@ export function useDescarga(
         setError(`Error al verificar solicitud: ${msg}`);
         setState('error');
         stopPolling();
+        // Un 400 del agente es un rechazo definitivo (no reintentable);
+        // errores de red / 401 / 5xx son transitorios y el flujo se retoma
+        // en el siguiente mount (el poller del agente sigue trabajando).
+        if (err instanceof ApiError && err.status === 400) {
+          saveRequestId(rfcRef.current, null);
+        }
       } finally {
         pollBusyRef.current = false;
       }
@@ -179,7 +237,7 @@ export function useDescarga(
         if (!mountedRef.current) return;
 
         setRequestId(res.id_solicitud);
-        saveRequestId(res.id_solicitud);
+        saveRequestId(rfcRef.current, res.id_solicitud);
         startPolling(res.id_solicitud);
       } catch (err) {
         if (!mountedRef.current) return;
@@ -206,10 +264,17 @@ export function useDescarga(
       if (!mountedRef.current) return;
 
       setArchivosDescargados(res.archivos);
-      saveRequestId(null);
+      saveRequestId(rfcRef.current, null);
       setState('done');
     } catch (err) {
       if (!mountedRef.current) return;
+      // 409 = el poller en background ya está bajando esta solicitud: no es un
+      // error para el usuario; el catálogo quedará en "Descargada" solo.
+      if (err instanceof ApiError && err.status === 409) {
+        saveRequestId(rfcRef.current, null);
+        setState('done');
+        return;
+      }
       const msg = mensajeDeError(err);
       setError(`Error al descargar: ${msg}`);
       setState('error');
@@ -230,7 +295,7 @@ export function useDescarga(
     setPackageIds([]);
     setArchivosDescargados([]);
     setError(null);
-    saveRequestId(null);
+    saveRequestId(rfcRef.current, null);
     autoDescargaDispatchedRef.current = null;
   }, [stopPolling]);
 
@@ -248,13 +313,35 @@ export function useDescarga(
   }, [state, requestId, descargar]);
 
   // -----------------------------------------------------------------------
-  // Resume polling on mount if localStorage has a requestId
+  // Por empresa: al montar Y al cambiar de RFC se limpia el estado en memoria
+  // y se retoma el polling SOLO si esta empresa dejó una solicitud pendiente.
   // -----------------------------------------------------------------------
 
   useEffect(() => {
     mountedRef.current = true;
+    rfcRef.current = rfc;
 
-    const savedId = loadRequestId();
+    // Migración: la llave global legacy hacía que una solicitud apareciera en
+    // TODAS las empresas. Se elimina sin retomarla; si sigue viva, el poller
+    // del agente y la lista de solicitudes la resuelven por su cuenta.
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(LS_LEGACY_KEY);
+    }
+
+    // Cambio de empresa: estado en memoria a cero (sin tocar localStorage de
+    // la empresa anterior — su flujo sigue guardado y el poller lo atiende).
+    stopPolling();
+    setState('idle');
+    setRequestId(null);
+    setCodEstado(null);
+    setMensaje(null);
+    setNumeroCfdis(null);
+    setPackageIds([]);
+    setArchivosDescargados([]);
+    setError(null);
+    autoDescargaDispatchedRef.current = null;
+
+    const savedId = loadRequestId(rfc);
     if (savedId) {
       setRequestId(savedId);
       startPolling(savedId);
@@ -264,9 +351,9 @@ export function useDescarga(
       mountedRef.current = false;
       stopPolling();
     };
-    // Only run on mount
+    // Reinicia solo cuando cambia la empresa activa.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [rfc]);
 
   return {
     state,

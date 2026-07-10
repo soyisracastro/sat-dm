@@ -219,9 +219,33 @@ def empresas_update(rfc: str, req: EmpresaUpdateRequest):
 
 @router.get("/empresas/{rfc}/solicitudes")
 def empresas_solicitudes(rfc: str):
-    """Historial de solicitudes de descarga de la empresa (más recientes primero)."""
+    """Historial de solicitudes de descarga de la empresa (más recientes primero).
+
+    Aplica el vencimiento local (>72 h pendiente → "vencida") antes de listar,
+    para que la UI vea el estado final aunque el poller no haya pasado aún."""
     from ...cli import config_store
+    config_store.marcar_solicitudes_vencidas(rfc)
     return {"solicitudes": config_store.list_solicitudes(rfc)}
+
+
+@router.get("/solicitudes/actividad")
+def solicitudes_actividad():
+    """Solicitudes WS de TODAS las empresas no archivadas (con rfc + nombre).
+
+    La consume el watcher global del renderer para notificar transiciones
+    (lista/descargada/error/vencida) aunque el usuario esté parado en otra
+    empresa u otra pantalla. Aplica el vencimiento local antes de listar."""
+    from ...cli import config_store
+
+    actividad = []
+    for emp in config_store.list_empresas():
+        if emp.get("archived_at"):
+            continue
+        rfc = emp["rfc"]
+        config_store.marcar_solicitudes_vencidas(rfc)
+        for sol in config_store.list_solicitudes(rfc):
+            actividad.append({"rfc": rfc, "nombre": emp.get("nombre") or rfc, **sol})
+    return {"solicitudes": actividad}
 
 
 @router.delete("/empresas/{rfc}/solicitudes/{id_solicitud}")

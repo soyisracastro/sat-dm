@@ -21,7 +21,8 @@ function fechaLegible(iso: string): string {
 
 export function SolicitudRowExpanded({ solicitud }: SolicitudRowExpandedProps) {
   const nPaquetes = solicitud.package_ids?.length ?? 0;
-  const esError = solicitud.estado === '4' || solicitud.estado === '5';
+  const esError =
+    solicitud.estado === '4' || solicitud.estado === '5' || solicitud.estado === 'vencida';
 
   return (
     <div className="space-y-3 text-sm">

@@ -388,7 +388,7 @@ export interface Solicitud {
   fecha_inicio: string;
   fecha_fin: string;
   tipo: string;            // Etiqueta humana "CFDI · emitidos" / "Metadata · recibidos"
-  estado: string;          // "solicitada" / "1"-"5" (SAT) / "descargada"
+  estado: string;          // "solicitada" / "1"-"5" (SAT) / "vencida" / "descargada"
   timestamp: string;       // Creada (ISO local)
   package_ids?: string[];  // Disponibles cuando estado="3"+
   tipo_comprobante?: string;  // "E" / "R" — usado por el agente para componer la carpeta de salida
@@ -398,6 +398,17 @@ export interface Solicitud {
 
 export interface SolicitudesResponse {
   solicitudes: Solicitud[];
+}
+
+// GET /solicitudes/actividad — solicitudes de TODAS las empresas, para el
+// watcher global de notificaciones (rfc + nombre vienen del catálogo).
+export interface SolicitudGlobal extends Solicitud {
+  rfc: string;
+  nombre: string;
+}
+
+export interface SolicitudesActividadResponse {
+  solicitudes: SolicitudGlobal[];
 }
 
 // ---------------------------------------------------------------------------
