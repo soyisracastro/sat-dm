@@ -75,6 +75,11 @@ const REGIMENES_SIN_DIOT_DEFAULT = new Set([
   '621', '625', '626', '629',
 ]);
 
+/** ¿Este régimen (clave individual) obliga a la DIOT por regla general? */
+export function regimenPresentaDiot(clave: string): boolean {
+  return !REGIMENES_SIN_DIOT_DEFAULT.has(clave);
+}
+
 /**
  * Derivación por régimen: presenta DIOT si ALGÚN régimen configurado la trae
  * por default. Sin regímenes configurados (o clave desconocida) se asume que
@@ -84,7 +89,7 @@ export function regimenesPresentanDiot(
   regimenes?: { clave: string }[] | null,
 ): boolean {
   if (!regimenes || regimenes.length === 0) return true;
-  return regimenes.some((r) => !REGIMENES_SIN_DIOT_DEFAULT.has(r.clave));
+  return regimenes.some((r) => regimenPresentaDiot(r.clave));
 }
 
 /**

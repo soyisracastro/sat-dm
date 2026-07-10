@@ -174,6 +174,17 @@ function CsdLabsSection({ empresa, onDone }: { empresa: Empresa; onDone: () => v
   );
 }
 
+/** "YYYY-MM-DD" → "16 de diciembre de 2028" (sin sorpresas de zona horaria). */
+function fechaLarga(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(y, m - 1, d).toLocaleDateString('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 function Guardado() {
   return (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
@@ -222,11 +233,12 @@ function CiecSection({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Icon icon="ph:key-light" className="size-4 text-primary" />
-            <span className="text-sm font-medium">CIEC</span>
+            <span className="text-sm font-medium">Acceso con CIEC</span>
             {ok && <Guardado />}
           </div>
           <Button variant="outline" size="sm" onClick={() => setMostrarForm(true)}>
-            Cambiar contraseña CIEC
+            <Icon icon="ph:key-light" className="size-3.5" />
+            Cambiar CIEC
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -410,15 +422,22 @@ function FielSection({
             </Button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {pendienteEnviada
-            ? 'Renovación enviada: solo falta descargar el certificado que emitió el SAT.'
-            : pendiente
-              ? 'El envío de la renovación falló en ese momento; tu e.firma sigue intacta. Reanuda para reenviar la misma solicitud.'
-              : sem
-                ? `Vence el ${sem.fecha} · ${sem.label}`
+        {pendienteEnviada || pendiente || !sem ? (
+          <p className="text-xs text-muted-foreground">
+            {pendienteEnviada
+              ? 'Renovación enviada: solo falta descargar el certificado que emitió el SAT.'
+              : pendiente
+                ? 'El envío de la renovación falló en ese momento; tu e.firma sigue intacta. Reanuda para reenviar la misma solicitud.'
                 : 'Certificado registrado.'}
-        </p>
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2.5">
+            <VencimientoBadge vencimiento={empresa.vencimiento} />
+            <span className="text-xs text-muted-foreground">
+              Vence el {fechaLarga(sem.fecha)}
+            </span>
+          </div>
+        )}
         {avisaRenovar && sem && !pendiente && (
           <Alert
             variant={sem.estado === 'rojo' ? 'destructive' : 'default'}
@@ -430,7 +449,7 @@ function FielSection({
           >
             <AlertDescription className="text-xs">
               {sem.vencida
-                ? `Esta e.firma venció el ${sem.fecha}. Renuévala con el nuevo .cer y .key — o quítala y sigue trabajando con tu CIEC mientras la renuevas.`
+                ? `Esta e.firma venció el ${fechaLarga(sem.fecha)}. Renuévala con el nuevo .cer y .key — o quítala y sigue trabajando con tu CIEC mientras la renuevas.`
                 : RENOVACION_EFIRMA_HABILITADA
                   ? `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en línea desde aquí — no necesitas ir al SAT.`
                   : `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en el SAT y actualiza aquí los archivos nuevos (.cer/.key).`}
@@ -510,8 +529,8 @@ function FielSection({
         >
           <AlertDescription className="text-xs">
             {sem.vencida
-              ? `Esta e.firma venció el ${sem.fecha}. Renuévala subiendo el nuevo .cer y .key.`
-              : `Esta e.firma ${sem.label.toLowerCase()} (vence el ${sem.fecha}). Conviene renovarla.`}
+              ? `Esta e.firma venció el ${fechaLarga(sem.fecha)}. Renuévala subiendo el nuevo .cer y .key.`
+              : `Esta e.firma ${sem.label.toLowerCase()} (vence el ${fechaLarga(sem.fecha)}). Conviene renovarla.`}
           </AlertDescription>
         </Alert>
       )}
