@@ -63,7 +63,23 @@ _COLS_CFDI = [
     ("receptor_uso_cfdi", "Uso CFDI"),
     ("lugar_expedicion", "Lugar Expedición"),
     ("estado_sat", "Estado SAT"),
+    # Flags de Comprobantes (derivadas en _enriquecer). Al FINAL para no
+    # mover las posiciones de columnas en hojas de usuarios existentes.
+    ("deducible", "Deducible"),
+    ("estado_diot", "DIOT"),
 ]
+
+
+def _enriquecer(cfdi: dict) -> dict:
+    """Deriva las columnas display de los flags DIOT/deducibilidad (el dict
+    ya trae elegible_diot/incluir_diot/deducible desde _row_to_dict)."""
+    out = dict(cfdi)
+    out["deducible"] = cfdi.get("deducible") or "Sin analizar"
+    if not cfdi.get("elegible_diot"):
+        out["estado_diot"] = "No aplica"
+    else:
+        out["estado_diot"] = "Pasa a DIOT" if cfdi.get("incluir_diot") else "Excluido"
+    return out
 
 
 _COLS_CONCEPTO = [
@@ -103,7 +119,7 @@ def to_xlsx(
     ws_cfdis.append(_header_row(ws_cfdis, headers, font=header_font, fill=header_fill))
 
     uuids_cargados: list[str] = []
-    for cfdi in db.iter_all(filtros):
+    for cfdi in map(_enriquecer, db.iter_all(filtros)):
         ws_cfdis.append([cfdi.get(key) for key, _ in _COLS_CFDI])
         uuids_cargados.append(cfdi["uuid"])
 
@@ -154,7 +170,7 @@ def to_csv(
 
     if not expandir_conceptos:
         writer.writerow([label for _, label in _COLS_CFDI])
-        for cfdi in db.iter_all(filtros):
+        for cfdi in map(_enriquecer, db.iter_all(filtros)):
             writer.writerow([cfdi.get(key, "") for key, _ in _COLS_CFDI])
     else:
         headers = (
@@ -162,7 +178,7 @@ def to_csv(
             + [label for k, label in _COLS_CONCEPTO if k != "cfdi_uuid"]
         )
         writer.writerow(headers)
-        for cfdi in db.iter_all(filtros):
+        for cfdi in map(_enriquecer, db.iter_all(filtros)):
             base = [cfdi.get(key, "") for key, _ in _COLS_CFDI]
             conceptos = db.conceptos_de(cfdi["uuid"], cfdi["mi_rfc"])
             if not conceptos:

@@ -14,6 +14,7 @@ import calendar
 import re
 
 from ..procesador import abrir_db
+from ..procesador.db import SQL_ELEGIBLE_DIOT
 from . import store
 from .catalogos import OPERACION_DEFAULT, RFC_EXTRANJERO, RFC_GLOBAL
 from .layout import fila_vacia
@@ -76,7 +77,10 @@ def prellenar_desde_procesador(mi_rfc: str, periodo: str, db=None) -> dict:
 
     Returns:
         {"filas": [fila, ...], "resumen": {"cfdis_considerados": int,
-         "cfdis_sin_desglose": int, "proveedores": int}}
+         "cfdis_excluidos": int, "cfdis_sin_desglose": int, "proveedores": int}}
+
+    Los comprobantes con el interruptor DIOT apagado en Comprobantes
+    (`incluir_diot = 0`) no se consideran; se reportan en `cfdis_excluidos`.
 
     Las filas llevan metadatos que NO se exportan al TXT: `nombre` (para la
     UI), `origen` ("cfdi"), `estimado` (bases derivadas de iva/0.16 en filas
@@ -89,25 +93,31 @@ def prellenar_desde_procesador(mi_rfc: str, periodo: str, db=None) -> dict:
     if db is None:
         db = abrir_db()
     with db.cursor() as cur:
+        # La elegibilidad (recibidos I/E) vive en SQL_ELEGIBLE_DIOT — misma
+        # expresión que usa el filtro «Estado DIOT» de Comprobantes; la
+        # cláusula `mi_rfc = ?` garantiza que la columna coincide con el param.
         cur.execute(
-            """
+            f"""
             SELECT tipo, emisor_rfc, emisor_nombre,
                    iva_trasladado, iva_retenido,
                    base_iva_16, base_iva_8, iva_trasladado_8,
-                   base_iva_0, base_exento
+                   base_iva_0, base_exento, incluir_diot
             FROM cfdis
             WHERE mi_rfc = ?
-              AND tipo IN ('I', 'E')
-              AND UPPER(TRIM(receptor_rfc)) = ?
-              AND UPPER(TRIM(emisor_rfc)) != ?
+              AND {SQL_ELEGIBLE_DIOT}
               AND fecha >= ? AND fecha <= ?
             """,
-            (mi_rfc, mi_rfc, mi_rfc, desde, hasta),
+            (mi_rfc, desde, hasta),
         )
         filas_db = cur.fetchall()
 
     acumulados: dict[str, _Acumulado] = {}
+    excluidos = 0
     for row in filas_db:
+        # Interruptor DIOT de Comprobantes: el usuario apagó este comprobante.
+        if not row["incluir_diot"]:
+            excluidos += 1
+            continue
         rfc = (row["emisor_rfc"] or "").strip().upper()
         acc = acumulados.setdefault(rfc, _Acumulado())
         acc.num_cfdis += 1
@@ -186,7 +196,8 @@ def prellenar_desde_procesador(mi_rfc: str, periodo: str, db=None) -> dict:
     return {
         "filas": filas,
         "resumen": {
-            "cfdis_considerados": len(filas_db),
+            "cfdis_considerados": len(filas_db) - excluidos,
+            "cfdis_excluidos": excluidos,
             "cfdis_sin_desglose": total_sin_desglose,
             "proveedores": len(filas),
         },

@@ -15,7 +15,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .db import CfdiFiltros, ProcesadorDB, _construir_where, _row_to_dict
+from .db import (
+    SQL_ELEGIBLE_DIOT,
+    CfdiFiltros,
+    ProcesadorDB,
+    _construir_where,
+    _row_to_dict,
+)
 
 
 def stats_generales(db: ProcesadorDB, filtros: Optional[CfdiFiltros] = None) -> dict:
@@ -58,6 +64,35 @@ def stats_generales(db: ProcesadorDB, filtros: Optional[CfdiFiltros] = None) -> 
         "isr_retenido": float(row["isr_retenido"] or 0.0),
         "con_errores": row["con_errores"] or 0,
         "por_tipo": por_tipo,
+        **contadores_diot_deducible(db, (filtros or {}).get("mi_rfc")),
+    }
+
+
+def contadores_diot_deducible(db: ProcesadorDB, mi_rfc: Optional[str]) -> dict:
+    """Contadores GLOBALES del buffer de la empresa (sin filtros de UI, mismo
+    scope que total_global) para la línea-resumen «X de Y operaciones pasan a
+    la DIOT» de Comprobantes."""
+    where_g, params_g = _construir_where({"mi_rfc": mi_rfc})
+    sql = f"""
+        SELECT
+            SUM(CASE WHEN {SQL_ELEGIBLE_DIOT} THEN 1 ELSE 0 END) AS diot_elegibles,
+            SUM(CASE WHEN {SQL_ELEGIBLE_DIOT} AND incluir_diot = 1 THEN 1 ELSE 0 END) AS diot_pasan,
+            SUM(CASE WHEN NOT {SQL_ELEGIBLE_DIOT} THEN 1 ELSE 0 END) AS diot_no_aplica,
+            SUM(CASE WHEN deducible = 'No deducible' THEN 1 ELSE 0 END) AS deducible_no,
+            SUM(CASE WHEN deducible IS NULL THEN 1 ELSE 0 END) AS deducible_sin_clasificar
+        FROM cfdis
+        {where_g}
+    """
+    with db.cursor() as cur:
+        cur.execute(sql, params_g)
+        row = cur.fetchone()
+    # SUM sobre 0 filas devuelve NULL → coalescear a 0 para la UI.
+    return {
+        "diot_elegibles": row["diot_elegibles"] or 0,
+        "diot_pasan": row["diot_pasan"] or 0,
+        "diot_no_aplica": row["diot_no_aplica"] or 0,
+        "deducible_no": row["deducible_no"] or 0,
+        "deducible_sin_clasificar": row["deducible_sin_clasificar"] or 0,
     }
 
 

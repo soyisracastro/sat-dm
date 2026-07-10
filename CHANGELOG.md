@@ -8,6 +8,30 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Comprobantes: control DIOT y deducibilidad por comprobante (Claude
+  Design)**: el Procesador de CFDI ahora define qué operaciones pasan al
+  generador de la DIOT. Columna **«DIOT»** con interruptor por comprobante
+  elegible (recibidos de Ingreso/Egreso; por default todos pasan) — pagos,
+  nómina, traslados y emitidos marcan «No aplica» — y columna **«Deducible»**
+  con clasificación manual persistida (Sin analizar / Deducible / No
+  deducible; el análisis asistido por IA llega en un sprint posterior). El
+  panel de filtros se reagrupa por bloques (Búsqueda · Clasificación ·
+  Periodo · Importe) e incorpora el filtro **«Estado DIOT»** (Pasa a DIOT /
+  Excluidos / No aplica); sobre la tabla vive un contador global («X de Y
+  operaciones pasan a la DIOT») y las filas excluidas se atenúan. **El
+  prellenado de la DIOT respeta las exclusiones** (el resumen y el toast
+  reportan cuántos comprobantes se excluyeron manualmente) y el export
+  XLSX/CSV agrega las columnas Deducible y DIOT al final. Migración 009 del
+  buffer (`incluir_diot`, `deducible`) + `PATCH /procesador/cfdi/{uuid}`.
+  **La obligación DIOT se deriva del régimen fiscal configurado de la
+  empresa** (mapeo investigado contra RMF 2025/2026 y RFA 2025 — ver
+  docs/diot-2025.md «¿Quién presenta la DIOT?»): RESICO (regla 3.13.19),
+  sueldos, RIF y demás relevados no ven columna, filtro ni contador DIOT, y
+  la pantalla DIOT lo avisa. Toggle **«Presenta DIOT»** en la configuración
+  de la empresa (`presenta_diot`) para los casos condicionales: PF que
+  rebasa $4 MDP (regla 2.8.1.17), actividades exentas, coordinado que la
+  presenta global, plataformas con retención definitiva (art. 18-M LIVA).
+
 - **Tareas: centro de mando personal (Claude Design)**: nueva sección
   **/tareas** para pendientes fiscales, recordatorios y lo que el usuario
   tenga en mente — **con o sin empresa vinculada**. Vista **lista** agrupada

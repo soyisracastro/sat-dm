@@ -1,11 +1,19 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -14,7 +22,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { CfdiListResponse, CfdiRecord } from '@/lib/types';
+import type {
+  CfdiDeducible,
+  CfdiFlagsPatch,
+  CfdiListResponse,
+  CfdiRecord,
+} from '@/lib/types';
 import {
   MatchBadge,
   TONO_BASE_CLASE,
@@ -29,7 +42,14 @@ interface Props {
   pageSize: number;
   loading: boolean;
   onPage: (p: number) => void;
+  /** Persiste flags por fila (interruptor DIOT / deducibilidad). */
+  onFlags: (uuid: string, patch: CfdiFlagsPatch) => void;
+  /** false = la empresa no presenta DIOT (p. ej. RESICO): sin columna DIOT. */
+  mostrarDiot?: boolean;
 }
+
+/** Override optimista por uuid mientras el PATCH + recarga viajan al agente. */
+type FlagsOverride = { incluir_diot?: boolean; deducible?: CfdiDeducible | null };
 
 function formatoFecha(iso: string): string {
   if (!iso) return '';
@@ -94,11 +114,33 @@ function badgeEstado(estado: CfdiRecord['estado_sat']) {
   );
 }
 
-export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
+export function CfdiTable({
+  data,
+  page,
+  pageSize,
+  loading,
+  onPage,
+  onFlags,
+  mostrarDiot = true,
+}: Props) {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const [expandido, setExpandido] = useState<string | null>(null);
+  // La data fresca del agente es la verdad: al llegar, pisa los overrides
+  // (en éxito coincide con lo optimista; en error, revierte lo pintado).
+  const [overrides, setOverrides] = useState<Record<string, FlagsOverride>>({});
+  useEffect(() => setOverrides({}), [data]);
+
+  const aplicarFlags = (uuid: string, patch: CfdiFlagsPatch) => {
+    const override: FlagsOverride = {};
+    if (patch.incluir_diot !== undefined) override.incluir_diot = patch.incluir_diot;
+    if (patch.deducible !== undefined) {
+      override.deducible = patch.deducible === 'Sin analizar' ? null : patch.deducible;
+    }
+    setOverrides((o) => ({ ...o, [uuid]: { ...o[uuid], ...override } }));
+    onFlags(uuid, patch);
+  };
 
   if (loading && items.length === 0) {
     return (
@@ -137,6 +179,18 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
             <TableHead className="text-right">Total</TableHead>
             <TableHead>Estatus</TableHead>
             <TableHead>Listas 69/69-B</TableHead>
+            <TableHead className="w-36">
+              <span title="Clasificación manual de deducibilidad por comprobante.">
+                Deducible
+              </span>
+            </TableHead>
+            {mostrarDiot && (
+              <TableHead className="w-20">
+                <span title="Indica si el comprobante se incluye al generar la DIOT. Por defecto todas las operaciones elegibles pasan.">
+                  DIOT
+                </span>
+              </TableHead>
+            )}
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
@@ -144,10 +198,17 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
           {items.map((c) => {
             const hayWarnings = (c.warnings?.length ?? 0) > 0;
             const abierto = expandido === c.uuid;
+            const ov = overrides[c.uuid];
+            const incluir = ov?.incluir_diot ?? c.incluir_diot;
+            const deducible = ov?.deducible !== undefined ? ov.deducible : c.deducible;
+            const excluido = mostrarDiot && c.elegible_diot && !incluir;
             return (
               <Fragment key={c.uuid}>
                 <TableRow
-                  className={hayWarnings ? 'bg-amber-50/40' : undefined}
+                  className={cn(
+                    hayWarnings && 'bg-amber-50/40',
+                    excluido && 'opacity-60',
+                  )}
                 >
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                     {formatoFecha(c.fecha)}
@@ -182,6 +243,58 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
                   <TableCell>{badgeEstado(c.estado_sat)}</TableCell>
                   <TableCell>{badgeListaNegra(c.emisor_en_lista_negra, c.emisor_rfc)}</TableCell>
                   <TableCell>
+                    <Select
+                      value={deducible ?? 'Sin analizar'}
+                      onValueChange={(v) =>
+                        aplicarFlags(c.uuid, {
+                          deducible: v as CfdiFlagsPatch['deducible'],
+                        })
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label="Deducibilidad"
+                        className={cn(
+                          'h-8 w-33 text-xs font-semibold',
+                          deducible === 'Deducible' && 'text-green-600 dark:text-green-500',
+                          deducible === 'No deducible' && 'text-red-600 dark:text-red-500',
+                          !deducible && 'font-normal italic text-muted-foreground',
+                        )}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Sin analizar">Sin analizar</SelectItem>
+                        <SelectItem value="Deducible">Deducible</SelectItem>
+                        <SelectItem value="No deducible">No deducible</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  {mostrarDiot && (
+                    <TableCell>
+                      {c.elegible_diot ? (
+                        <Switch
+                          size="sm"
+                          checked={incluir}
+                          onCheckedChange={(v) =>
+                            aplicarFlags(c.uuid, { incluir_diot: v })
+                          }
+                          aria-label="Incluir en la DIOT"
+                        />
+                      ) : (
+                        <span
+                          className={cn(TONO_BASE_CLASE, TONO_CLASES.neutro)}
+                          title={
+                            c.tipo === 'P'
+                              ? 'Los complementos de pago no se declaran en la DIOT.'
+                              : 'Solo las operaciones recibidas de Ingreso/Egreso se declaran en la DIOT.'
+                          }
+                        >
+                          No aplica
+                        </span>
+                      )}
+                    </TableCell>
+                  )}
+                  <TableCell>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -197,7 +310,7 @@ export function CfdiTable({ data, page, pageSize, loading, onPage }: Props) {
                 </TableRow>
                 {abierto && (
                   <TableRow>
-                    <TableCell colSpan={8} className="bg-muted/30">
+                    <TableCell colSpan={mostrarDiot ? 10 : 9} className="bg-muted/30">
                       <div className="grid grid-cols-2 gap-4 p-2 text-xs sm:grid-cols-4">
                         <div>
                           <div className="text-muted-foreground">UUID</div>

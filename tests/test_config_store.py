@@ -86,6 +86,23 @@ class TestEmpresas:
         assert empresa["ciec"] == "miCiec123"
         assert config_store.list_empresas()[0]["metodos"] == ["ciec"]
 
+    def test_update_empresa_presenta_diot(self):
+        """Override manual de la obligación DIOT: bool editable; ausente = None
+        (la UI lo deriva del régimen configurado, RESICO relevado)."""
+        rfc = config_store.add_empresa_ciec("CAUI890921DAA", "Cliente CIEC", "miCiec123")
+        assert config_store.list_empresas()[0]["presenta_diot"] is None
+
+        config_store.update_empresa(rfc, {"presenta_diot": False})
+        assert config_store.list_empresas()[0]["presenta_diot"] is False
+        config_store.update_empresa(rfc, {"presenta_diot": True})
+        assert config_store.list_empresas()[0]["presenta_diot"] is True
+
+        with pytest.raises(ValueError):
+            config_store.update_empresa(rfc, {"presenta_diot": "no"})
+        # Los campos de lista siguen validando su shape (no rompimos la rama).
+        with pytest.raises(ValueError):
+            config_store.update_empresa(rfc, {"regimenes_fiscales": "626"})
+
     def test_empresa_puede_tener_ambos_metodos(self, test_cer, test_key, test_password, test_rfc):
         # Primero CIEC, luego e.firma para el MISMO RFC → conserva ambos.
         config_store.add_empresa_ciec(test_rfc, "Mi Empresa", "miCiec")

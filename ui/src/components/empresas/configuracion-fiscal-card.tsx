@@ -11,9 +11,12 @@ import { Icon } from '@/components/ui/icon';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import {
   getRegimenesByTipoPersona,
+  regimenesPresentanDiot,
+  regimenPresentaDiot,
   type RegimenFiscalCatalogo,
 } from '@/lib/fiscal/regimenes-fiscales';
 import { tipoPersonaDeRfc } from '@/lib/fiscal/tipo-persona';
@@ -30,6 +33,18 @@ interface Props {
   onGuardar: (patch: EmpresaUpdatePatch) => Promise<void>;
 }
 
+/** Texto contextual del boceto: explica de dónde sale el valor sugerido. */
+function diotHint(regimenes: RegimenFiscalConfig[]): string {
+  if (regimenes.length === 0) {
+    return 'Selecciona un régimen para calcular el valor sugerido.';
+  }
+  const obliga = regimenes.find((r) => regimenPresentaDiot(r.clave));
+  if (obliga) {
+    return `Sugerido en «Sí» porque el régimen ${obliga.descripcion} está obligado a presentarla.`;
+  }
+  return `Sugerido en «No»: ${regimenes[0].descripcion} no está obligado por regla general. Actívalo si un supuesto lo obliga —por ejemplo, rebasar el límite de ingresos.`;
+}
+
 export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
   const [regimenes, setRegimenes] = useState<RegimenFiscalConfig[]>(
     empresa.regimenes_fiscales ?? [],
@@ -40,6 +55,17 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
   const [nuevaActividad, setNuevaActividad] = useState('');
   const [regimenQuery, setRegimenQuery] = useState('');
   const [popoverOpen, setPopoverOpen] = useState(false);
+
+  // Obligación DIOT: default derivado del régimen (RESICO, sueldos, RIF,
+  // etc. están relevados — ver regimenes-fiscales.ts); en cuanto el usuario
+  // toca el switch se vuelve override explícito y los cambios de régimen ya
+  // no lo mueven.
+  const [presentaDiot, setPresentaDiot] = useState<boolean>(
+    empresa.presenta_diot ?? regimenesPresentanDiot(empresa.regimenes_fiscales),
+  );
+  const [diotTocado, setDiotTocado] = useState<boolean>(
+    typeof empresa.presenta_diot === 'boolean',
+  );
 
   const [saving, setSaving] = useState(false);
   const [ok, setOk] = useState(false);
@@ -56,18 +82,23 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
     : catalogo;
   const seleccionadas = new Set(regimenes.map((r) => r.clave));
 
-  function toggleRegimen(r: RegimenFiscalCatalogo) {
+  function aplicarRegimenes(next: RegimenFiscalConfig[]) {
     setOk(false);
-    setRegimenes((prev) =>
-      prev.some((p) => p.clave === r.clave)
-        ? prev.filter((p) => p.clave !== r.clave)
-        : [...prev, { clave: r.clave, descripcion: r.descripcion }],
+    setRegimenes(next);
+    // Sin override manual, el switch de DIOT sigue al régimen en vivo.
+    if (!diotTocado) setPresentaDiot(regimenesPresentanDiot(next));
+  }
+
+  function toggleRegimen(r: RegimenFiscalCatalogo) {
+    aplicarRegimenes(
+      regimenes.some((p) => p.clave === r.clave)
+        ? regimenes.filter((p) => p.clave !== r.clave)
+        : [...regimenes, { clave: r.clave, descripcion: r.descripcion }],
     );
   }
 
   function quitarRegimen(clave: string) {
-    setOk(false);
-    setRegimenes((prev) => prev.filter((r) => r.clave !== clave));
+    aplicarRegimenes(regimenes.filter((r) => r.clave !== clave));
   }
 
   function agregarActividad() {
@@ -120,6 +151,9 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
       await onGuardar({
         regimenes_fiscales: regimenes,
         actividades_economicas: actividades,
+        // Solo se persiste si el usuario lo fijó (o ya había override); sin
+        // override el agente lo deja ausente y la UI lo deriva del régimen.
+        ...(diotTocado ? { presenta_diot: presentaDiot } : {}),
       });
       setOk(true);
     } catch (e) {
@@ -239,6 +273,46 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
             ))}
           </div>
         )}
+      </div>
+
+      <Separator />
+
+      {/* Presenta DIOT */}
+      <div className="flex items-start justify-between gap-5">
+        <div className="max-w-[62ch] space-y-1">
+          <Label htmlFor="presenta-diot">Presenta DIOT</Label>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Indica si esta empresa está obligada a presentar la Declaración
+            Informativa de Operaciones con Terceros. Se prellena según el
+            régimen fiscal; ajústalo cuando el caso lo amerite.
+          </p>
+          <p
+            className={cn(
+              'flex items-start gap-1.5 pt-1 text-xs leading-relaxed',
+              presentaDiot ? 'text-success' : 'text-muted-foreground/80',
+            )}
+          >
+            <Icon
+              icon={presentaDiot ? 'ph:check-circle-light' : 'ph:info-light'}
+              className="mt-0.5 size-3.5 shrink-0"
+            />
+            <span>
+              {diotTocado && presentaDiot !== regimenesPresentanDiot(regimenes)
+                ? `Lo ajustaste a mano; por el régimen se sugiere «${regimenesPresentanDiot(regimenes) ? 'Sí' : 'No'}».`
+                : diotHint(regimenes)}
+            </span>
+          </p>
+        </div>
+        <Switch
+          id="presenta-diot"
+          className="mt-0.5 shrink-0"
+          checked={presentaDiot}
+          onCheckedChange={(v) => {
+            setOk(false);
+            setDiotTocado(true);
+            setPresentaDiot(v);
+          }}
+        />
       </div>
 
       <Separator />
