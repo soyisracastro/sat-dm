@@ -6,6 +6,8 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [1.7.0] - 2026-07-10
+
 ### Feature
 
 - **Las solicitudes WS se resuelven solas en background, por todas las
@@ -236,6 +238,10 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   El diagnóstico de captura del PDF ahora sale como UN solo evento (antes creaba
   3-4 issues de Sentry por fallo) e incluye la danza OAuth (authz/callback) para
   rastrear en qué salto se atora el visor del SAT.
+
+### Tooling
+
+- Bump 1.6.0 → 1.7.0 (3 archivos).
 
 ## [1.6.0] - 2026-07-02
 
