@@ -4,13 +4,22 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from 'react';
 
 import { SatApiClient } from '@/lib/api-client';
 import { getAgentBaseUrl } from '@/lib/constants';
+import { esWeb } from '@/lib/modo';
+import {
+  clearConexion,
+  getConexion,
+  setConexion,
+  type ConexionAgente,
+} from '@/lib/conexion-web';
 import { useServerHealth } from '@/hooks/use-server-health';
 import type { NavegadorStatus } from '@/lib/types';
 
@@ -39,6 +48,18 @@ interface ServerContextValue {
   /** Estado del navegador del portal (instalando/listo/error) o null. */
   navegador: NavegadorStatus | null;
 
+  /**
+   * (Versión web) True mientras el navegador NO conoce su agente: aún no hay
+   * conexión guardada (primer uso o desconexión). En desktop siempre false.
+   */
+  webSinConexion: boolean;
+
+  /** (Versión web) Guarda la conexión con el agente del usuario y reconecta. */
+  conectar: (conexion: ConexionAgente) => void;
+
+  /** (Versión web) Olvida la conexión guardada (soporte / cambio de cuenta). */
+  desconectar: () => void;
+
   /** Upload the FIEL (.cer + .key + password) to the local server. */
   cargarFiel: (
     cerFile: File,
@@ -66,10 +87,35 @@ interface ServerProviderProps {
 }
 
 export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
+  // (Versión web) La conexión con el agente del usuario vive en localStorage;
+  // se hidrata en un efecto (no en el initializer) para que el primer render
+  // coincida con el prerender estático y no haya hydration mismatch.
+  const [conexionWeb, setConexionWebState] = useState<ConexionAgente | null>(null);
+  const [webHidratado, setWebHidratado] = useState(false);
+  useEffect(() => {
+    if (esWeb()) setConexionWebState(getConexion());
+    setWebHidratado(true);
+  }, []);
+
+  const conectar = useCallback((conexion: ConexionAgente) => {
+    setConexion(conexion);
+    setConexionWebState({ ...conexion, baseUrl: conexion.baseUrl.replace(/\/+$/, '') });
+  }, []);
+
+  const desconectar = useCallback(() => {
+    clearConexion();
+    setConexionWebState(null);
+  }, []);
+
   // En Electron el agente corre en un puerto efímero que el preload inyecta en
-  // window.satAgent.baseUrl; en el navegador cae a API_BASE_URL (localhost:8787).
-  const resolvedBaseUrl = baseUrl ?? getAgentBaseUrl();
+  // window.satAgent.baseUrl; en la web viene de la conexión guardada; en dev
+  // cae a API_BASE_URL (localhost:8787).
+  const resolvedBaseUrl = baseUrl ?? conexionWeb?.baseUrl ?? getAgentBaseUrl();
   const apiClient = useMemo(() => new SatApiClient(resolvedBaseUrl), [resolvedBaseUrl]);
+
+  // Sin conexión en la web no hay a quién pollear: el health check se apaga
+  // hasta que el login (o /conectar) entregue el agente del usuario.
+  const webSinConexion = esWeb() && webHidratado && !conexionWeb && !baseUrl;
 
   const {
     isConnected,
@@ -78,7 +124,7 @@ export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
     efirmaVencimiento,
     navegador,
     refresh: refreshHealth,
-  } = useServerHealth(apiClient);
+  } = useServerHealth(apiClient, undefined, { enabled: !webSinConexion });
 
   // Track numero_serie separately — the /health endpoint does not return it,
   // so we store it when cargarFiel succeeds and clear it on descargarFiel.
@@ -117,11 +163,25 @@ export function ServerProvider({ children, baseUrl }: ServerProviderProps) {
       isConnected,
       fielStatus,
       navegador,
+      webSinConexion,
+      conectar,
+      desconectar,
       cargarFiel,
       descargarFiel,
       refreshHealth,
     }),
-    [apiClient, isConnected, fielStatus, navegador, cargarFiel, descargarFiel, refreshHealth],
+    [
+      apiClient,
+      isConnected,
+      fielStatus,
+      navegador,
+      webSinConexion,
+      conectar,
+      desconectar,
+      cargarFiel,
+      descargarFiel,
+      refreshHealth,
+    ],
   );
 
   return (

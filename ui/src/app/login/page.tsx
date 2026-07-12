@@ -9,11 +9,22 @@ import {
   type ReactNode,
 } from 'react';
 
+import Link from 'next/link';
+
 import { useServer } from '@/providers/server-provider';
 import { useAuth } from '@/providers/auth-provider';
 import { BrandMark } from '@/components/layout/brand-mark';
 import { Icon } from '@/components/ui/icon';
-import { ApiError } from '@/lib/api-client';
+import { ApiError, SatApiClient } from '@/lib/api-client';
+import { esWeb } from '@/lib/modo';
+import {
+  ProvisionerError,
+  provisionerDisponible,
+  provisionLoginPassword,
+  provisionOtpSend,
+  provisionOtpVerify,
+  type ProvisionResult,
+} from '@/lib/provisioner-client';
 import { mensajeDeError } from '@/lib/errores';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +52,7 @@ const EMAIL_RE = /^\S+@\S+\.\S+$/;
 function mensajeAuth(e: unknown): string {
   // ApiError.message viene como "[401] detalle"; mostramos solo el detalle.
   if (e instanceof ApiError) return e.detail;
+  if (e instanceof ProvisionerError) return e.detail;
   return mensajeDeError(e);
 }
 
@@ -65,8 +77,26 @@ function desktopBridge(): DesktopBridge {
 }
 
 export default function LoginPage() {
-  const { apiClient } = useServer();
+  const { apiClient, conectar, webSinConexion } = useServer();
   const { refresh } = useAuth();
+
+  // Versión web SIN agente conocido: el login pasa por el provisioner (que
+  // valida contra Supabase, enciende el contenedor del usuario y devuelve
+  // {base_url, token, session}). Ya conectados, el flujo normal via agente
+  // funciona igual que en desktop.
+  const webNecesitaProvision = esWeb() && webSinConexion;
+
+  // Guarda la conexión y entrega la sesión al agente recién aprovisionado.
+  const adoptarYConectar = useCallback(
+    async (r: ProvisionResult) => {
+      // El token debe estar en localStorage ANTES del request (el cliente lo
+      // lee de ahí para el header X-Agent-Token).
+      conectar({ baseUrl: r.base_url, token: r.token });
+      const cliente = new SatApiClient(r.base_url);
+      await cliente.authAdoptSession(r.session);
+    },
+    [conectar],
+  );
 
   const [vista, setVista] = useState<Vista>('login');
   // Código de acceso por default: los usuarios existentes de la web no tienen
@@ -168,6 +198,42 @@ export default function LoginPage() {
     }
   }, [apiClient]);
 
+  // Login/OTP unificados: en la web sin conexión pasan por el provisioner
+  // (que además conecta con el agente); en desktop o ya conectados, directo
+  // al agente como siempre.
+  const loginConPassword = useCallback(
+    async (correo: string, pwd: string) => {
+      if (webNecesitaProvision) {
+        await adoptarYConectar(await provisionLoginPassword(correo, pwd));
+      } else {
+        await apiClient.authLoginPassword(correo, pwd);
+      }
+    },
+    [webNecesitaProvision, adoptarYConectar, apiClient],
+  );
+
+  const enviarOtp = useCallback(
+    async (correo: string, opts: { crearCuenta?: boolean; nombre?: string } = {}) => {
+      if (webNecesitaProvision) {
+        await provisionOtpSend(correo);
+      } else {
+        await apiClient.authOtpSend(correo, opts);
+      }
+    },
+    [webNecesitaProvision, apiClient],
+  );
+
+  const verificarOtp = useCallback(
+    async (correo: string, codigo: string, tipo: 'email' | 'signup') => {
+      if (webNecesitaProvision) {
+        await adoptarYConectar(await provisionOtpVerify(correo, codigo));
+      } else {
+        await apiClient.authOtpVerify(correo, codigo, tipo);
+      }
+    },
+    [webNecesitaProvision, adoptarYConectar, apiClient],
+  );
+
   const submit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -184,10 +250,10 @@ export default function LoginPage() {
             setError('Escribe tu contraseña.');
             return;
           }
-          await apiClient.authLoginPassword(correo, password);
+          await loginConPassword(correo, password);
           setPaso('done');
         } else if (esLogin) {
-          await apiClient.authOtpSend(correo);
+          await enviarOtp(correo);
           setOtpCtx({ tipo: 'email', crearCuenta: false, nombre: '' });
           setPaso('otp');
         } else if (esPwd) {
@@ -216,19 +282,46 @@ export default function LoginPage() {
         setLoading(false);
       }
     },
-    [apiClient, email, password, nombre, esLogin, esPwd],
+    [apiClient, email, password, nombre, esLogin, esPwd, loginConPassword, enviarOtp],
   );
 
   return (
     <div className="flex min-h-full justify-center bg-background px-6 pb-10 pt-14">
       <div className="w-full max-w-96">
-        {paso === 'done' ? (
+        {webNecesitaProvision && !provisionerDisponible() ? (
+          // Build web sin provisioner configurado (piloto F1): la conexión con
+          // el agente se captura a mano en /conectar.
+          <div className="animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <Marca />
+            <h1 className="mb-4 text-center text-[26px] font-bold leading-[1.22] tracking-[-0.02em] text-foreground">
+              Versión web en piloto
+            </h1>
+            <p className="text-center text-sm leading-relaxed text-muted-foreground">
+              Esta instancia todavía no tiene el servicio de acceso automático.
+              Si tienes los datos de tu espacio (URL y token), conéctate en{' '}
+              <Link href="/conectar" className="font-semibold text-primary hover:underline">
+                Conectar con mi espacio
+              </Link>
+              .
+            </p>
+          </div>
+        ) : paso === 'done' ? (
           <DoneStep esLogin={esLogin} />
         ) : paso === 'otp' ? (
           <OtpStep
             email={email.trim()}
             esLogin={esLogin}
-            ctx={otpCtx}
+            verificar={(codigo) => verificarOtp(email.trim(), codigo, otpCtx.tipo)}
+            reenviar={async () => {
+              if (otpCtx.tipo === 'signup') {
+                await apiClient.authOtpSend(email.trim(), { tipo: 'signup' });
+              } else {
+                await enviarOtp(email.trim(), {
+                  crearCuenta: otpCtx.crearCuenta,
+                  nombre: otpCtx.nombre,
+                });
+              }
+            }}
             onVolver={() => {
               setPaso('form');
               setError(null);
@@ -401,16 +494,24 @@ export default function LoginPage() {
             )}
 
             <div className="mt-7 text-center">
-              <p className="text-sm text-muted-foreground">
-                {esLogin ? '¿Primera vez?' : '¿Ya tienes cuenta?'}{' '}
-                <button
-                  type="button"
-                  className="font-semibold text-primary hover:underline"
-                  onClick={() => cambiarVista(esLogin ? 'signup' : 'login')}
-                >
-                  {esLogin ? 'Crea tu cuenta' : 'Inicia sesión'}
-                </button>
-              </p>
+              {/* En la web el acceso requiere una cuenta con plan (la valida el
+                  provisioner); el registro vive en la app de escritorio. */}
+              {webNecesitaProvision ? (
+                <p className="text-sm text-muted-foreground">
+                  Usa la cuenta con la que activaste TodoConta.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {esLogin ? '¿Primera vez?' : '¿Ya tienes cuenta?'}{' '}
+                  <button
+                    type="button"
+                    className="font-semibold text-primary hover:underline"
+                    onClick={() => cambiarVista(esLogin ? 'signup' : 'login')}
+                  >
+                    {esLogin ? 'Crea tu cuenta' : 'Inicia sesión'}
+                  </button>
+                </p>
+              )}
               <p className="mt-7 border-t border-border/60 pt-5 text-xs leading-relaxed text-muted-foreground/80">
                 {esLogin ? 'Al continuar' : 'Al crear tu cuenta'}, aceptas los{' '}
                 <LinkExterno href="https://todoconta.com/terminos">
@@ -440,17 +541,20 @@ const RESEND_SECS = 30;
 function OtpStep({
   email,
   esLogin,
-  ctx,
+  verificar: verificarCodigo,
+  reenviar: reenviarCodigo,
   onVolver,
   onExito,
 }: {
   email: string;
   esLogin: boolean;
-  ctx: OtpContexto;
+  /** Verifica el código (agente o provisioner, lo decide el padre). */
+  verificar: (codigo: string) => Promise<void>;
+  /** Reenvía el código con el mismo contexto del envío original. */
+  reenviar: () => Promise<void>;
   onVolver: () => void;
   onExito: () => void;
 }) {
-  const { apiClient } = useServer();
   const [vals, setVals] = useState<string[]>(Array(OTP_LEN).fill(''));
   const [secs, setSecs] = useState(RESEND_SECS);
   const [loading, setLoading] = useState(false);
@@ -495,7 +599,7 @@ function OtpStep({
     setError(null);
     setLoading(true);
     try {
-      await apiClient.authOtpVerify(email, vals.join(''), ctx.tipo);
+      await verificarCodigo(vals.join(''));
       onExito();
     } catch (e) {
       setError(mensajeAuth(e));
@@ -507,14 +611,7 @@ function OtpStep({
   const reenviar = async () => {
     setError(null);
     try {
-      if (ctx.tipo === 'signup') {
-        await apiClient.authOtpSend(email, { tipo: 'signup' });
-      } else {
-        await apiClient.authOtpSend(email, {
-          crearCuenta: ctx.crearCuenta,
-          nombre: ctx.nombre,
-        });
-      }
+      await reenviarCodigo();
       setSecs(RESEND_SECS);
       setVals(Array(OTP_LEN).fill(''));
       refs.current[0]?.focus();

@@ -214,6 +214,15 @@ export class SatApiClient {
   }
 
   /**
+   * URL (con token) para bajar un item del historial en la versión web:
+   * `archivo` sirve el archivo directo (PDFs), `zip` empaqueta carpetas.
+   * El token va en el query string porque `<a download>` no manda headers.
+   */
+  urlDescargaHistorial(ruta: string, formato: 'archivo' | 'zip'): string {
+    return this.urlConToken(`/descargas/${formato}?ruta=${encodeURIComponent(ruta)}`);
+  }
+
+  /**
    * Como `url()`, pero con el token como query param. Solo para EventSource,
    * que no acepta headers; el resto de requests manda el header.
    */
@@ -1002,6 +1011,19 @@ export class SatApiClient {
   /** Login en-app con correo + contraseña (directo contra Supabase). */
   async authLoginPassword(email: string, password: string): Promise<AuthSessionResponse> {
     return this.post<AuthSessionResponse>('/auth/login-password', { email, password });
+  }
+
+  /**
+   * (Solo versión web) Entrega al agente una sesión de Supabase que el
+   * provisioner ya autenticó, para que la persista como un login local.
+   */
+  async authAdoptSession(session: {
+    access_token: string;
+    refresh_token?: string | null;
+    user_id: string;
+    email?: string | null;
+  }): Promise<AuthSessionResponse> {
+    return this.post<AuthSessionResponse>('/auth/adopt-session', session);
   }
 
   /**

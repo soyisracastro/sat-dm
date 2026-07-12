@@ -48,9 +48,18 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
  * - Expone `refresh()` para invalidar manualmente y `logout()`.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { apiClient, isConnected } = useServer();
+  const { apiClient, isConnected, webSinConexion } = useServer();
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Versión web sin conexión con su agente: no hay a quién preguntarle la
+  // licencia — se trata como "no autenticado" para que el shell muestre el
+  // login (que en la web pasa por el provisioner) en vez de un loader eterno.
+  useEffect(() => {
+    if (!webSinConexion) return;
+    setLicense({ authenticated: false });
+    setLoading(false);
+  }, [webSinConexion]);
   // ID monotónico de la última petición iniciada. Como puede haber varios
   // fetches en vuelo (startup cache+force, intervalo 6h, refresh manual, o una
   // reconexión que recrea el apiClient con otro puerto), solo aplicamos la

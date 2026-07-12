@@ -9,27 +9,40 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_SAT_API_URL ?? 'http://localhost:8787';
 
+import { esWeb } from './modo';
+import { getConexion } from './conexion-web';
+
 /**
  * Base URL efectiva del agente. Dentro de Electron, el preload inyecta
- * `window.satAgent.baseUrl` (puerto efímero); en el navegador cae a API_BASE_URL.
+ * `window.satAgent.baseUrl` (puerto efímero); en la versión web viene de la
+ * conexión guardada por el provisioner (localStorage); en dev cae a API_BASE_URL.
  */
 export function getAgentBaseUrl(): string {
   if (typeof window !== 'undefined') {
     const injected = (window as unknown as { satAgent?: { baseUrl?: string } }).satAgent?.baseUrl;
     if (injected) return injected;
+    if (esWeb()) {
+      const conexion = getConexion();
+      if (conexion) return conexion.baseUrl;
+    }
   }
   return API_BASE_URL;
 }
 
 /**
- * Token efímero de autenticación con el agente. Dentro de Electron lo inyecta
- * el preload (`window.satAgent.token`); fuera (dev en navegador con agente
- * levantado a mano) no hay token y el agente no lo exige.
+ * Token de autenticación con el agente. Dentro de Electron lo inyecta el
+ * preload (`window.satAgent.token`); en la versión web viene de la conexión
+ * guardada; en dev (agente levantado a mano) no hay token y el agente no lo
+ * exige.
  */
 export function getAgentToken(): string | null {
   if (typeof window !== 'undefined') {
     const injected = (window as unknown as { satAgent?: { token?: string } }).satAgent?.token;
     if (injected) return injected;
+    if (esWeb()) {
+      const conexion = getConexion();
+      if (conexion) return conexion.token;
+    }
   }
   return null;
 }

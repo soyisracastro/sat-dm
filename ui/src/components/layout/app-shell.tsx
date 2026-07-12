@@ -1,7 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 
+import { esWeb } from '@/lib/modo';
 import { FounderBanner } from '@/components/auth/founder-banner';
 import { PromoBanner } from '@/components/auth/promo-banner';
 import { GlobalShortcuts } from '@/components/layout/global-shortcuts';
@@ -28,8 +30,12 @@ export function AppShell({ children }: AppShellProps) {
   useSolicitudesWatcher();
 
   const { license, loading } = useAuth();
+  // (Versión web) /conectar debe ser alcanzable SIN sesión: es la puerta de
+  // entrada manual al agente (piloto/soporte) cuando aún no hay conexión.
+  const pathname = usePathname();
+  const esConectar = esWeb() && !!pathname && pathname.startsWith('/conectar');
 
-  if (loading) {
+  if (loading && !esConectar) {
     return (
       <div className="flex h-screen flex-col overflow-hidden">
         <Titlebar />
@@ -38,14 +44,14 @@ export function AppShell({ children }: AppShellProps) {
     );
   }
 
-  if (!license?.authenticated) {
+  if (!license?.authenticated || esConectar) {
     // Renderea el LoginPage inline (no navegamos). La URL no cambia; al
     // autenticarse, `useAuth()` re-renderea con el shell normal.
     return (
       <div className="flex h-screen flex-col overflow-hidden">
         <Titlebar />
         <div className="flex-1 overflow-y-auto">
-          <LoginPage />
+          {esConectar ? children : <LoginPage />}
         </div>
       </div>
     );

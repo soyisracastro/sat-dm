@@ -1,0 +1,54 @@
+# Piloto single-user de la versión online (F1).
+#
+# Levanta UN agente ("piloto") detrás del Traefik que ya corre en el VPS
+# (network_mode: host, provider docker con exposedbydefault=false). Traefik
+# alcanza al contenedor por su IP en la red bridge `agentes`; el label
+# `traefik.docker.network` le dice cuál IP usar. Sin puertos publicados.
+#
+# Uso (en el VPS, p. ej. /docker/agentes/):
+#   1. Construir la imagen (o `git archive ... | docker build -`):
+#        docker build -f docker/agente/Dockerfile -t todoconta/agente:dev .
+#   2. Crear .env junto a este archivo con:
+#        PILOTO_TOKEN=<token largo aleatorio>
+#        PILOTO_SECRETS_KEY=<32 bytes en base64>   # python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+#        PILOTO_CORS=https://<preview>.vercel.app  # o https://app.todoconta.com
+#   3. docker compose -f docker-compose.piloto.yml up -d
+#
+# Requisitos previos: A record `agente.todoconta.com` → 187.77.152.160 en
+# Cloudflare, en modo DNS-only (nube GRIS — el proxy naranja corta el SSE de
+# jobs largos). El certificado lo emite Traefik (resolver letsencrypt).
+#
+# Reglas del VPS (docs/despliegue-web.md): cambios solo aditivos; verificar
+# OpenClaw tras cualquier operación (`pgrep -f openclaw`).
+
+services:
+  agente-piloto:
+    image: todoconta/agente:dev
+    container_name: agente-piloto
+    restart: unless-stopped
+    mem_limit: 1g
+    networks:
+      - agentes
+    volumes:
+      - agente-datos-piloto:/data
+    environment:
+      SAT_AGENT_TOKEN: ${PILOTO_TOKEN:?define PILOTO_TOKEN en .env}
+      SAT_DM_SECRETS_KEY: ${PILOTO_SECRETS_KEY:?define PILOTO_SECRETS_KEY en .env}
+      SAT_DM_CORS_ORIGINS: ${PILOTO_CORS:-https://app.todoconta.com}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.agente-piloto.rule=Host(`agente.todoconta.com`) && PathPrefix(`/u/piloto`)
+      - traefik.http.routers.agente-piloto.entrypoints=websecure
+      - traefik.http.routers.agente-piloto.tls.certresolver=letsencrypt
+      - traefik.http.middlewares.agente-piloto-strip.stripprefix.prefixes=/u/piloto
+      - traefik.http.routers.agente-piloto.middlewares=agente-piloto-strip
+      - traefik.http.services.agente-piloto.loadbalancer.server.port=8787
+      - traefik.docker.network=agentes
+
+networks:
+  agentes:
+    name: agentes
+
+volumes:
+  agente-datos-piloto:
+    name: agente-datos-piloto

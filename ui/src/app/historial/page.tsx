@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { abrirODescargar, iconoAbrir, tituloAbrir } from '@/lib/descargas';
 import type { CanalDescarga, HistorialItem, TipoDescarga } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
@@ -62,7 +63,7 @@ export default function HistorialPage() {
     async (ruta: string, modo: 'carpeta' | 'archivo') => {
       setAccionError(null);
       try {
-        await apiClient.abrir(ruta, modo);
+        await abrirODescargar(apiClient, ruta, modo);
       } catch (e) {
         setAccionError(mensajeDeError(e));
       }
@@ -224,12 +225,12 @@ function DescargaRow({
                 size="icon"
                 onClick={() => abrir('archivo')}
                 disabled={busy !== null}
-                title="Abrir el PDF"
+                title={tituloAbrir('archivo')}
               >
                 {busy === 'archivo' ? (
                   <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
                 ) : (
-                  <Icon icon="ph:file-pdf-light" className="size-4" />
+                  <Icon icon={iconoAbrir('archivo')} className="size-4" />
                 )}
               </Button>
             )}
@@ -238,12 +239,12 @@ function DescargaRow({
               size="icon"
               onClick={() => abrir('carpeta')}
               disabled={busy !== null}
-              title="Abrir la carpeta donde se guardó"
+              title={tituloAbrir('carpeta')}
             >
               {busy === 'carpeta' ? (
                 <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
               ) : (
-                <Icon icon="ph:folder-open-light" className="size-4" />
+                <Icon icon={iconoAbrir('carpeta')} className="size-4" />
               )}
             </Button>
           </div>
