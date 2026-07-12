@@ -60,6 +60,26 @@ def init_sentry() -> bool:
         )
         return False
 
+    # Un HTTPException(503) NO crea evento: por convención del agente, 503 =
+    # "servicio externo no disponible, reintenta" (el SAT caído/lento en los
+    # endpoints WS, playwright instalándose en los del portal). Es condición
+    # esperada y transitoria, no un bug — reportarla inundaba Sentry en cada
+    # tormenta del SAT (TODOCONTA-DESKTOP-13). Los demás 5xx siguen
+    # reportándose, y las excepciones no manejadas se reportan SIEMPRE
+    # (failed_request_status_codes solo filtra HTTPException).
+    integrations = []
+    try:
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+
+        codigos_falla = {*range(500, 600)} - {503}
+        integrations = [
+            StarletteIntegration(failed_request_status_codes=codigos_falla),
+            FastApiIntegration(failed_request_status_codes=codigos_falla),
+        ]
+    except Exception:  # noqa: BLE001 — sin starlette (CLI pura) usa los defaults
+        pass
+
     sentry_sdk.init(
         dsn=dsn,
         release=os.getenv("SENTRY_RELEASE") or None,
@@ -67,6 +87,7 @@ def init_sentry() -> bool:
         send_default_pii=False,
         max_request_body_size="never",
         before_send=_before_send,
+        integrations=integrations,
     )
     _inicializado = True
     logger.info(

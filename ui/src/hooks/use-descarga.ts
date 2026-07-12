@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useServer } from '@/providers/server-provider';
 import { ApiError } from '@/lib/api-client';
 import { VERIFICAR_POLL_INTERVAL_MS } from '@/lib/constants';
-import type { SolicitudRequest } from '@/lib/types';
+import type { Solicitud, SolicitudRequest } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +67,21 @@ function saveRequestId(rfc: string | null, id: string | null) {
   }
 }
 
+/**
+ * ¿El estado del catálogo local es terminal para el flujo activo?
+ * - "descargada": el poller del agente (o una sesión anterior) ya bajó los
+ *   paquetes — no hay nada que verificar ni descargar.
+ * - "vencida"/"4"/"5": la solicitud murió en el SAT; el catálogo ya guarda el
+ *   mensaje. ("3" NO es terminal: está lista y el flujo debe descargarla.)
+ */
+function estadoCatalogoFinal(
+  estado: string | undefined,
+): 'descargada' | 'fallida' | null {
+  if (estado === 'descargada') return 'descargada';
+  if (estado === 'vencida' || estado === '4' || estado === '5') return 'fallida';
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Hook return type
 // ---------------------------------------------------------------------------
@@ -114,6 +129,11 @@ export function useDescarga(
   // El RFC vigente, para que los callbacks asíncronos no escriban en la llave
   // de otra empresa si el usuario cambió mientras el request estaba en vuelo.
   const rfcRef = useRef(rfc);
+  // ID de la solicitud cuyo flujo sigue VIVO. Un /verificar contra el SAT
+  // puede tardar minutos (reintentos del agente); si mientras tanto el flujo
+  // se cerró (catálogo resuelto, reset, cambio de empresa), su respuesta
+  // tardía se descarta comparando contra este ref.
+  const pollIdRef = useRef<string | null>(null);
   // RequestID para la cual ya disparamos la descarga automática al pasar a 'ready'.
   // Permite re-descargar manualmente (descargar() puede llamarse de nuevo) sin
   // que el efecto auto-dispare otra vez por el mismo state→ready transition.
@@ -128,10 +148,63 @@ export function useDescarga(
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    // El loop murió: cualquier respuesta en vuelo de este flujo se descarta.
+    pollIdRef.current = null;
   }, []);
 
   // Evita encimar verificaciones si el SAT responde más lento que el intervalo.
   const pollBusyRef = useRef(false);
+
+  // -----------------------------------------------------------------------
+  // Convergencia con el catálogo local
+  // -----------------------------------------------------------------------
+
+  /**
+   * Cierra el flujo activo si el catálogo local ya tiene la solicitud en un
+   * estado terminal. El poller del agente verifica y descarga solicitudes en
+   * background (por TODAS las empresas), así que puede resolverla mientras la
+   * página no la vigila; sin esta convergencia, la llave de localStorage
+   * revivía un "Verificando estado…" eterno sobre una solicitud ya Descargada
+   * (y en el peor caso volvía a bajar los paquetes).
+   *
+   * Devuelve true si el flujo quedó cerrado (o ya estaba cerrado).
+   */
+  const cerrarSiCatalogoResuelto = useCallback(
+    async (id: string): Promise<boolean> => {
+      const rfcActual = rfcRef.current;
+      if (!rfcActual) return false;
+      let sol: Solicitud | undefined;
+      try {
+        const res = await apiClient.listSolicitudes(rfcActual);
+        sol = res.solicitudes.find((s) => s.id_solicitud === id);
+      } catch {
+        // El agente local no respondió: sigue el flujo normal contra el SAT.
+        return false;
+      }
+      if (!mountedRef.current || pollIdRef.current !== id) return true;
+      const final = estadoCatalogoFinal(sol?.estado);
+      if (!final) return false;
+
+      stopPolling();
+      pollIdRef.current = null;
+      saveRequestId(rfcRef.current, null);
+      if (final === 'descargada') {
+        // Ya la bajó el poller: flujo limpio. La fila "Descargada" queda en
+        // Solicitudes recientes y el watcher global ya notificó el éxito.
+        setState('idle');
+        setRequestId(null);
+        setCodEstado(null);
+        setMensaje(null);
+        setNumeroCfdis(null);
+        setPackageIds([]);
+      } else {
+        setError(sol?.mensaje || 'La solicitud fue rechazada o venció en el SAT.');
+        setState('error');
+      }
+      return true;
+    },
+    [apiClient, stopPolling],
+  );
 
   // -----------------------------------------------------------------------
   // Poll once
@@ -139,11 +212,19 @@ export function useDescarga(
 
   const pollOnce = useCallback(
     async (id: string) => {
+      // Catálogo primero (consulta local, barata): si el poller del agente ya
+      // resolvió la solicitud, cierra el flujo sin tocar al SAT. Va ANTES del
+      // candado pollBusy para poder cerrar aunque un /verificar lento (los
+      // reintentos del agente pueden tardar minutos) siga en vuelo.
+      if (await cerrarSiCatalogoResuelto(id)) return;
+
       if (pollBusyRef.current) return;
       pollBusyRef.current = true;
       try {
         const res = await apiClient.verificar({ id_solicitud: id, poll: false });
-        if (!mountedRef.current) return;
+        // Flujo cerrado mientras verificábamos (catálogo/reset/cambio de
+        // empresa): la respuesta tardía ya no manda.
+        if (!mountedRef.current || pollIdRef.current !== id) return;
 
         // Sin cod_estado = el SAT no reconoce la solicitud para esta e.firma
         // (típicamente pertenece a otra empresa, o ya caducó en el SAT).
@@ -180,7 +261,14 @@ export function useDescarga(
         }
         // cod_estado 1 or 2: keep polling
       } catch (err) {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || pollIdRef.current !== id) return;
+        // 503 = el SAT no responde (transitorio, lo traduce el agente): NO es
+        // el fin del flujo. Seguimos verificando en el mismo intervalo — y el
+        // tick del catálogo cierra solo si el poller del agente la resuelve.
+        if (err instanceof ApiError && err.status === 503) {
+          setMensaje('El SAT está tardando en responder; seguimos verificando.');
+          return;
+        }
         const msg = mensajeDeError(err);
         setError(`Error al verificar solicitud: ${msg}`);
         setState('error');
@@ -195,7 +283,7 @@ export function useDescarga(
         pollBusyRef.current = false;
       }
     },
-    [apiClient, stopPolling],
+    [apiClient, stopPolling, cerrarSiCatalogoResuelto],
   );
 
   // -----------------------------------------------------------------------
@@ -205,6 +293,7 @@ export function useDescarga(
   const startPolling = useCallback(
     (id: string) => {
       stopPolling();
+      pollIdRef.current = id;
       setState('polling');
 
       // Poll immediately once
@@ -344,7 +433,17 @@ export function useDescarga(
     const savedId = loadRequestId(rfc);
     if (savedId) {
       setRequestId(savedId);
-      startPolling(savedId);
+      // Antes de revivir el polling, pregunta al catálogo: el poller del
+      // agente pudo haberla resuelto mientras la página no existía (app
+      // cerrada, otra pantalla, otra empresa). Sin esto, una solicitud ya
+      // "Descargada" reaparecía como "Verificando estado…" para siempre.
+      pollIdRef.current = savedId;
+      setState('polling');
+      void cerrarSiCatalogoResuelto(savedId).then((cerrado) => {
+        if (!cerrado && mountedRef.current && pollIdRef.current === savedId) {
+          startPolling(savedId);
+        }
+      });
     }
 
     return () => {
