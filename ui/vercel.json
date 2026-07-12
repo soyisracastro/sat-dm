@@ -1,9 +1,9 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://todoconta-apps.vercel.app/api/:path*" },
-    { "source": "/desktop/:path*", "destination": "https://todoconta-apps.vercel.app/desktop/:path*" },
-    { "source": "/auth/:path*", "destination": "https://todoconta-apps.vercel.app/auth/:path*" },
-    { "source": "/planes", "destination": "https://todoconta-apps.vercel.app/planes" },
-    { "source": "/cuenta/:path*", "destination": "https://todoconta-apps.vercel.app/cuenta/:path*" }
+    { "source": "/api/:path*", "destination": "https://api.todoconta.com/api/:path*" },
+    { "source": "/desktop/:path*", "destination": "https://api.todoconta.com/desktop/:path*" },
+    { "source": "/auth/:path*", "destination": "https://api.todoconta.com/auth/:path*" },
+    { "source": "/planes", "destination": "https://api.todoconta.com/planes" },
+    { "source": "/cuenta/:path*", "destination": "https://api.todoconta.com/cuenta/:path*" }
   ]
 }
