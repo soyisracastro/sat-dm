@@ -1,0 +1,10 @@
+{
+  "$comment": "Cutover de app.todoconta.com (F3): la UI espejo toma el dominio, pero los servicios del legacy (todoconta-apps) deben seguir vivos en las MISMAS URLs — los desktops instalados hardcodean app.todoconta.com/api/desktop/* (licencias, listas negras 69/69-B), Stripe manda webhooks a /api/stripe/* y los magic links de Supabase aterrizan en /auth/*. Estos rewrites hacen proxy al alias estable del proyecto legacy. ui/ no exporta ninguna de estas rutas, así que no hay colisión (el filesystem se sirve primero).",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://todoconta-apps.vercel.app/api/:path*" },
+    { "source": "/desktop/:path*", "destination": "https://todoconta-apps.vercel.app/desktop/:path*" },
+    { "source": "/auth/:path*", "destination": "https://todoconta-apps.vercel.app/auth/:path*" },
+    { "source": "/planes", "destination": "https://todoconta-apps.vercel.app/planes" },
+    { "source": "/cuenta/:path*", "destination": "https://todoconta-apps.vercel.app/cuenta/:path*" }
+  ]
+}
