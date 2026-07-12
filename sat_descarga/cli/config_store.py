@@ -1003,7 +1003,14 @@ def _save_settings(data: dict):
 
 
 def descargas_dir_default() -> str:
-    """Carpeta de descargas por defecto: la carpeta Documentos del usuario."""
+    """Carpeta de descargas por defecto: la carpeta Documentos del usuario.
+
+    En modo hosted el contenedor la fija con SAT_DM_DESCARGAS_DIR (apunta al
+    volumen /data/descargas) para que las descargas sobrevivan al contenedor.
+    """
+    env = os.environ.get("SAT_DM_DESCARGAS_DIR", "").strip()
+    if env:
+        return env
     return str(Path.home() / "Documents" / "TodoConta")
 
 

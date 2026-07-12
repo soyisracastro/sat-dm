@@ -60,6 +60,7 @@ from .routers import (
     diot_router,
     tareas_router,
     system_router,
+    descargas_router,
 )
 
 # Telemetría de errores (Sentry). Apagada salvo que haya SENTRY_DSN en el entorno
@@ -139,9 +140,19 @@ app = FastAPI(
 # por especificación CORS — no se pueden combinar `*` con `True`. Es OK
 # para nosotros: el renderer NO manda cookies ni credenciales (el Bearer
 # token de Supabase vive solo en el agente Python, nunca llega al renderer).
+#
+# En modo hosted el agente SÍ está expuesto a internet (detrás de Traefik), así
+# que SAT_DM_CORS_ORIGINS (lista separada por comas, la inyecta el provisioner)
+# restringe los orígenes al dominio de la web app. Sin la env, comportamiento
+# local de siempre.
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("SAT_DM_CORS_ORIGINS", "").split(",")
+    if o.strip()
+] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -189,6 +200,7 @@ app.include_router(procesador_router)
 app.include_router(calculadoras_router)
 app.include_router(diot_router)
 app.include_router(tareas_router)
+app.include_router(descargas_router)
 
 # ---------------------------------------------------------------------------
 # Entry point

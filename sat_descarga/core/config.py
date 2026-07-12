@@ -2,6 +2,20 @@
 Configuración de endpoints y parámetros del SAT Descarga Masiva.
 """
 
+import os
+
+
+def es_modo_hosted() -> bool:
+    """True cuando el agente corre como servicio web (contenedor por usuario en
+    el VPS, env `SAT_DM_MODO=hosted`) en vez de como agente local de la desktop.
+
+    Gatea los comportamientos que solo tienen sentido fuera de la desktop:
+    /auth/adopt-session habilitado, /abrir deshabilitado (el navegador descarga
+    por /descargas/*), y la carpeta de descargas fijada por SAT_DM_DESCARGAS_DIR.
+    """
+    return os.environ.get("SAT_DM_MODO", "").strip().lower() == "hosted"
+
+
 ENDPOINTS = {
     "autenticacion": (
         "https://cfdidescargamasivasolicitud.clouda.sat.gob.mx"

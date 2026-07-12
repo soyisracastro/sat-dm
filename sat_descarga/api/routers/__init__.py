@@ -15,6 +15,7 @@ las del monolito original (la UI y el CLI las consumen tal cual).
 - diot       — DIOT 2025: prellenado, estado por empresa/periodo y export TXT.
 - tareas     — tareas personales (CRUD) + descartes de sugerencias.
 - system     — health, abrir en el SO, ajustes y auth de licencia (todoconta).
+- descargas  — descarga de archivos/ZIP por HTTP (reemplaza a /abrir en la web).
 """
 
 from .webservice import router as webservice_router
@@ -27,6 +28,7 @@ from .calculadoras import router as calculadoras_router
 from .diot import router as diot_router
 from .tareas import router as tareas_router
 from .system import router as system_router
+from .descargas import router as descargas_router
 
 __all__ = [
     "webservice_router",
@@ -39,4 +41,5 @@ __all__ = [
     "diot_router",
     "tareas_router",
     "system_router",
+    "descargas_router",
 ]

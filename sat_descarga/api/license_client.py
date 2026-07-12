@@ -1,11 +1,13 @@
 """
 Cliente HTTP del agente local hacia la API de todoconta-apps
 (`https://app.todoconta.com/api/desktop/*`), junto con la persistencia segura
-del token de sesión en el keyring del SO.
+del token de sesión (keyring del SO en desktop; archivo cifrado en modo hosted,
+vía `core/secretos`).
 
 Responsabilidades:
 - Generar device codes y orquestar el polling del login.
-- Guardar/cargar/borrar el Bearer token en el keyring (no en disco).
+- Guardar/cargar/borrar el Bearer token en el backend de secretos (no en disco
+  en texto plano).
 - Llamar al backend con el Bearer para license + checkout.
 - Cachear el estado de licencia en `~/.sat-descarga/license-cache.json` con
   TTL de 24h y un "grace period" de 30 días offline (la app NO se bloquea si
@@ -26,12 +28,8 @@ from typing import Any, Optional
 
 import requests
 
-try:
-    import keyring  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover — keyring siempre debería estar (core dep)
-    keyring = None  # type: ignore[assignment]
-
 from ..cli import config_store
+from ..core import secretos
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +42,7 @@ API_BASE_URL = os.environ.get(
     "TODOCONTA_API_BASE_URL", "https://app.todoconta.com"
 ).rstrip("/")
 
-# Servicio en el keyring para los tokens de sesión.
+# Servicio (namespace) para los tokens de sesión en el backend de secretos.
 KEYRING_SERVICE = "com.todoconta.desktop"
 KEYRING_USER = "session"  # un solo blob JSON
 
@@ -61,7 +59,7 @@ DEVICE_CODE_LEN = 8
 
 
 # ---------------------------------------------------------------------------
-# Sesión (Bearer token + refresh_token en keyring)
+# Sesión (Bearer token + refresh_token en el backend de secretos)
 # ---------------------------------------------------------------------------
 
 
@@ -73,17 +71,8 @@ class Session:
     email: Optional[str]
 
 
-def _keyring_required() -> None:
-    if keyring is None:
-        raise RuntimeError(
-            "El módulo `keyring` no está disponible. "
-            "Reinstala el agente: `pip install keyring`."
-        )
-
-
 def save_session(session: Session) -> None:
-    """Persiste la sesión en el keyring del SO."""
-    _keyring_required()
+    """Persiste la sesión en el backend de secretos (keyring o archivo cifrado)."""
     blob = json.dumps(
         {
             "access_token": session.access_token,
@@ -92,13 +81,12 @@ def save_session(session: Session) -> None:
             "email": session.email,
         }
     )
-    keyring.set_password(KEYRING_SERVICE, KEYRING_USER, blob)
+    secretos.guardar_blob(KEYRING_SERVICE, KEYRING_USER, blob)
 
 
 def load_session() -> Optional[Session]:
-    """Lee la sesión del keyring. None si no hay sesión guardada."""
-    _keyring_required()
-    raw = keyring.get_password(KEYRING_SERVICE, KEYRING_USER)
+    """Lee la sesión guardada. None si no hay sesión."""
+    raw = secretos.obtener_blob(KEYRING_SERVICE, KEYRING_USER)
     if not raw:
         return None
     try:
@@ -110,17 +98,13 @@ def load_session() -> Optional[Session]:
             email=data.get("email"),
         )
     except (json.JSONDecodeError, KeyError) as e:
-        logger.warning("[license] sesión inválida en keyring: %s", e)
+        logger.warning("[license] sesión guardada inválida: %s", e)
         return None
 
 
 def clear_session() -> None:
-    """Borra la sesión del keyring (logout). Tolerante a 'no había nada'."""
-    _keyring_required()
-    try:
-        keyring.delete_password(KEYRING_SERVICE, KEYRING_USER)
-    except Exception:  # noqa: BLE001 — keyring varía por SO
-        pass
+    """Borra la sesión guardada (logout). Tolerante a 'no había nada'."""
+    secretos.borrar_blob(KEYRING_SERVICE, KEYRING_USER)
     # También borra el cache de license para no mostrar un badge stale.
     clear_license_cache()
 

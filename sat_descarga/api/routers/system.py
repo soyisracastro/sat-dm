@@ -12,10 +12,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ...core.config import es_modo_hosted
 from ..state import _session
 
 router = APIRouter()
@@ -57,6 +59,7 @@ def health():
         navegador = {"estado": "desconocido", "detalle": None}
     return {
         "status": "ok",
+        "modo": "hosted" if es_modo_hosted() else "desktop",
         "rfc_cargado": _session["rfc"],
         "efirma_lista": fiel is not None,
         "efirma_vencimiento": fiel.not_valid_after.date().isoformat() if fiel else None,
@@ -88,6 +91,13 @@ def abrir(req: AbrirRequest):
     Seguridad: solo se permiten rutas que estén registradas en el historial
     (no se puede abrir una ruta arbitraria del disco).
     """
+    if es_modo_hosted():
+        # En la web no hay SO del usuario que abrir: el navegador descarga el
+        # archivo/ZIP vía los endpoints /descargas/*.
+        raise HTTPException(
+            status_code=501,
+            detail="En la versión web usa el botón Descargar.",
+        )
     from ...cli import config_store
 
     # Comparar rutas CANONICALIZADAS (resolve() normaliza ".." y sigue symlinks):
@@ -370,6 +380,38 @@ def auth_oauth_callback(req: OauthCallbackRequest):
         raise _http_de_auth_error(e)
     finally:
         _pkce_verifier = None
+    return _guardar_sesion(session)
+
+
+# --- Adopción de sesión (solo modo hosted) -----------------------------------
+#
+# En la versión web el PRIMER login ocurre fuera del agente (lo hace el
+# provisioner contra Supabase, antes de que el navegador conozca este
+# contenedor). La UI entrega aquí los tokens resultantes para que la sesión
+# quede persistida igual que tras un login local — y /auth/license, el poller y
+# el checkout funcionen sin cambios. En modo desktop este endpoint no existe.
+
+
+class AdoptSessionRequest(BaseModel):
+    access_token: str
+    refresh_token: Optional[str] = None
+    user_id: str
+    email: Optional[str] = None
+
+
+@router.post("/auth/adopt-session")
+def auth_adopt_session(req: AdoptSessionRequest):
+    """(Solo hosted) Persiste una sesión de Supabase ya autenticada por el provisioner."""
+    if not es_modo_hosted():
+        raise HTTPException(status_code=404, detail="Not Found")
+    from .. import license_client as lc
+
+    session = lc.Session(
+        access_token=req.access_token,
+        refresh_token=req.refresh_token,
+        user_id=req.user_id,
+        email=req.email,
+    )
     return _guardar_sesion(session)
 
 
