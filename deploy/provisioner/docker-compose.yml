@@ -1,0 +1,39 @@
+# Provisioner de la versión online, detrás del Traefik existente.
+#
+# Prerrequisitos (una sola vez, en el VPS):
+#   docker network create agentes    # si no existe ya (el piloto la crea)
+#   .env junto a este archivo con al menos:
+#     SAT_DM_MASTER_KEY=<32+ bytes base64>  # python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+#   (opcionales: AGENTE_IMAGEN, ALLOWLIST_EMAILS, EXIGIR_LICENCIA, CORS_ORIGINS,
+#    PUBLIC_BASE, LICENCIA_URL — ver deploy/vps/README.md)
+#
+# Despliegue: docker compose up -d --build
+
+services:
+  provisioner:
+    build: .
+    container_name: provisioner
+    restart: unless-stopped
+    mem_limit: 256m
+    networks:
+      - agentes
+    volumes:
+      # Necesita el socket para crear/arrancar los contenedores de agentes.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - provisioner-registro:/registro
+    env_file: .env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.provisioner.rule=Host(`agente.todoconta.com`) && PathPrefix(`/provision`)
+      - traefik.http.routers.provisioner.entrypoints=websecure
+      - traefik.http.routers.provisioner.tls.certresolver=letsencrypt
+      - traefik.http.services.provisioner.loadbalancer.server.port=8790
+      - traefik.docker.network=agentes
+
+networks:
+  agentes:
+    external: true
+
+volumes:
+  provisioner-registro:
+    name: provisioner-registro
