@@ -23,6 +23,7 @@ from lxml import etree
 from ..core.config import ENDPOINTS, SOAP_ACTIONS, TIPO_CFDI, TIPO_EMITIDO
 from ..core.fiel import FIEL
 from ..core.http_client import make_request
+from .errores import CODIGOS_TRANSITORIOS, ErrorTransitorioSAT
 from ..core.xml_seguro import fromstring_seguro
 
 logger = logging.getLogger(__name__)
@@ -404,6 +405,13 @@ def _parse_request_id(resp_xml: bytes, result_tag: str) -> str:
     cod = result.get("CodEstatus", "")
     msg = result.get("Mensaje", "")
     id_solicitud = result.get("IdSolicitud", "")
+
+    if cod in CODIGOS_TRANSITORIOS:
+        # Error interno del SAT (no un rechazo): el caller lo trata como 503.
+        raise ErrorTransitorioSAT(
+            f"El SAT está fallando internamente (CodEstatus={cod}, {msg}). "
+            "No es un problema de tu solicitud; reintenta en unos minutos."
+        )
 
     if not id_solicitud or cod not in ("5000", ""):
         raise RuntimeError(

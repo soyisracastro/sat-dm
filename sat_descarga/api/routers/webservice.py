@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
 from ...core.fiel import FIEL
+from ...webservice.errores import ErrorTransitorioSAT
 from ...webservice.solicitud import solicitar_descarga
 from ...webservice.verificacion import verificar_solicitud, consultar_solicitud
 from ...core.config import TIPO_CFDI, TIPO_EMITIDO
@@ -67,6 +68,11 @@ def _sat_disponible(fn):
         except requests.RequestException as e:
             logger.warning("SAT no disponible en %s: %s", fn.__name__, e)
             raise HTTPException(status_code=503, detail=_SAT_NO_RESPONDE) from e
+        except ErrorTransitorioSAT as e:
+            # El SAT respondió, pero con su error interno genérico
+            # (CodEstatus=404 «Error no controlado»): mismo trato que caído.
+            logger.warning("SAT con error interno en %s: %s", fn.__name__, e)
+            raise HTTPException(status_code=503, detail=str(e)) from e
     return wrapper
 
 
@@ -241,6 +247,8 @@ def solicitar(req: SolicitudRequest):
         )
         _guardar_solicitud_ws(fiel.rfc, id_solicitud, req)
         return {"ok": True, "id_solicitud": id_solicitud}
+    except ErrorTransitorioSAT:
+        raise  # error interno del SAT → lo traduce @_sat_disponible a 503
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -434,8 +442,8 @@ def descarga_completa(req: DescargaCompletaRequest):
             "archivos": [str(z) for z in zips],
             "total": len(zips),
         }
-    except requests.RequestException:
-        raise  # red/SSL del SAT → lo traduce @_sat_disponible a 503
+    except (requests.RequestException, ErrorTransitorioSAT):
+        raise  # red/SSL o error interno del SAT → @_sat_disponible lo hace 503
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -472,8 +480,8 @@ def solicitar_folio(req: SolicitudFolioRequest):
             "archivos": [str(z) for z in zips],
             "total": len(zips),
         }
-    except requests.RequestException:
-        raise  # red/SSL del SAT → lo traduce @_sat_disponible a 503
+    except (requests.RequestException, ErrorTransitorioSAT):
+        raise  # red/SSL o error interno del SAT → @_sat_disponible lo hace 503
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -518,8 +526,8 @@ def descarga_inteligente(req: DescargaInteligente):
             umbral_ciec=req.umbral_ciec,
         )
         return resultado
-    except requests.RequestException:
-        raise  # red/SSL del SAT → lo traduce @_sat_disponible a 503
+    except (requests.RequestException, ErrorTransitorioSAT):
+        raise  # red/SSL o error interno del SAT → @_sat_disponible lo hace 503
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
