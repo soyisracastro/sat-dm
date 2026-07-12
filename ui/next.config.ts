@@ -24,7 +24,13 @@ const nextConfig: NextConfig = {
   // y hace que `next/link` normalice `/empresas` → `/empresas/`, lo que
   // simplifica el handler del protocolo (un request a `/empresas/` mapea a
   // `empresas/index.html`).
-  trailingSlash: true,
+  //
+  // EXCEPTO en el build web (Vercel): ahí el trailing slash hace que Vercel
+  // responda 308 (`/api/x` → `/api/x/`) ANTES de aplicar los rewrites de
+  // vercel.json, rompiendo el proxy hacia el legacy (los desktops instalados
+  // pegan a /api/desktop/* sin slash, y Stripe no sigue redirects en
+  // webhooks). En web Vercel resuelve `/ruta` → `ruta.html` sin redirect.
+  trailingSlash: process.env.NEXT_PUBLIC_MODO_WEB !== '1',
 
   // `next/image` requiere optimizar en runtime con un Node server. Bajo `export`
   // no hay server, así que desactivamos la optimización (las imágenes se sirven
