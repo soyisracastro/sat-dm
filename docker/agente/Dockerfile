@@ -23,6 +23,15 @@ RUN pip install --no-cache-dir ".[server,ciec]" \
     && playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
+# El healthcheck NO conoce SAT_AGENT_TOKEN: un 401 también prueba que el agente
+# está vivo (solo el fallo de conexión cuenta como unhealthy). Importa porque
+# Traefik IGNORA contenedores unhealthy y el router jamás se registraría.
+RUN printf 'import urllib.request, urllib.error\n\
+try:\n\
+    urllib.request.urlopen("http://127.0.0.1:8787/health", timeout=4)\n\
+except urllib.error.HTTPError:\n\
+    pass\n' > /usr/local/bin/healthcheck.py
+
 # Usuario sin privilegios. TODO el estado del usuario vive en /data (volumen):
 # HOME=/data ⇒ ~/.sat-descarga = /data/.sat-descarga (catálogo, secretos.enc,
 # solicitudes, historial) y las descargas en /data/descargas.
@@ -41,6 +50,6 @@ USER agente
 
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health')"
+    CMD python /usr/local/bin/healthcheck.py
 
 CMD ["uvicorn", "sat_descarga.api.server:app", "--host", "0.0.0.0", "--port", "8787"]
