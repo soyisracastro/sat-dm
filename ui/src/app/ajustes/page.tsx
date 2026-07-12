@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/ui/icon';
 import { getNotifPrefs, setNotifPrefs, type NotifPrefs } from '@/lib/notify/prefs';
+import { esWeb } from '@/lib/modo';
 import { useUpdates } from '@/hooks/use-updates';
 
 const TEMAS = [
@@ -194,8 +195,9 @@ export default function AjustesPage() {
     }
   }
 
+  const web = esWeb();
   const version = process.env.NEXT_PUBLIC_APP_VERSION;
-  const sistema = mounted ? (esWindows ? 'Windows' : 'macOS') : '—';
+  const sistema = mounted ? (web ? 'Web' : esWindows ? 'Windows' : 'macOS') : '—';
 
   return (
     <div className="max-w-260 space-y-6">
@@ -208,21 +210,29 @@ export default function AjustesPage() {
         {/* Almacenamiento */}
         <AjCard icon="ph:folder-light" title="Almacenamiento">
           <AjRow
-            label="Carpeta de descarga"
+            label={web ? 'Tus descargas' : 'Carpeta de descarga'}
             sub={
-              <span className="block truncate font-mono">{dir || '—'}</span>
+              web ? (
+                // En la web las descargas viven en el espacio del usuario en la
+                // nube; se bajan a su equipo con el botón Descargar.
+                'Viven en tu espacio seguro en la nube. Bájalas a tu equipo con el botón Descargar del Historial.'
+              ) : (
+                <span className="block truncate font-mono">{dir || '—'}</span>
+              )
             }
             control={
-              <Button variant="outline" size="sm" onClick={cambiar} disabled={saving}>
-                {saving ? (
-                  <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
-                ) : (
-                  'Cambiar'
-                )}
-              </Button>
+              web ? null : (
+                <Button variant="outline" size="sm" onClick={cambiar} disabled={saving}>
+                  {saving ? (
+                    <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" />
+                  ) : (
+                    'Cambiar'
+                  )}
+                </Button>
+              )
             }
           />
-          {editable && (
+          {!web && editable && (
             <div className="flex gap-2 border-t py-3.75">
               <Input
                 value={dir}

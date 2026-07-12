@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useServer } from '@/providers/server-provider';
 import { useJob } from '@/hooks/use-job';
 import { cn } from '@/lib/utils';
+import { abrirODescargar, tituloAbrir, iconoAbrir } from '@/lib/descargas';
+import { esWeb } from '@/lib/modo';
 import type { CsdResultado, Empresa } from '@/lib/types';
 import { Icon } from '@/components/ui/icon';
 import {
@@ -382,10 +384,11 @@ export function GenerarCsdWizard({ empresa, open, onOpenChange, onDone }: Genera
                 <>
                   <Button
                     variant="outline"
-                    onClick={() => void apiClient.abrir(resultado.carpeta, 'carpeta')}
+                    onClick={() => void abrirODescargar(apiClient, resultado.carpeta, 'carpeta')}
+                    title={tituloAbrir('carpeta')}
                   >
-                    <Icon icon="ph:folder-open-light" className="size-4" />
-                    Abrir carpeta
+                    <Icon icon={iconoAbrir('carpeta')} className="size-4" />
+                    {esWeb() ? 'Descargar ZIP' : 'Abrir carpeta'}
                   </Button>
                   <Button onClick={() => handleOpenChange(false)}>
                     <Icon icon="ph:check-circle-light" className="size-4" />

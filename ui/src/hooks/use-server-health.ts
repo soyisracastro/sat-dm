@@ -39,11 +39,15 @@ interface ServerHealthState {
  *
  * @param apiClient - A `SatApiClient` instance (should be a stable reference).
  * @param intervalMs - Polling interval in milliseconds (default 5 000).
+ * @param opts.enabled - Con `false` no se hace ningún check (p. ej. la versión
+ *   web antes de conocer el agente del usuario) y `isConnected` queda en false.
  */
 export function useServerHealth(
   apiClient: SatApiClient,
   intervalMs: number = HEALTH_POLL_INTERVAL_MS,
+  opts: { enabled?: boolean } = {},
 ): ServerHealthState {
+  const enabled = opts.enabled ?? true;
   const [isConnected, setIsConnected] = useState(false);
   const [rfcCargado, setRfcCargado] = useState<string | null>(null);
   const [efirmaLista, setEfirmaLista] = useState(false);
@@ -61,7 +65,7 @@ export function useServerHealth(
   const [refreshCounter, setRefreshCounter] = useState(0);
 
   const checkHealth = useCallback(async () => {
-    if (checkingRef.current) return;
+    if (!enabled || checkingRef.current) return;
     checkingRef.current = true;
     try {
       const data = await apiClient.health();
@@ -83,7 +87,7 @@ export function useServerHealth(
     } finally {
       checkingRef.current = false;
     }
-  }, [apiClient]);
+  }, [apiClient, enabled]);
 
   // Run on mount and whenever refreshCounter changes (manual refresh).
   useEffect(() => {

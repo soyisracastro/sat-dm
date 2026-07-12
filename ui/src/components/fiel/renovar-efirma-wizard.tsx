@@ -7,6 +7,7 @@ import { useJob } from '@/hooks/use-job';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import { formatDate } from '@/lib/formatting';
 import { cn } from '@/lib/utils';
+import { abrirODescargar } from '@/lib/descargas';
 import type { Empresa, RenovarResultado } from '@/lib/types';
 import { Icon } from '@/components/ui/icon';
 import {
@@ -453,7 +454,7 @@ export function RenovarEfirmaWizard({
                   {resultado.acuse_pdf && (
                     <Button
                       variant="outline"
-                      onClick={() => void apiClient.abrir(resultado.acuse_pdf!, 'archivo')}
+                      onClick={() => void abrirODescargar(apiClient, resultado.acuse_pdf!, 'archivo')}
                     >
                       <Icon icon="ph:file-pdf-light" className="size-4" />
                       Descargar acuse

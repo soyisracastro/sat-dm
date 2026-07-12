@@ -15,6 +15,7 @@ import { JobProgress } from '@/components/descarga/job-progress';
 import { NavegadorStatusBanner } from '@/components/shared/navegador-status';
 import { RenovarEfirmaWizard } from '@/components/fiel/renovar-efirma-wizard';
 import { mensajeDeError } from '@/lib/errores';
+import { abrirODescargar, iconoAbrir, tituloAbrir } from '@/lib/descargas';
 import { semaforoVencimiento } from '@/lib/vencimiento';
 import { formatDate } from '@/lib/formatting';
 import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
@@ -119,7 +120,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
     setFielError(null);
     setAccionBusy({ kind, modo });
     try {
-      await apiClient.abrir(ruta, modo);
+      await abrirODescargar(apiClient, ruta, modo);
     } catch (e) {
       const msg = mensajeDeError(e);
       setFielError(msg);
@@ -143,10 +144,10 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
             size="icon"
             onClick={() => abrir(kind, 'archivo')}
             disabled={ocupado}
-            title="Abrir el PDF"
+            title={tituloAbrir('archivo')}
           >
             <Icon
-              icon={cargandoArchivo ? 'ph:circle-notch-light' : 'ph:file-pdf-light'}
+              icon={cargandoArchivo ? 'ph:circle-notch-light' : iconoAbrir('archivo')}
               className={cargandoArchivo ? 'size-4 animate-spin' : 'size-4'}
             />
           </Button>
@@ -156,10 +157,10 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
           size="icon"
           onClick={() => abrir(kind, 'carpeta')}
           disabled={ocupado}
-          title="Abrir la carpeta donde se guardó"
+          title={tituloAbrir('carpeta')}
         >
           <Icon
-            icon={cargandoCarpeta ? 'ph:circle-notch-light' : 'ph:folder-open-light'}
+            icon={cargandoCarpeta ? 'ph:circle-notch-light' : iconoAbrir('carpeta')}
             className={cargandoCarpeta ? 'size-4 animate-spin' : 'size-4'}
           />
         </Button>

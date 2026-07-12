@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { etiquetaMetodo, type MetodoPortal } from '@/lib/empresa-metodo';
+import { abrirODescargar, iconoAbrir, tituloAbrir } from '@/lib/descargas';
 import type { HistorialItem } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
@@ -72,7 +73,7 @@ export function PortalDescargasRecientes({ rfc, descargas, max = 5 }: Props) {
       setAccionBusy(ruta);
       setAccionError(null);
       try {
-        await apiClient.abrir(ruta, 'carpeta');
+        await abrirODescargar(apiClient, ruta, 'carpeta');
       } catch (e) {
         setAccionError(mensajeDeError(e));
       } finally {
@@ -161,10 +162,10 @@ function DescargaPortalRow({ d, busy, onAbrirCarpeta }: RowProps) {
             size="icon"
             onClick={onAbrirCarpeta}
             disabled={busy}
-            title="Abrir la carpeta donde se guardó"
+            title={tituloAbrir('carpeta')}
           >
             <Icon
-              icon={busy ? 'ph:circle-notch-light' : 'ph:folder-open-light'}
+              icon={busy ? 'ph:circle-notch-light' : iconoAbrir('carpeta')}
               className={busy ? 'size-4 animate-spin' : 'size-4'}
             />
           </Button>
