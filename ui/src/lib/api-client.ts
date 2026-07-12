@@ -170,7 +170,12 @@ export class SatApiClient {
       const error = new ApiError(res.status, detail);
       // Solo capturamos 5xx (fallo real del agente). Los 4xx son esperados
       // (409 job concurrente, 400/422 validación, 401 token) y harían ruido.
-      if (res.status >= 500) capturarExcepcion(error, { path, method });
+      // El 503 tampoco se reporta: por convención del agente significa
+      // "servicio externo no disponible, reintenta" (SAT caído/lento,
+      // playwright instalándose) — transitorio esperado, no un bug.
+      if (res.status >= 500 && res.status !== 503) {
+        capturarExcepcion(error, { path, method });
+      }
       throw error;
     }
 

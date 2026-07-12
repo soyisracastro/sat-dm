@@ -5,12 +5,14 @@ Endpoints: /auth/cargar-fiel, /auth/fiel, /auth/autocargar-fiel, /solicitar,
 /verificar, /descargar, /descarga-completa, /solicitar-folio, /descarga-inteligente.
 """
 
+import functools
 import logging
 import os
 import tempfile
 from datetime import date
 from typing import List, Optional
 
+import requests
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
@@ -35,6 +37,38 @@ from ..state import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# El SAT caído/lento NO es un bug del agente
+# ---------------------------------------------------------------------------
+
+_SAT_NO_RESPONDE = (
+    "El SAT no respondió (se agotó el tiempo de espera). Suele ocurrir en "
+    "horas de alta demanda; la solicitud sigue viva y se reintenta en "
+    "automático."
+)
+
+
+def _sat_disponible(fn):
+    """Traduce fallos de red contra el SAT (timeout, SSL, conexión) a un 503.
+
+    Los `requests.RequestException` heredan de IOError — el `except RuntimeError`
+    de los endpoints nunca los atrapa, así que subían como 500 «unhandled» y
+    cada tormenta del SAT generaba eventos de Sentry (TODOCONTA-DESKTOP-13).
+    Como HTTPException(503) ya no cuenta como excepción no manejada, y el 503
+    está excluido de `failed_request_status_codes` (core/telemetria.py), estos
+    fallos transitorios dejan de reportarse. La UI trata el 503 como «el SAT
+    está tardando» y sigue reintentando.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except requests.RequestException as e:
+            logger.warning("SAT no disponible en %s: %s", fn.__name__, e)
+            raise HTTPException(status_code=503, detail=_SAT_NO_RESPONDE) from e
+    return wrapper
+
 
 # ---------------------------------------------------------------------------
 # Modelos de request/response
@@ -174,6 +208,7 @@ def autocargar_fiel_default():
 # ---------------------------------------------------------------------------
 
 @router.post("/solicitar")
+@_sat_disponible
 def solicitar(req: SolicitudRequest):
     """
     Solicita una descarga masiva al SAT. Devuelve el RequestID.
@@ -211,6 +246,7 @@ def solicitar(req: SolicitudRequest):
 
 
 @router.post("/verificar")
+@_sat_disponible
 def verificar(req: VerificarRequest):
     """
     Consulta el estado de una solicitud de descarga.
@@ -268,6 +304,7 @@ def verificar(req: VerificarRequest):
 
 
 @router.post("/descargar")
+@_sat_disponible
 def descargar(
     id_solicitud: str,
     directorio_salida: Optional[str] = None,
@@ -352,6 +389,8 @@ def descargar(
             }
         except HTTPException:
             raise
+        except requests.RequestException:
+            raise  # red/SSL del SAT → lo traduce @_sat_disponible a 503
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -359,6 +398,7 @@ def descargar(
 
 
 @router.post("/descarga-completa")
+@_sat_disponible
 def descarga_completa(req: DescargaCompletaRequest):
     """
     Flujo completo en un solo endpoint: solicitar → polling → descargar.
@@ -394,6 +434,8 @@ def descarga_completa(req: DescargaCompletaRequest):
             "archivos": [str(z) for z in zips],
             "total": len(zips),
         }
+    except requests.RequestException:
+        raise  # red/SSL del SAT → lo traduce @_sat_disponible a 503
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -403,6 +445,7 @@ def descarga_completa(req: DescargaCompletaRequest):
 # ---------------------------------------------------------------------------
 
 @router.post("/solicitar-folio")
+@_sat_disponible
 def solicitar_folio(req: SolicitudFolioRequest):
     """
     Solicita descarga de CFDIs específicos por UUID.
@@ -429,6 +472,8 @@ def solicitar_folio(req: SolicitudFolioRequest):
             "archivos": [str(z) for z in zips],
             "total": len(zips),
         }
+    except requests.RequestException:
+        raise  # red/SSL del SAT → lo traduce @_sat_disponible a 503
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -438,6 +483,7 @@ def solicitar_folio(req: SolicitudFolioRequest):
 # ---------------------------------------------------------------------------
 
 @router.post("/descarga-inteligente")
+@_sat_disponible
 def descarga_inteligente(req: DescargaInteligente):
     """
     Routing automático según el volumen de CFDIs:
@@ -472,6 +518,8 @@ def descarga_inteligente(req: DescargaInteligente):
             umbral_ciec=req.umbral_ciec,
         )
         return resultado
+    except requests.RequestException:
+        raise  # red/SSL del SAT → lo traduce @_sat_disponible a 503
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

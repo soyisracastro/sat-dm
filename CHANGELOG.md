@@ -6,6 +6,27 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Bug fix
+
+- **Descarga WS: el «Estado de la solicitud» ya no se queda «Verificando…»
+  sobre una solicitud que el poller ya resolvió.** El flujo activo de la
+  página ahora converge con el catálogo local: al montar y en cada tick
+  consulta primero el catálogo (barato, sin tocar al SAT) y, si el poller en
+  background ya la descargó, cierra el flujo limpio (la fila «Descargada»
+  queda en Solicitudes recientes); si venció o fue rechazada, muestra el
+  motivo. También evita re-descargar paquetes que el poller ya bajó.
+
+- **Los timeouts del SAT en `/verificar` (y demás endpoints WS) ya no truenan
+  como error 500 ni inundan Sentry** (TODOCONTA-DESKTOP-13, 81 eventos en 5
+  días): los fallos de red contra el SAT (`requests.RequestException` hereda
+  de IOError — el `except RuntimeError` nunca los atrapaba) ahora se traducen
+  a **503 «El SAT no respondió»**. Por convención del agente, 503 = «servicio
+  externo no disponible, reintenta»: la telemetría lo excluye de
+  `failed_request_status_codes` (verificado contra docs de sentry-sdk: el
+  filtro solo aplica a HTTPException) y el renderer tampoco lo reporta. La UI
+  trata el 503 como transitorio: muestra «El SAT está tardando en responder;
+  seguimos verificando» y el polling continúa en lugar de morir en error.
+
 ## [1.7.0] - 2026-07-10
 
 ### Feature
