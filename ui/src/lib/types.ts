@@ -250,6 +250,12 @@ export interface Empresa {
   nombre: string;
   /** Métodos de autenticación disponibles (una empresa puede tener ambos). */
   metodos: MetodoEmpresa[];
+  /**
+   * Sync de catálogo: métodos con credenciales EN OTRA instalación del usuario
+   * (desktop ⇄ online). Si aquí `metodos` está vacío y esto no, la empresa se
+   * importó por sync y requiere capturar credenciales en este lado.
+   */
+  metodos_sync?: MetodoEmpresa[];
   cer_path?: string | null;
   vencimiento?: string;
   default: boolean;

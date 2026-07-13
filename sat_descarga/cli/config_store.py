@@ -14,7 +14,7 @@ import logging
 import os
 import shutil
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -337,6 +337,7 @@ def add_empresa(nombre: str, cer_path: str, key_path: str, password: str,
             "vencimiento": fiel.not_valid_after.strftime("%Y-%m-%d"),
         }
         entry.pop("metodo", None)  # quitar campo legacy
+        _stamp_sync(entry)
         data["empresas"][rfc] = entry
         if data["default_rfc"] is None:
             data["default_rfc"] = rfc
@@ -364,6 +365,7 @@ def add_empresa_ciec(rfc: str, nombre: str, ciec: str) -> str:
             "metodos": sorted(set(_metodos(existente)) | {"ciec"}),
         }
         entry.pop("metodo", None)
+        _stamp_sync(entry)
         data["empresas"][rfc] = entry
         if data["default_rfc"] is None:
             data["default_rfc"] = rfc
@@ -401,6 +403,7 @@ def remove_efirma(rfc: str):
         for campo in ("cer_path", "key_path", "vencimiento"):
             info.pop(campo, None)
         info.pop("metodo", None)  # campo legacy
+        _stamp_sync(info)
         save_empresas(data)
     secretos.borrar(rfc, secretos.FIEL)
     shutil.rmtree(EFIRMA_DIR / rfc, ignore_errors=True)
@@ -430,6 +433,10 @@ def list_empresas() -> list[dict]:
             "presenta_diot": info.get("presenta_diot"),
             "renovacion_pendiente": info.get("renovacion_pendiente"),
             "csds": info.get("csds", []),
+            # Sync de catálogo: métodos con credenciales EN OTRA instalación
+            # (badge "requiere credenciales aquí" cuando local no tiene).
+            "metodos_sync": info.get("metodos_sync", []),
+            "updated_at": info.get("updated_at"),
         })
     return result
 
@@ -508,6 +515,7 @@ def actualizar_nombre_si_placeholder(rfc: str, nuevo_nombre: str) -> bool:
         if actual and actual != rfc:
             return False  # ya tiene un nombre real; no lo pisamos
         emp["nombre"] = nuevo
+        _stamp_sync(emp)
         save_empresas(data)
         return True
 
@@ -522,6 +530,7 @@ def archive_empresa(rfc: str):
         if rfc not in data["empresas"]:
             raise KeyError(f"No se encontró empresa con RFC {rfc}")
         data["empresas"][rfc]["archived_at"] = datetime.now().isoformat(timespec="seconds")
+        _stamp_sync(data["empresas"][rfc])
         if data.get("default_rfc") == rfc:
             candidatos = [
                 r for r, info in data["empresas"].items()
@@ -538,6 +547,7 @@ def unarchive_empresa(rfc: str):
         if rfc not in data["empresas"]:
             raise KeyError(f"No se encontró empresa con RFC {rfc}")
         data["empresas"][rfc]["archived_at"] = None
+        _stamp_sync(data["empresas"][rfc])
         save_empresas(data)
 
 
@@ -549,6 +559,7 @@ def set_csf_descargada(rfc: str, path: str):
             return
         data["empresas"][rfc]["csf_path"] = path
         data["empresas"][rfc]["csf_descargada_en"] = datetime.now().isoformat(timespec="seconds")
+        _stamp_sync(data["empresas"][rfc])
         save_empresas(data)
 
 
@@ -560,7 +571,121 @@ def set_opinion_descargada(rfc: str, path: str):
             return
         data["empresas"][rfc]["opinion_path"] = path
         data["empresas"][rfc]["opinion_descargada_en"] = datetime.now().isoformat(timespec="seconds")
+        _stamp_sync(data["empresas"][rfc])
         save_empresas(data)
+
+
+# ---------------------------------------------------------------------------
+# Sync de catálogo entre instalaciones (desktop ⇄ online) — SOLO metadata
+#
+# Cada mutación de empresa deja `updated_at` (UTC) en SU entrada — nunca un
+# stamp global en save_empresas(), que causaría falsos ganadores en el merge
+# last-write-wins del backend (/api/desktop/empresas-sync). Las credenciales
+# (cer_path/key_path/keychain) y `default_rfc` son locales del equipo: no viajan.
+# ---------------------------------------------------------------------------
+
+
+def _ahora_sync() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _stamp_sync(entry: dict) -> None:
+    """Marca la última modificación de la empresa (para el merge LWW del sync)."""
+    entry["updated_at"] = _ahora_sync()
+
+
+def _ts_sync(valor) -> float:
+    """Timestamp comparable de un ISO (naive se asume UTC); 0 si no parsea."""
+    if not valor:
+        return 0.0
+    try:
+        dt = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def catalogo_para_sync() -> list[dict]:
+    """
+    Catálogo local en el shape que espera /api/desktop/empresas-sync.
+
+    `metodos` viaja como la UNIÓN de los locales y los conocidos del otro lado
+    (`metodos_sync`): es un campo informativo ("dónde hay credenciales"), y el
+    merge remoto es por fila completa — sin la unión, una edición local con
+    metodos=[] pisaría lo que el otro equipo reportó. Empresas sin `updated_at`
+    (previas al sync) se estampan una sola vez aquí.
+    """
+    with _catalogo_lock:
+        data = load_empresas()
+        cambios = False
+        catalogo = []
+        for rfc, info in data["empresas"].items():
+            if not info.get("updated_at"):
+                _stamp_sync(info)
+                cambios = True
+            metodos = sorted(set(_metodos(info)) | set(info.get("metodos_sync", [])))
+            catalogo.append({
+                "rfc": rfc,
+                "nombre": info.get("nombre") or rfc,
+                "metodos": metodos,
+                "vencimiento": info.get("vencimiento") or None,
+                "archived_at": info.get("archived_at") or None,
+                "csf_descargada_en": info.get("csf_descargada_en") or None,
+                "opinion_descargada_en": info.get("opinion_descargada_en") or None,
+                "updated_at": info["updated_at"],
+            })
+        if cambios:
+            save_empresas(data)
+        return catalogo
+
+
+def aplicar_sync_remoto(remotas: list[dict]) -> int:
+    """
+    Aplica el catálogo fusionado que devolvió el backend. Solo pisa entradas
+    locales cuando la fila remota es MÁS nueva; las empresas nuevas se crean
+    SIN credenciales (metodos=[]; `metodos_sync` alimenta el badge "requiere
+    credenciales aquí" de la UI). Nunca toca cer_path/key_path/keychain ni
+    default_rfc. Devuelve cuántas entradas cambió.
+    """
+    aplicadas = 0
+    with _catalogo_lock:
+        data = load_empresas()
+        for r in remotas:
+            rfc = str(r.get("rfc", "")).strip().upper()
+            if not rfc:
+                continue
+            local = data["empresas"].get(rfc)
+            remoto_ts = _ts_sync(r.get("updated_at"))
+            if local is not None and _ts_sync(local.get("updated_at")) >= remoto_ts:
+                continue
+
+            if local is None:
+                local = {"metodos": []}
+                data["empresas"][rfc] = local
+
+            if r.get("nombre"):
+                local["nombre"] = r["nombre"]
+            local.setdefault("nombre", rfc)
+            local["metodos_sync"] = [
+                m for m in (r.get("metodos") or []) if m in ("fiel", "ciec")
+            ]
+            local["archived_at"] = r.get("archived_at") or None
+            # El vencimiento local viene del certificado real: solo se adopta
+            # el remoto cuando aquí NO hay e.firma cargada.
+            if not local.get("cer_path") and r.get("vencimiento"):
+                local["vencimiento"] = r["vencimiento"]
+            # Tracking de documentos: field-level y solo hacia adelante — una
+            # fila remota más nueva por OTRO campo no borra lo descargado aquí.
+            for campo in ("csf_descargada_en", "opinion_descargada_en"):
+                if r.get(campo) and _ts_sync(r[campo]) > _ts_sync(local.get(campo)):
+                    local[campo] = r[campo]
+            local["updated_at"] = r.get("updated_at") or _ahora_sync()
+            aplicadas += 1
+        if aplicadas:
+            save_empresas(data)
+    return aplicadas
 
 
 # ---------------------------------------------------------------------------

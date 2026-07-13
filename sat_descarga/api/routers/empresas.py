@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
 from ..state import _cargar_fiel_empresa
+from ..sync_empresas import sincronizar_async
 
 router = APIRouter()
 
@@ -87,6 +88,7 @@ async def empresas_add_fiel(
         rfc = config_store.add_empresa(
             nombre, cer_tmp.name, key_tmp.name, password, rfc_esperado=rfc_esperado,
         )
+        sincronizar_async("alta-fiel")
         return {"ok": True, "rfc": rfc}
     except ValueError as e:
         # Error de VALIDACIÓN / usuario: contraseña de la .key incorrecta, RFC del
@@ -115,6 +117,7 @@ def empresas_add_ciec(req: EmpresaCiecRequest):
     """Registra una empresa por CIEC. La contraseña CIEC se guarda en el keychain."""
     from ...cli import config_store
     rfc = config_store.add_empresa_ciec(req.rfc, req.nombre, req.ciec)
+    sincronizar_async("alta-ciec")
     return {"ok": True, "rfc": rfc}
 
 
@@ -142,6 +145,7 @@ def empresas_remove_fiel(rfc: str):
         raise HTTPException(status_code=404, detail=str(e))
     if _session.get("rfc") == rfc:
         _limpiar_session()
+    sincronizar_async("quitar-fiel")
     return {"ok": True}
 
 
@@ -186,6 +190,7 @@ def empresas_archive(rfc: str):
         config_store.archive_empresa(rfc)
     except KeyError:
         raise HTTPException(status_code=404, detail="empresa no encontrada")
+    sincronizar_async("archivar")
     return {"ok": True, "rfc": rfc}
 
 
@@ -197,6 +202,7 @@ def empresas_unarchive(rfc: str):
         config_store.unarchive_empresa(rfc)
     except KeyError:
         raise HTTPException(status_code=404, detail="empresa no encontrada")
+    sincronizar_async("desarchivar")
     return {"ok": True, "rfc": rfc}
 
 
@@ -214,6 +220,7 @@ def empresas_update(rfc: str, req: EmpresaUpdateRequest):
         raise HTTPException(status_code=404, detail="empresa no encontrada")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    sincronizar_async("editar")
     return {"ok": True, "rfc": rfc}
 
 
