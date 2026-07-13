@@ -11,9 +11,21 @@ En este VPS también vive **OpenClaw (agente de WhatsApp), FUERA de Docker**
 
 1. Cambios **solo aditivos**: contenedores/redes/volúmenes nuevos. Nada bajo
    `/root/`, ni procesos node, ni `/docker/traefik/` (salvo con respaldo previo).
-2. **No rebootear** sin documentar antes cómo se supervisa OpenClaw.
+2. **Reboot: es seguro** (verificado 2026-07-13). OpenClaw corre como servicio
+   **systemd de usuario** (`openclaw-gateway.service`, `enabled`) con **linger
+   activado** para root (`loginctl show-user root` → `Linger=yes`), así que
+   systemd lo relanza tras un reboot aunque no haya sesión abierta. Los
+   contenedores tienen `restart: unless-stopped`. Aun así: reboot solo si hace
+   falta, y verifica el checklist post-reboot (abajo).
 3. Tras cada cambio: `pgrep -f openclaw` y `ss -tlnp | grep 1878` deben responder.
-4. RAM disponible ≈ 6.5 GB para agentes (mem_limit 1g c/u) — vigilar `docker stats`.
+4. RAM disponible ≈ 6 GB para agentes (uso real del stack ≈ 1.6 GB con OpenClaw;
+   cada agente idle ≈ 55 MB) — vigilar `docker stats`.
+
+Coexistencia: OpenClaw ("Abacus") tiene su **propio** backup con `restic`
+(`abacus-backup.timer`, 03:30 UTC, a `/var/backups/abacus`; password en
+`/root/.config/restic/password` + 1Password). NO tocar; es independiente del
+backup de TodoConta (abajo). Otros crons del host: `docker-image-prune` (diario,
+limpia imágenes viejas), `69b-update` (mensual).
 
 ## Piezas
 
@@ -87,8 +99,57 @@ alerta de disco ≥80 % en `/docker/backups/backups.log`.
 
 - ⚠️ Respaldar **fuera del VPS** la passphrase (`.backup-pass`) y la master key
   (password manager): los backups viven en el mismo disco — cubren errores
-  operativos, no la pérdida del disco. (Mejora futura: copia off-site/restic.)
-- Restaurar: `openssl enc -d -aes-256-cbc -pbkdf2 -pass file:/docker/backups/.backup-pass < archivo.enc | tar xzf - -C /`
+  operativos, no la pérdida del disco.
+- **Backup manual** (uno extra ahora): `/docker/backups/respaldar-agentes.sh`
+- **Copia off-site** (recomendado periódico, desde tu máquina):
+  `scp root@187.77.152.160:/backups/agentes-$(date +%F).tar.gz.enc ~/backups-todoconta/`
+- **Restaurar**: `openssl enc -d -aes-256-cbc -pbkdf2 -pass file:/docker/backups/.backup-pass < /backups/agentes-<fecha>.tar.gz.enc | tar xzf - -C /`
+  (recrea los volúmenes en su sitio; luego `actualizar-agentes.sh` o recrear
+  provisioner/gateway para que los monten).
+
+## Mantenimiento — checklist operativo
+
+### Salud rápida (cuando quieras)
+```bash
+ssh root@187.77.152.160 'free -h; df -h /; docker ps --format "{{.Names}}\t{{.Status}}"; docker stats --no-stream --format "{{.Name}}\t{{.MemUsage}}"'
+```
+Baseline sano (2026-07-13): RAM usada ≈ 1.6/7.8 GB, disco 38 %, carga < 0.1,
+cada agente ≈ 55 MB. Si un agente crece mucho es un job CIEC (Chromium) en curso.
+
+### Post-reboot (si alguna vez hay que reiniciar)
+```bash
+pgrep -f openclaw >/dev/null && echo "openclaw OK"     # systemd user lo relanza (linger=yes)
+ss -tlnp | grep -E '1878|:443'                          # openclaw + traefik escuchando
+docker ps                                                # provisioner, gateway, agentes arriba
+curl -s https://agente.todoconta.com/provision/health    # provisioner responde
+```
+Si OpenClaw NO volvió: `systemctl --user start openclaw-gateway.service` (como root
+con `XDG_RUNTIME_DIR=/run/user/0`), y revisar `loginctl show-user root | grep Linger`.
+
+### Actualizar la imagen de los agentes (tras un release)
+Ver sección "Actualizar la imagen de los agentes" arriba (rebuild + `actualizar-agentes.sh`).
+El provisioner y el gateway comparten la `AGENTE_IMAGEN`; los agentes ya creados se
+recrean con el script (conserva volúmenes y claves derivadas).
+
+### Actualizaciones del SO
+`apt update && apt upgrade -y` cada tanto. Evita el `apt full-upgrade`/kernel si no
+quieres reboot; si actualizas kernel, reboot es seguro (ver regla 2) pero valida el
+checklist post-reboot.
+
+### Limpieza de disco
+`docker-image-prune` ya corre diario. Si el disco sube (los ZIP de descargas se
+acumulan en los volúmenes): `docker system df` y revisar `/var/lib/docker/volumes/agente-datos-*`.
+
+## Servicios en el VPS (mapa)
+
+| Servicio | Tipo | Puerto/ruta | Notas |
+|---|---|---|---|
+| Traefik | Docker (host net) | :80/:443 | reverse proxy + Let's Encrypt de TODO |
+| OpenClaw | systemd **user** | loopback 18789/18791 | bot WhatsApp; backup restic propio; no tocar |
+| provisioner | Docker | `agente.todoconta.com/provision` | login web → enciende agentes |
+| gateway | Docker | `agente.todoconta.com/{v1,mcp}` | API pública + MCP |
+| agente-`<slug>` | Docker | `agente.todoconta.com/u/<slug>` | uno por usuario |
+| (futuro) Sendy | Docker | `sendy.todoconta.com` | ver deploy/sendy/ cuando exista |
 
 ## Troubleshooting
 
