@@ -1,0 +1,4 @@
+# El código de Sendy es software LICENCIADO — no se versiona.
+app/
+# Secretos de la DB.
+.env

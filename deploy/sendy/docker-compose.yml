@@ -1,0 +1,79 @@
+# Sendy (email marketing self-hosted) en el VPS, detrás del Traefik existente.
+# Reemplaza el hosting de SiteGround (~25-29 USD/mes). Envía por Amazon SES.
+# Migración y setup completos: README.md de esta carpeta.
+#
+# Prerrequisitos:
+#   - ./app/  con el código de Sendy subido desde SiteGround (gitignored)
+#   - .env  junto a este archivo (gitignored) con las contraseñas de la DB
+#   - A record sendy.todoconta.com → 187.77.152.160 (Cloudflare, DNS-only)
+#   - red `agentes` ya creada (la usan provisioner/gateway/agentes)
+#
+# Despliegue:  docker compose up -d --build
+
+services:
+  sendy-db:
+    image: mariadb:11
+    container_name: sendy-db
+    restart: unless-stopped
+    mem_limit: 512m
+    networks:
+      - sendy-internal
+    volumes:
+      - sendy-db-data:/var/lib/mysql
+    environment:
+      MARIADB_DATABASE: ${SENDY_DB_NAME:-sendy}
+      MARIADB_USER: ${SENDY_DB_USER:-sendy}
+      MARIADB_PASSWORD: ${SENDY_DB_PASSWORD:?define SENDY_DB_PASSWORD en .env}
+      MARIADB_ROOT_PASSWORD: ${SENDY_DB_ROOT_PASSWORD:?define SENDY_DB_ROOT_PASSWORD en .env}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  sendy:
+    build: .
+    container_name: sendy
+    restart: unless-stopped
+    mem_limit: 512m
+    depends_on:
+      sendy-db:
+        condition: service_healthy
+    networks:
+      - sendy-internal   # habla con la DB
+      - agentes          # Traefik lo alcanza por aquí
+    volumes:
+      - ./app:/var/www/html   # código de Sendy (subido por scp; NO en el repo)
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.sendy.rule=Host(`sendy.todoconta.com`)
+      - traefik.http.routers.sendy.entrypoints=websecure
+      - traefik.http.routers.sendy.tls.certresolver=letsencrypt
+      - traefik.http.services.sendy.loadbalancer.server.port=80
+      - traefik.docker.network=agentes
+
+  # Cron de Sendy: scheduled.php debe correr cada minuto (envíos programados,
+  # autoresponders, bounces/complaints de SES). Sidecar autocontenido: reusa la
+  # imagen y hace el loop, así no ensuciamos el crontab del host.
+  sendy-cron:
+    build: .
+    container_name: sendy-cron
+    restart: unless-stopped
+    mem_limit: 128m
+    depends_on:
+      - sendy
+    networks:
+      - sendy-internal
+    volumes:
+      - ./app:/var/www/html
+    entrypoint: ["sh", "-c", "while true; do php /var/www/html/scheduled.php >/dev/null 2>&1; sleep 60; done"]
+
+networks:
+  sendy-internal:
+    name: sendy-internal
+  agentes:
+    external: true
+
+volumes:
+  sendy-db-data:
+    name: sendy-db-data
