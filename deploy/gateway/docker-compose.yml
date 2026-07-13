@@ -1,0 +1,33 @@
+# Gateway de la API pública + MCP, detrás del Traefik existente.
+#
+# Rutas públicas: agente.todoconta.com/v1/* y /mcp (y api.todoconta.com/v1/*
+# vía rewrite del legacy). Prerrequisito: .env junto a este archivo con
+#   SAT_DM_MASTER_KEY=            # LA MISMA del provisioner (deriva agentes)
+#   TODOCONTA_SUPABASE_URL=
+#   SUPABASE_SERVICE_KEY=         # service role (valida api_keys + RPC listas)
+#   AGENTE_IMAGEN=todoconta/agente:dev
+#
+# Despliegue: docker compose up -d --build
+
+services:
+  gateway:
+    build: .
+    container_name: gateway
+    restart: unless-stopped
+    mem_limit: 256m
+    networks:
+      - agentes
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file: .env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.gateway.rule=Host(`agente.todoconta.com`) && (PathPrefix(`/v1`) || PathPrefix(`/mcp`))
+      - traefik.http.routers.gateway.entrypoints=websecure
+      - traefik.http.routers.gateway.tls.certresolver=letsencrypt
+      - traefik.http.services.gateway.loadbalancer.server.port=8795
+      - traefik.docker.network=agentes
+
+networks:
+  agentes:
+    external: true
