@@ -405,7 +405,7 @@ def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: s
         raise HTTPException(status_code=400, detail="Manda `rfcs` (lista de 1 a 200).")
     r = requests.post(
         f"{SUPABASE_URL}/rest/v1/rpc/check_rfcs_listas_negras",
-        json={"rfcs_input": [str(x).strip().upper() for x in rfcs]},
+        json={"p_rfcs": [str(x).strip().upper() for x in rfcs]},
         headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         timeout=_TIMEOUT,
     )
@@ -519,7 +519,7 @@ try:
         _mcp_user()
         r = requests.post(
             f"{SUPABASE_URL}/rest/v1/rpc/check_rfcs_listas_negras",
-            json={"rfcs_input": [x.strip().upper() for x in rfcs[:200]]},
+            json={"p_rfcs": [x.strip().upper() for x in rfcs[:200]]},
             headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
             timeout=_TIMEOUT,
         )
