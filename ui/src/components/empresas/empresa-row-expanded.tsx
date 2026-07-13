@@ -265,11 +265,13 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
             {!esWeb() && empresa.metodos.length > 0 && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="outline"
+                className="flex-1"
                 onClick={() => setSubirOpen(true)}
-                title="Usar esta empresa en la versión web (sube sus credenciales cifradas a tu espacio privado)"
+                title="Sube sus credenciales cifradas a tu espacio privado para operar desde el navegador"
               >
-                <Icon icon="ph:cloud-arrow-up-light" className="size-3.5" />
+                <Icon icon="ph:cloud-arrow-up-light" className="mr-1.5 size-3.5" />
+                Usar en la web
               </Button>
             )}
           </div>
