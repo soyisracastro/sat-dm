@@ -4,6 +4,21 @@
     { "source": "/desktop/:path*", "destination": "https://api.todoconta.com/desktop/:path*" },
     { "source": "/auth/:path*", "destination": "https://api.todoconta.com/auth/:path*" },
     { "source": "/planes", "destination": "https://api.todoconta.com/planes" },
-    { "source": "/cuenta/:path*", "destination": "https://api.todoconta.com/cuenta/:path*" }
+    { "source": "/cuenta/:path*", "destination": "https://api.todoconta.com/cuenta/:path*" },
+    { "source": "/_next/:path*", "destination": "https://api.todoconta.com/_next/:path*" }
+  ],
+  "headers": [
+    {
+      "source": "/((?!api/|auth/|desktop/|planes|cuenta|_next/).*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://agente.todoconta.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
   ]
 }

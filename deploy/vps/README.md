@@ -76,18 +76,19 @@ git archive --format=tar <branch> | ssh root@187.77.152.160 \
 Los volúmenes (`agente-datos-*`) y las claves derivadas no cambian, así que las
 credenciales guardadas siguen legibles tras recrear el contenedor.
 
-## Backups
+## Backups (ACTIVOS desde 2026-07-13)
 
-Los volúmenes `agente-datos-*` contienen FIELs y descargas de los usuarios:
+Cron diario (`/etc/cron.d/todoconta-backups`, 09:00 UTC) ejecuta
+`/docker/backups/respaldar-agentes.sh`: tar cifrado (AES-256, passphrase en
+`/docker/backups/.backup-pass`) de los volúmenes `agente-datos-*` (FIELs,
+descargas, secretos.enc), el registro del provisioner y los `.env` (master key
+incluida) → `/backups/agentes-<fecha>.tar.gz.enc`. Retención 7 días; log y
+alerta de disco ≥80 % en `/docker/backups/backups.log`.
 
-```bash
-# tar cifrado de todos los volúmenes de agentes (correr con cron diario):
-tar czf - /var/lib/docker/volumes/agente-datos-* /var/lib/docker/volumes/provisioner-registro \
-  | openssl enc -aes-256-cbc -pbkdf2 -pass file:/root/.backup-pass \
-  > /backups/agentes-$(date +%F).tar.gz.enc
-```
-
-(Pendiente F4: formalizar con restic + retención + alerta de disco al 80 %.)
+- ⚠️ Respaldar **fuera del VPS** la passphrase (`.backup-pass`) y la master key
+  (password manager): los backups viven en el mismo disco — cubren errores
+  operativos, no la pérdida del disco. (Mejora futura: copia off-site/restic.)
+- Restaurar: `openssl enc -d -aes-256-cbc -pbkdf2 -pass file:/docker/backups/.backup-pass < archivo.enc | tar xzf - -C /`
 
 ## Troubleshooting
 
