@@ -113,6 +113,41 @@ newsletter del blog / panel Sendy
 
 - **Logs**: `docker logs sendy` / `docker logs sendy-cron` / `docker logs sendy-db`.
 - **Reiniciar**: `cd /docker/sendy && docker compose restart`.
-- **Backup manual de la DB**:
-  `docker exec sendy-db mariadb-dump -u root -p"$ROOT" sendy > sendy-$(date +%F).sql`
-- **Recursos**: ~1 GB entre los tres contenedores; el VPS tiene ~6 GB libres (holgado).
+- **Backup**: la DB de Sendy ya va en el backup diario del VPS (`respaldar-agentes.sh`
+  hace un `mysqldump` a `/backups/sendy-db-<fecha>.sql.gz`, retención 7 días).
+  Manual: `docker exec sendy-db mariadb-dump -u root -p"$ROOT" sendy | gzip > sendy-$(date +%F).sql.gz`
+- **Recursos**: ~1 GB entre los tres contenedores; el VPS tiene ~5-6 GB libres (holgado).
+
+## Actualizar la versión de Sendy (probado 6.1.3 → 7.1)
+
+Sendy es de licencia con pago único + upgrades pagados. Al comprar un upgrade dan un zip.
+
+```bash
+# En la Mac: preparar el build nuevo (BUILD = carpeta 'sendy/' dentro del zip)
+unzip sendy-X.Y.zip -d /tmp/sendy-new
+scp root@187.77.152.160:/docker/sendy/app/includes/config.php /tmp/config-actual.php
+cp /tmp/config-actual.php /tmp/sendy-new/sendy/includes/config.php   # reusar config (mismas vars entre versiones; compara con diff por si acaso)
+rm -rf /tmp/sendy-new/sendy/uploads                                   # se preservan los del server
+# (copiar locale/ custom del viejo si lo hubiera — normalmente no hay)
+tar czf /tmp/build.tar.gz -C /tmp/sendy-new/sendy .
+scp /tmp/build.tar.gz root@187.77.152.160:/docker/sendy/
+```
+```bash
+# En el VPS: backup + swap atómico con rollback
+cd /docker/sendy
+ROOT=$(grep ^SENDY_DB_ROOT_PASSWORD= .env | cut -d= -f2)
+docker exec sendy-db mariadb-dump --no-tablespaces -u root -p"$ROOT" sendy | gzip > backup-pre-upgrade-db.sql.gz
+rm -rf app-new && mkdir app-new && tar xzf build.tar.gz -C app-new
+cp -a app/uploads app-new/uploads          # preservar uploads del server
+mv app app-VIEJA && mv app-new app          # swap; app-VIEJA = rollback
+docker restart sendy sendy-cron
+```
+- **Verificar**: entra a `sendy.todoconta.com` → Sendy detecta la DB vieja y muestra la
+  pantalla **"Update database"** → dale al botón (corre `includes/update.php`, aplica los
+  `ALTER TABLE`). Confirma dashboard + suscriptores + una campaña de prueba.
+- **Rollback** si algo falla: `mv app app-fallida && mv app-VIEJA app && docker restart sendy`
+  (y restaurar la DB del `backup-pre-upgrade-db.sql.gz` si el update ya corrió).
+- **Limpieza** tras validar: `rm -rf app-VIEJA backup-pre-upgrade-* build.tar.gz`.
+- ⚠️ Si la versión nueva usa una **extensión PHP** que falta, sale pantalla en blanco
+  (Sendy suprime errores). Ya cubiertas: mysqli, gd, zip, intl, **gettext**, curl, mbstring,
+  openssl, sodium. Si algo nuevo truena, agrégala al `Dockerfile` y rebuild.
