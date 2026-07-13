@@ -54,8 +54,10 @@ SUPABASE_ANON_KEY = os.environ.get(
     "kkOVRZu-u1Iyn6jOqoA7ti5crKJFqgCulsGtOodrLQQ",
 )
 
+# Directo al dominio de servicios (api.todoconta.com), sin pasar por el proxy
+# del espejo — app.todoconta.com solo debe importar como origen CORS.
 LICENCIA_URL = os.environ.get(
-    "LICENCIA_URL", "https://app.todoconta.com/api/desktop/license"
+    "LICENCIA_URL", "https://api.todoconta.com/api/desktop/license"
 )
 # Kill switch para la beta: con "0" cualquier cuenta autenticada entra.
 EXIGIR_LICENCIA = os.environ.get("EXIGIR_LICENCIA", "1") != "0"

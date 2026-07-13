@@ -1,6 +1,6 @@
 """
 Cliente HTTP del agente local hacia la API de todoconta-apps
-(`https://app.todoconta.com/api/desktop/*`), junto con la persistencia segura
+(`https://api.todoconta.com/api/desktop/*`), junto con la persistencia segura
 del token de sesión (keyring del SO en desktop; archivo cifrado en modo hosted,
 vía `core/secretos`).
 
@@ -38,8 +38,12 @@ logger = logging.getLogger(__name__)
 # Configuración
 # ---------------------------------------------------------------------------
 
+# Dominio de SERVICIOS (cutover 2026-07): api.todoconta.com sirve la API de
+# todoconta-apps directo, sin pasar por el proxy del espejo. Las versiones
+# desktop viejas (default app.todoconta.com) siguen funcionando porque el
+# espejo proxea /api/* hacia api.todoconta.com (rewrites de ui/vercel.json).
 API_BASE_URL = os.environ.get(
-    "TODOCONTA_API_BASE_URL", "https://app.todoconta.com"
+    "TODOCONTA_API_BASE_URL", "https://api.todoconta.com"
 ).rstrip("/")
 
 # Servicio (namespace) para los tokens de sesión en el backend de secretos.
