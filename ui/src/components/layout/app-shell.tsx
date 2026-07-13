@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 
 import { esWeb } from '@/lib/modo';
-import { FounderBanner } from '@/components/auth/founder-banner';
 import { PromoBanner } from '@/components/auth/promo-banner';
 import { GlobalShortcuts } from '@/components/layout/global-shortcuts';
 import { Sidebar } from '@/components/layout/sidebar';
@@ -60,9 +59,8 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <Titlebar />
-      {/* FounderBanner se auto-oculta (ventana de fundadores cerrada); se
-          conserva por si se reabre. PromoBanner es la campaña activa. */}
-      <FounderBanner />
+      {/* La ventana de fundadores cerró y no vuelve: el FounderBanner se
+          eliminó (2026-07). PromoBanner es la campaña activa. */}
       <PromoBanner />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
