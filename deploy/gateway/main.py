@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import contextvars
+from contextlib import asynccontextmanager
 import hashlib
 import hmac
 import logging
@@ -395,6 +396,142 @@ def v1_zip_solicitud(rfc: str, id_solicitud: str, x_api_key: str = Header(None),
     return _descargar_de_agente(base, headers, ruta, zip_=True)
 
 
+class ProcesarRequest(BaseModel):
+    rfc: str
+    desde: Optional[str] = None   # YYYY-MM-DD
+    hasta: Optional[str] = None
+    tipo: Optional[str] = None    # E emitidos | R recibidos | None ambos
+
+
+def _params_filtros(rfc: str, desde, hasta, direccion) -> dict:
+    params = {"rfc": rfc.strip().upper()}
+    if desde:
+        params["desde"] = desde
+    if hasta:
+        params["hasta"] = hasta
+    if direccion:
+        params["direccion"] = direccion
+    return params
+
+
+@app.post("/v1/cfdi/procesar")
+def v1_procesar(req: ProcesarRequest, x_api_key: str = Header(None), authorization: str = Header(None)):
+    """Carga al procesador los XML YA descargados de la empresa (por período).
+
+    Flujo completo: POST /v1/cfdi/solicitudes → (el espacio descarga solo) →
+    este endpoint → /v1/cfdi/resumen | /v1/cfdi/excel.
+    """
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "cfdi:solicitar")
+    base, headers = _agente_de(user)
+    r = requests.post(
+        f"{base}/procesador/cfdi/cargar-desde-empresa",
+        headers=headers,
+        json={"rfc": req.rfc.strip().upper(), "desde": req.desde, "hasta": req.hasta, "tipo": req.tipo},
+        timeout=300,
+    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudieron procesar los CFDIs.")
+    return r.json()
+
+
+@app.get("/v1/cfdi/resumen")
+def v1_resumen(
+    rfc: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    direccion: Optional[str] = None,
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+):
+    """KPIs del período (totales, IVA/ISR, conteos) — para que la IA analice."""
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "documentos:leer")
+    base, headers = _agente_de(user)
+    r = requests.get(
+        f"{base}/procesador/cfdi/stats",
+        headers=headers,
+        params=_params_filtros(rfc, desde, hasta, direccion),
+        timeout=120,
+    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo obtener el resumen.")
+    return r.json()
+
+
+@app.get("/v1/cfdi/reporte/{nombre}")
+def v1_reporte(
+    nombre: str,
+    rfc: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    direccion: Optional[str] = None,
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+):
+    """Reportes JSON: totales-mes · top-contrapartes · integridad."""
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "documentos:leer")
+    base, headers = _agente_de(user)
+    r = requests.get(
+        f"{base}/procesador/cfdi/reporte/{nombre}",
+        headers=headers,
+        params=_params_filtros(rfc, desde, hasta, direccion),
+        timeout=120,
+    )
+    if r.status_code == 404:
+        raise HTTPException(status_code=404, detail=_detalle(r) or "Reporte desconocido.")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo generar el reporte.")
+    return r.json()
+
+
+@app.get("/v1/cfdi/excel")
+def v1_excel(
+    rfc: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    direccion: Optional[str] = None,
+    formato: str = "xlsx",
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+):
+    """El Excel (o CSV) del período con el detalle de impuestos, en streaming."""
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "documentos:leer")
+    base, headers = _agente_de(user)
+    params = _params_filtros(rfc, desde, hasta, direccion)
+    params["formato"] = formato
+    r = requests.get(
+        f"{base}/procesador/cfdi/exportar",
+        headers=headers,
+        params=params,
+        timeout=300,
+        stream=True,
+    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo exportar.")
+    return StreamingResponse(
+        r.iter_content(chunk_size=65536),
+        media_type=r.headers.get("content-type", "application/octet-stream"),
+        headers={"Content-Disposition": r.headers.get("content-disposition", "attachment")},
+    )
+
+
+@app.post("/v1/calculadoras/{tipo}")
+def v1_calculadora(tipo: str, body: dict, x_api_key: str = Header(None), authorization: str = Header(None)):
+    """Calculadoras fiscales/laborales (sbc, isr, aguinaldo, finiquito,
+    liquidacion, carga-patronal, ptu). El agente valida y responde en español
+    (p. ej. salario por debajo del mínimo) — los 400/422 se propagan tal cual."""
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "documentos:leer")
+    base, headers = _agente_de(user)
+    r = requests.post(f"{base}/calculadoras/{tipo}", headers=headers, json=body, timeout=60)
+    if r.status_code in (200, 400, 404, 422):
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo calcular.")
+
+
 @app.post("/v1/listas-negras")
 def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: str = Header(None)):
     """Consulta RFCs contra las listas 69/69-B (vía RPC de Supabase, sin agente)."""
@@ -405,7 +542,7 @@ def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: s
         raise HTTPException(status_code=400, detail="Manda `rfcs` (lista de 1 a 200).")
     r = requests.post(
         f"{SUPABASE_URL}/rest/v1/rpc/check_rfcs_listas_negras",
-        json={"rfcs_input": [str(x).strip().upper() for x in rfcs]},
+        json={"p_rfcs": [str(x).strip().upper() for x in rfcs]},
         headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         timeout=_TIMEOUT,
     )
@@ -420,6 +557,7 @@ def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: s
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.transport_security import TransportSecuritySettings
 
     mcp_srv = FastMCP(
         "TodoConta",
@@ -429,7 +567,12 @@ try:
             "masiva de CFDIs y listas negras 69/69-B."
         ),
         stateless_http=True,
-        streamable_http_path="/",
+        streamable_http_path="/mcp",
+        # Anti DNS-rebinding del SDK: sin esto solo acepta Host localhost.
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=[DOMINIO, f"{DOMINIO}:443", "localhost", "127.0.0.1:8795"],
+            allowed_origins=[f"https://{DOMINIO}", "https://app.todoconta.com"],
+        ),
     )
 
     def _mcp_user() -> dict:
@@ -519,13 +662,184 @@ try:
         _mcp_user()
         r = requests.post(
             f"{SUPABASE_URL}/rest/v1/rpc/check_rfcs_listas_negras",
-            json={"rfcs_input": [x.strip().upper() for x in rfcs[:200]]},
+            json={"p_rfcs": [x.strip().upper() for x in rfcs[:200]]},
             headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
             timeout=_TIMEOUT,
         )
         return str(r.json()) if r.status_code == 200 else "No se pudieron consultar las listas."
 
+    @mcp_srv.tool()
+    def procesar_cfdis(rfc: str, desde: str = "", hasta: str = "", tipo: str = "") -> str:
+        """Carga al procesador los XML ya descargados de la empresa (fechas YYYY-MM-DD; tipo E/R o vacío para ambos). Correr después de que una solicitud esté descargada."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        r = requests.post(
+            f"{base}/procesador/cfdi/cargar-desde-empresa",
+            headers=headers,
+            json={"rfc": rfc.strip().upper(), "desde": desde or None, "hasta": hasta or None, "tipo": tipo or None},
+            timeout=300,
+        )
+        if r.status_code != 200:
+            return f"No se pudo procesar: {_detalle(r) or r.status_code}"
+        d = r.json()
+        return (
+            f"Procesados: {d.get('agregados', 0)} nuevos, {d.get('duplicados', 0)} ya estaban, "
+            f"{d.get('archivos_encontrados', 0)} archivos encontrados, {len(d.get('errores', []))} con error."
+        )
+
+    @mcp_srv.tool()
+    def resumen_cfdis(rfc: str, desde: str = "", hasta: str = "", direccion: str = "") -> str:
+        """KPIs del período procesado (totales, IVA/ISR retenidos y trasladados, conteos). direccion: E emitidos, R recibidos, vacío ambos."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        r = requests.get(
+            f"{base}/procesador/cfdi/stats",
+            headers=headers,
+            params=_params_filtros(rfc, desde or None, hasta or None, direccion or None),
+            timeout=120,
+        )
+        return str(r.json()) if r.status_code == 200 else f"No se pudo: {_detalle(r) or r.status_code}"
+
+    @mcp_srv.tool()
+    def reporte_cfdis(rfc: str, nombre: str, desde: str = "", hasta: str = "") -> str:
+        """Reporte JSON del período: totales-mes | top-contrapartes | integridad."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        r = requests.get(
+            f"{base}/procesador/cfdi/reporte/{nombre}",
+            headers=headers,
+            params=_params_filtros(rfc, desde or None, hasta or None, None),
+            timeout=120,
+        )
+        return str(r.json()) if r.status_code == 200 else f"No se pudo: {_detalle(r) or r.status_code}"
+
+    @mcp_srv.tool()
+    def link_excel_cfdis(rfc: str, desde: str = "", hasta: str = "", direccion: str = "") -> str:
+        """Link de descarga del Excel con el detalle de los CFDIs procesados (el usuario lo baja con su misma API key)."""
+        _mcp_user()
+        from urllib.parse import urlencode
+
+        params = _params_filtros(rfc, desde or None, hasta or None, direccion or None)
+        api = PUBLIC_BASE.replace("agente.", "api.")
+        return (
+            f"GET {api}/v1/cfdi/excel?{urlencode(params)} — con el header X-Api-Key de tu key. "
+            "Ejemplo: curl -H 'X-Api-Key: tc_live_…' -o cfdis.xlsx '" + f"{api}/v1/cfdi/excel?{urlencode(params)}'"
+        )
+
+    def _calc(tipo: str, payload: dict) -> str:
+        """Llama una calculadora del agente; los errores de validación (en
+        español: p. ej. «salario por debajo del mínimo») se devuelven como
+        texto para que la IA pida los datos correctos o explique el límite."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        payload = {k: v for k, v in payload.items() if v is not None}
+        r = requests.post(f"{base}/calculadoras/{tipo}", headers=headers, json=payload, timeout=60)
+        if r.status_code == 200:
+            return str(r.json())
+        if r.status_code == 422:
+            try:
+                faltas = "; ".join(
+                    f"{'.'.join(str(x) for x in e.get('loc', []))}: {e.get('msg')}"
+                    for e in r.json().get("detail", [])
+                )
+            except Exception:  # noqa: BLE001
+                faltas = r.text[:300]
+            return f"Datos inválidos o incompletos — {faltas}"
+        return f"No se pudo calcular: {_detalle(r) or r.status_code}"
+
+    @mcp_srv.tool()
+    def calcular_sbc(
+        salario: float,
+        tipo_salario: str = "mensual",
+        antiguedad_anios: int = 0,
+        dias_aguinaldo: int = 15,
+        prima_vacacional: float = 0.25,
+        es_zona_fronteriza: bool = False,
+        anio: int = 2026,
+    ) -> str:
+        """Salario Base de Cotización IMSS. tipo_salario: diario|mensual. Valida contra el salario mínimo vigente."""
+        return _calc("sbc", {
+            "salario": salario, "tipo_salario": tipo_salario, "antiguedad_anios": antiguedad_anios,
+            "dias_aguinaldo": dias_aguinaldo, "prima_vacacional": prima_vacacional,
+            "es_zona_fronteriza": es_zona_fronteriza, "anio": anio,
+        })
+
+    @mcp_srv.tool()
+    def calcular_isr_salarios(
+        ingreso_gravado: float,
+        periodicidad: str = "mensual",
+        mes: int = 2,
+        es_asimilado: bool = False,
+        es_zona_fronteriza: bool = False,
+        anio: int = 2026,
+    ) -> str:
+        """ISR de salarios (tarifas SAT vigentes + subsidio). periodicidad: diario|semanal|decenal|quincenal|mensual."""
+        return _calc("isr", {
+            "ingreso_gravado": ingreso_gravado, "periodicidad": periodicidad, "mes": mes,
+            "es_asimilado": es_asimilado, "es_zona_fronteriza": es_zona_fronteriza, "anio": anio,
+        })
+
+    @mcp_srv.tool()
+    def calcular_aguinaldo(
+        salario: float,
+        tipo_salario: str,
+        fecha_ingreso: str,
+        dias_aguinaldo: int = 15,
+        anio: int = 2026,
+    ) -> str:
+        """Aguinaldo proporcional con su ISR. fecha_ingreso: YYYY-MM-DD."""
+        return _calc("aguinaldo", {
+            "salario": salario, "tipo_salario": tipo_salario, "fecha_ingreso": fecha_ingreso,
+            "dias_aguinaldo": dias_aguinaldo, "anio": anio,
+        })
+
+    @mcp_srv.tool()
+    def calcular_finiquito(
+        salario: float,
+        tipo_salario: str,
+        fecha_ingreso: str,
+        fecha_baja: str,
+        anio: int = 2026,
+    ) -> str:
+        """Finiquito (renuncia): proporcionales de aguinaldo, vacaciones y prima. Fechas YYYY-MM-DD."""
+        return _calc("finiquito", {
+            "salario": salario, "tipo_salario": tipo_salario, "fecha_ingreso": fecha_ingreso,
+            "fecha_baja": fecha_baja, "anio": anio,
+        })
+
+    @mcp_srv.tool()
+    def calcular_carga_patronal(
+        salario: float,
+        tipo_salario: str = "mensual",
+        antiguedad_anios: int = 0,
+        clase_riesgo: str = "I",
+        codigo_estado: str = "CDMX",
+        anio: int = 2026,
+    ) -> str:
+        """Costo patronal total (IMSS, Infonavit, impuesto estatal) de un sueldo."""
+        return _calc("carga-patronal", {
+            "salario": salario, "tipo_salario": tipo_salario, "antiguedad_anios": antiguedad_anios,
+            "clase_riesgo": clase_riesgo, "codigo_estado": codigo_estado, "anio": anio,
+        })
+
+    @mcp_srv.tool()
+    def indicadores_fiscales(anio: int = 2026) -> str:
+        """Indicadores vigentes del año: UMA, salarios mínimos (general y ZLFN), etc."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        r = requests.get(f"{base}/calculadoras/indicadores/{anio}", headers=headers, timeout=30)
+        return str(r.json()) if r.status_code == 200 else f"No disponible: {r.status_code}"
+
     _mcp_app = mcp_srv.streamable_http_app()
+
+    # El session manager del SDK exige correr dentro de un lifespan; al montar
+    # el sub-app, FastAPI NO ejecuta el suyo — se engancha al del app padre.
+    @asynccontextmanager
+    async def _lifespan(_app):
+        async with mcp_srv.session_manager.run():
+            yield
+
+    app.router.lifespan_context = _lifespan
 
     @app.middleware("http")
     async def _mcp_auth(request: Request, call_next):
@@ -544,7 +858,9 @@ try:
             ctx_user.set(user)
         return await call_next(request)
 
-    app.mount("/mcp", _mcp_app)
+    # Mount en raíz con path interno /mcp: sirve /mcp EXACTO (sin el 307 a
+    # /mcp/ que rompe a los clientes). Las rutas /v1 se registran antes y ganan.
+    app.mount("/", _mcp_app)
     logger.info("servidor MCP montado en /mcp")
 except ImportError:  # pragma: no cover — sin SDK, la REST sigue funcionando
     logger.warning("SDK de MCP no disponible; /mcp deshabilitado")
