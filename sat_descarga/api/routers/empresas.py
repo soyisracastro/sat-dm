@@ -8,11 +8,12 @@ historial) y /historial (global).
 
 import os
 import tempfile
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
+from ...core.config import es_modo_hosted
 from ..state import _cargar_fiel_empresa
 from ..sync_empresas import sincronizar_async
 
@@ -28,6 +29,11 @@ class EmpresaCiecRequest(BaseModel):
     # Opcional: si viene vacío, config_store usa el RFC como nombre provisional.
     nombre: str = ""
     ciec: str
+
+
+class SubirEspacioRequest(BaseModel):
+    # Métodos a subir; se filtra a {"fiel", "ciec"}.
+    metodos: List[str]
 
 
 class RegimenFiscalItem(BaseModel):
@@ -204,6 +210,34 @@ def empresas_unarchive(rfc: str):
         raise HTTPException(status_code=404, detail="empresa no encontrada")
     sincronizar_async("desarchivar")
     return {"ok": True, "rfc": rfc}
+
+
+@router.post("/empresas/{rfc}/subir-al-espacio")
+def empresas_subir_al_espacio(rfc: str, req: SubirEspacioRequest):
+    """
+    (Solo desktop) Sube las credenciales de la empresa al espacio en línea del
+    usuario: viajan cifradas (HTTPS) DIRECTO a su agente personal en la nube —
+    nunca a la base de datos compartida. Es la misma alta que usa la versión
+    web, solo que iniciada desde este equipo. Acción explícita del usuario,
+    empresa por empresa.
+    """
+    if es_modo_hosted():
+        raise HTTPException(
+            status_code=400,
+            detail="Ya estás en tu espacio en línea; aquí no hay nada que subir.",
+        )
+    from ..espacio_online import EspacioOnlineError, subir_credenciales
+
+    metodos = [m for m in req.metodos if m in ("fiel", "ciec")]
+    try:
+        resultado = subir_credenciales(rfc.strip().upper(), metodos)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No se encontró empresa con RFC {rfc}")
+    except EspacioOnlineError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # El alta remota ya disparó el push del otro lado; este converge el local.
+    sincronizar_async("subir-espacio")
+    return resultado
 
 
 @router.patch("/empresas/{rfc}")

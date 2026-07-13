@@ -14,6 +14,8 @@ import { CaptchaModal } from '@/components/descarga/captcha-modal';
 import { JobProgress } from '@/components/descarga/job-progress';
 import { NavegadorStatusBanner } from '@/components/shared/navegador-status';
 import { RenovarEfirmaWizard } from '@/components/fiel/renovar-efirma-wizard';
+import { SubirEspacioDialog } from '@/components/empresas/subir-espacio-dialog';
+import { esWeb } from '@/lib/modo';
 import { mensajeDeError } from '@/lib/errores';
 import { abrirODescargar, iconoAbrir, tituloAbrir } from '@/lib/descargas';
 import { semaforoVencimiento } from '@/lib/vencimiento';
@@ -60,6 +62,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
   // el agente local ejecuta el `open`/`explorer`. Solo una a la vez por fila.
   const [accionBusy, setAccionBusy] = useState<{ kind: Documento; modo: ModoAbrir } | null>(null);
   const [renovarOpen, setRenovarOpen] = useState(false);
+  const [subirOpen, setSubirOpen] = useState(false);
 
   const sem = empresa.vencimiento ? semaforoVencimiento(empresa.vencimiento) : null;
   const tieneFiel = empresa.metodos.includes('fiel');
@@ -257,6 +260,18 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
                 </Link>
               </Button>
             )}
+            {/* Opt-in: subir las credenciales al espacio en línea (solo desde
+                la desktop y solo si aquí HAY credenciales que subir). */}
+            {!esWeb() && empresa.metodos.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSubirOpen(true)}
+                title="Usar esta empresa en la versión web (sube sus credenciales cifradas a tu espacio privado)"
+              >
+                <Icon icon="ph:cloud-arrow-up-light" className="size-3.5" />
+              </Button>
+            )}
           </div>
         </DocCardShell>
 
@@ -369,6 +384,13 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
       )}
 
       <CaptchaModal captcha={job.captcha} onResolver={job.responderCaptcha} />
+
+      <SubirEspacioDialog
+        empresa={empresa}
+        open={subirOpen}
+        onOpenChange={setSubirOpen}
+        onDone={onJobDone}
+      />
 
       {tieneFiel && RENOVACION_EFIRMA_HABILITADA && (
         <RenovarEfirmaWizard

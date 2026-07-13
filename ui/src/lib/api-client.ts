@@ -534,6 +534,21 @@ export class SatApiClient {
     );
   }
 
+  /**
+   * (Solo desktop) Sube las credenciales de la empresa al espacio en línea del
+   * usuario: van cifradas directo a su agente personal en la nube — nunca a
+   * bases de datos compartidas.
+   */
+  async subirAlEspacio(
+    rfc: string,
+    metodos: string[],
+  ): Promise<{ ok: boolean; subidos: string[] }> {
+    return this.post<{ ok: boolean; subidos: string[] }>(
+      `/empresas/${encodeURIComponent(rfc)}/subir-al-espacio`,
+      { metodos },
+    );
+  }
+
   /** Aplica un patch parcial a la empresa (regimenes_fiscales, actividades_economicas). */
   async updateEmpresa(
     rfc: string,
