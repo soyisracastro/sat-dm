@@ -395,6 +395,128 @@ def v1_zip_solicitud(rfc: str, id_solicitud: str, x_api_key: str = Header(None),
     return _descargar_de_agente(base, headers, ruta, zip_=True)
 
 
+class ProcesarRequest(BaseModel):
+    rfc: str
+    desde: Optional[str] = None   # YYYY-MM-DD
+    hasta: Optional[str] = None
+    tipo: Optional[str] = None    # E emitidos | R recibidos | None ambos
+
+
+def _params_filtros(rfc: str, desde, hasta, direccion) -> dict:
+    params = {"rfc": rfc.strip().upper()}
+    if desde:
+        params["desde"] = desde
+    if hasta:
+        params["hasta"] = hasta
+    if direccion:
+        params["direccion"] = direccion
+    return params
+
+
+@app.post("/v1/cfdi/procesar")
+def v1_procesar(req: ProcesarRequest, x_api_key: str = Header(None), authorization: str = Header(None)):
+    """Carga al procesador los XML YA descargados de la empresa (por período).
+
+    Flujo completo: POST /v1/cfdi/solicitudes → (el espacio descarga solo) →
+    este endpoint → /v1/cfdi/resumen | /v1/cfdi/excel.
+    """
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "cfdi:solicitar")
+    base, headers = _agente_de(user)
+    r = requests.post(
+        f"{base}/procesador/cfdi/cargar-desde-empresa",
+        headers=headers,
+        json={"rfc": req.rfc.strip().upper(), "desde": req.desde, "hasta": req.hasta, "tipo": req.tipo},
+        timeout=300,
+    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudieron procesar los CFDIs.")
+    return r.json()
+
+
+@app.get("/v1/cfdi/resumen")
+def v1_resumen(
+    rfc: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    direccion: Optional[str] = None,
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+):
+    """KPIs del período (totales, IVA/ISR, conteos) — para que la IA analice."""
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "documentos:leer")
+    base, headers = _agente_de(user)
+    r = requests.get(
+        f"{base}/procesador/cfdi/stats",
+        headers=headers,
+        params=_params_filtros(rfc, desde, hasta, direccion),
+        timeout=120,
+    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo obtener el resumen.")
+    return r.json()
+
+
+@app.get("/v1/cfdi/reporte/{nombre}")
+def v1_reporte(
+    nombre: str,
+    rfc: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    direccion: Optional[str] = None,
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+):
+    """Reportes JSON: totales-mes · top-contrapartes · integridad."""
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "documentos:leer")
+    base, headers = _agente_de(user)
+    r = requests.get(
+        f"{base}/procesador/cfdi/reporte/{nombre}",
+        headers=headers,
+        params=_params_filtros(rfc, desde, hasta, direccion),
+        timeout=120,
+    )
+    if r.status_code == 404:
+        raise HTTPException(status_code=404, detail=_detalle(r) or "Reporte desconocido.")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo generar el reporte.")
+    return r.json()
+
+
+@app.get("/v1/cfdi/excel")
+def v1_excel(
+    rfc: str,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    direccion: Optional[str] = None,
+    formato: str = "xlsx",
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+):
+    """El Excel (o CSV) del período con el detalle de impuestos, en streaming."""
+    user = _auth(x_api_key, authorization)
+    _exigir_scope(user, "documentos:leer")
+    base, headers = _agente_de(user)
+    params = _params_filtros(rfc, desde, hasta, direccion)
+    params["formato"] = formato
+    r = requests.get(
+        f"{base}/procesador/cfdi/exportar",
+        headers=headers,
+        params=params,
+        timeout=300,
+        stream=True,
+    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo exportar.")
+    return StreamingResponse(
+        r.iter_content(chunk_size=65536),
+        media_type=r.headers.get("content-type", "application/octet-stream"),
+        headers={"Content-Disposition": r.headers.get("content-disposition", "attachment")},
+    )
+
+
 @app.post("/v1/listas-negras")
 def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: str = Header(None)):
     """Consulta RFCs contra las listas 69/69-B (vía RPC de Supabase, sin agente)."""
@@ -524,6 +646,64 @@ try:
             timeout=_TIMEOUT,
         )
         return str(r.json()) if r.status_code == 200 else "No se pudieron consultar las listas."
+
+    @mcp_srv.tool()
+    def procesar_cfdis(rfc: str, desde: str = "", hasta: str = "", tipo: str = "") -> str:
+        """Carga al procesador los XML ya descargados de la empresa (fechas YYYY-MM-DD; tipo E/R o vacío para ambos). Correr después de que una solicitud esté descargada."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        r = requests.post(
+            f"{base}/procesador/cfdi/cargar-desde-empresa",
+            headers=headers,
+            json={"rfc": rfc.strip().upper(), "desde": desde or None, "hasta": hasta or None, "tipo": tipo or None},
+            timeout=300,
+        )
+        if r.status_code != 200:
+            return f"No se pudo procesar: {_detalle(r) or r.status_code}"
+        d = r.json()
+        return (
+            f"Procesados: {d.get('agregados', 0)} nuevos, {d.get('duplicados', 0)} ya estaban, "
+            f"{d.get('archivos_encontrados', 0)} archivos encontrados, {len(d.get('errores', []))} con error."
+        )
+
+    @mcp_srv.tool()
+    def resumen_cfdis(rfc: str, desde: str = "", hasta: str = "", direccion: str = "") -> str:
+        """KPIs del período procesado (totales, IVA/ISR retenidos y trasladados, conteos). direccion: E emitidos, R recibidos, vacío ambos."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        r = requests.get(
+            f"{base}/procesador/cfdi/stats",
+            headers=headers,
+            params=_params_filtros(rfc, desde or None, hasta or None, direccion or None),
+            timeout=120,
+        )
+        return str(r.json()) if r.status_code == 200 else f"No se pudo: {_detalle(r) or r.status_code}"
+
+    @mcp_srv.tool()
+    def reporte_cfdis(rfc: str, nombre: str, desde: str = "", hasta: str = "") -> str:
+        """Reporte JSON del período: totales-mes | top-contrapartes | integridad."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
+        r = requests.get(
+            f"{base}/procesador/cfdi/reporte/{nombre}",
+            headers=headers,
+            params=_params_filtros(rfc, desde or None, hasta or None, None),
+            timeout=120,
+        )
+        return str(r.json()) if r.status_code == 200 else f"No se pudo: {_detalle(r) or r.status_code}"
+
+    @mcp_srv.tool()
+    def link_excel_cfdis(rfc: str, desde: str = "", hasta: str = "", direccion: str = "") -> str:
+        """Link de descarga del Excel con el detalle de los CFDIs procesados (el usuario lo baja con su misma API key)."""
+        _mcp_user()
+        from urllib.parse import urlencode
+
+        params = _params_filtros(rfc, desde or None, hasta or None, direccion or None)
+        api = PUBLIC_BASE.replace("agente.", "api.")
+        return (
+            f"GET {api}/v1/cfdi/excel?{urlencode(params)} — con el header X-Api-Key de tu key. "
+            "Ejemplo: curl -H 'X-Api-Key: tc_live_…' -o cfdis.xlsx '" + f"{api}/v1/cfdi/excel?{urlencode(params)}'"
+        )
 
     _mcp_app = mcp_srv.streamable_http_app()
 
