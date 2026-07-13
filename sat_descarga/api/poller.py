@@ -80,11 +80,23 @@ def detener_poller() -> None:
 def _loop() -> None:
     if _stop.wait(ARRANQUE_DELAY_S):
         return
+    pasadas = 0
     while not _stop.is_set():
         try:
             _una_pasada()
         except Exception:  # noqa: BLE001 — el poller nunca debe morir
             logger.exception("[poller] Falló la pasada; se reintenta en la siguiente")
+        # Sync del catálogo de empresas al arrancar y luego cada ~30 min:
+        # converge cambios hechos en la otra instalación (desktop ⇄ online)
+        # aunque el usuario no toque nada. Best-effort, en su propio hilo.
+        if pasadas % 30 == 0:
+            try:
+                from .sync_empresas import sincronizar_async
+
+                sincronizar_async("poller")
+            except Exception:  # noqa: BLE001
+                pass
+        pasadas += 1
         if _stop.wait(POLL_INTERVAL_S):
             return
 
