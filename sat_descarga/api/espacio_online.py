@@ -92,7 +92,9 @@ def _validar_alta(resp: requests.Response, que: str) -> None:
     )
 
 
-def subir_credenciales(rfc: str, metodos: list[str]) -> dict:
+def subir_credenciales(
+    rfc: str, metodos: list[str], conexion: tuple[str, str] | None = None
+) -> dict:
     """
     Sube las credenciales locales de la empresa a su espacio en línea.
     `metodos` ⊆ {"fiel", "ciec"}. Devuelve {"ok": True, "subidos": [...]}.
@@ -102,7 +104,7 @@ def subir_credenciales(rfc: str, metodos: list[str]) -> dict:
     from ..cli import config_store
 
     empresa = config_store.get_empresa(rfc)  # KeyError si no existe
-    base, token = _conectar_espacio()
+    base, token = conexion or _conectar_espacio()
     headers = {"X-Agent-Token": token}
     subidos: list[str] = []
 
@@ -160,3 +162,104 @@ def subir_credenciales(rfc: str, metodos: list[str]) -> dict:
         raise EspacioOnlineError("No hay credenciales que subir para los métodos elegidos.")
     logger.info("[espacio] credenciales de %s subidas: %s", rfc, subidos)
     return {"ok": True, "subidos": subidos}
+
+
+# ---------------------------------------------------------------------------
+# Continuidad bidireccional (pieza 2): el espacio en la nube como hub
+# ---------------------------------------------------------------------------
+
+
+def sincronizar_credenciales() -> dict | None:
+    """
+    Replica credenciales entre este equipo y el espacio en línea del usuario,
+    en ambos sentidos — la nube no puede alcanzar este equipo, así que la
+    desktop siempre inicia: EMPUJA lo que a la web le falta y JALA lo que se
+    capturó en la web (alta local automática). Solo corre con el ajuste
+    "sincronizar credenciales" activado. Best-effort: nunca lanza.
+    """
+    import base64
+    import tempfile
+
+    from ..cli import config_store
+
+    if not config_store.get_sync_credenciales():
+        return None
+    try:
+        conexion = _conectar_espacio()
+    except EspacioOnlineError as e:
+        logger.info("[espacio] sync de credenciales omitido: %s", e)
+        return None
+    base, token = conexion
+    headers = {"X-Agent-Token": token}
+
+    # Estado REAL del agente remoto (no la unión del catálogo en la nube).
+    try:
+        r = requests.get(f"{base}/empresas", headers=headers, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        remotas = {e["rfc"]: e for e in r.json().get("empresas", [])}
+    except (requests.RequestException, ValueError):
+        return None
+    locales = {e["rfc"]: e for e in config_store.list_empresas()}
+
+    subidas: list[str] = []
+    bajadas: list[str] = []
+
+    # Push: credenciales locales que a la web le faltan (archivadas no viajan).
+    for rfc, loc in locales.items():
+        if loc.get("archived_at"):
+            continue
+        faltan = [
+            m for m in loc.get("metodos", [])
+            if m not in (remotas.get(rfc) or {}).get("metodos", [])
+        ]
+        if not faltan:
+            continue
+        try:
+            subir_credenciales(rfc, faltan, conexion=conexion)
+            subidas.append(rfc)
+        except (EspacioOnlineError, KeyError) as e:
+            logger.info("[espacio] push de %s omitido: %s", rfc, e)
+
+    # Pull: credenciales capturadas en la web que aquí faltan.
+    for rfc, rem in remotas.items():
+        if rem.get("archived_at"):
+            continue
+        loc = locales.get(rfc)
+        faltan = [
+            m for m in rem.get("metodos", [])
+            if m not in (loc or {}).get("metodos", [])
+        ]
+        if not faltan:
+            continue
+        try:
+            cred = requests.get(
+                f"{base}/empresas/{rfc}/credenciales", headers=headers, timeout=_TIMEOUT
+            )
+            if cred.status_code != 200:
+                continue
+            data = cred.json()
+            nombre = data.get("nombre") or ""
+            if "fiel" in faltan and data.get("fiel"):
+                f = data["fiel"]
+                with tempfile.TemporaryDirectory() as td:
+                    cer = os.path.join(td, "fiel.cer")
+                    key = os.path.join(td, "fiel.key")
+                    with open(cer, "wb") as fh:
+                        fh.write(base64.b64decode(f["cer_b64"]))
+                    with open(key, "wb") as fh:
+                        fh.write(base64.b64decode(f["key_b64"]))
+                    # add_empresa valida el par y COPIA a ~/.sat-descarga/efirma/.
+                    config_store.add_empresa(nombre, cer, key, f["password"], rfc_esperado=rfc)
+                bajadas.append(f"{rfc}:fiel")
+            if "ciec" in faltan and data.get("ciec"):
+                config_store.add_empresa_ciec(rfc, nombre, data["ciec"])
+                bajadas.append(f"{rfc}:ciec")
+        except Exception as e:  # noqa: BLE001 — una empresa mala no frena al resto
+            logger.info("[espacio] pull de %s omitido: %s", rfc, e)
+
+    if subidas or bajadas:
+        logger.info(
+            "[espacio] credenciales sincronizadas · subidas=%s bajadas=%s", subidas, bajadas
+        )
+    return {"subidas": subidas, "bajadas": bajadas}

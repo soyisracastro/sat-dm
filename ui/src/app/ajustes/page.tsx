@@ -151,6 +151,7 @@ export default function AjustesPage() {
   const [dir, setDir] = useState('');
   const [editable, setEditable] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncCreds, setSyncCreds] = useState<boolean | null>(null);
   const [notifPrefs, setNotifPrefsState] = useState<NotifPrefs>({
     descargas: true,
     efirma: true,
@@ -172,7 +173,22 @@ export default function AjustesPage() {
       .getDescargasDir()
       .then((r) => setDir(r.dir))
       .catch(() => {});
+    if (!esWeb()) {
+      apiClient
+        .getSyncCredenciales()
+        .then((r) => setSyncCreds(r.activado))
+        .catch(() => {});
+    }
   }, [apiClient]);
+
+  async function cambiarSyncCreds(v: boolean) {
+    setSyncCreds(v); // optimista; el agente persiste en settings.json
+    try {
+      await apiClient.setSyncCredenciales(v);
+    } catch {
+      setSyncCreds(!v);
+    }
+  }
 
   async function guardar(nueva: string) {
     setSaving(true);
@@ -249,6 +265,21 @@ export default function AjustesPage() {
             sub="Las facturas se ordenan en subcarpetas por tipo y por RFC."
             control={<span className="text-xs text-muted-foreground">Automática</span>}
           />
+          {/* Continuidad de credenciales (solo desktop): viajan cifradas
+              directo al espacio privado del usuario, nunca a BD compartidas. */}
+          {!web && (
+            <AjRow
+              label="Sincronizar credenciales con mi espacio en línea"
+              sub="Tu e.firma y CIEC viajan cifradas directo a tu espacio privado — nunca a bases de datos compartidas — para que puedas seguir trabajando desde el navegador, y lo que captures en la web aparezca aquí."
+              control={
+                <Switch
+                  checked={syncCreds ?? true}
+                  disabled={syncCreds === null}
+                  onCheckedChange={cambiarSyncCreds}
+                />
+              }
+            />
+          )}
         </AjCard>
 
         {/* Apariencia */}

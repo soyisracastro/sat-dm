@@ -240,6 +240,45 @@ def empresas_subir_al_espacio(rfc: str, req: SubirEspacioRequest):
     return resultado
 
 
+@router.get("/empresas/{rfc}/credenciales")
+def empresas_exportar_credenciales(rfc: str):
+    """
+    (Solo modo hosted) Exporta las credenciales de la empresa para la
+    continuidad con la desktop: el equipo del usuario las JALA de su espacio
+    en la nube (la nube no puede alcanzar su equipo, así que la desktop
+    siempre inicia). Protegido por el token del agente — solo se obtiene con
+    la sesión de la cuenta vía el provisioner. En desktop no existe (404):
+    el agente local solo escucha en loopback y no exporta credenciales.
+    """
+    if not es_modo_hosted():
+        raise HTTPException(status_code=404, detail="Not Found")
+    import base64
+
+    from ...cli import config_store
+
+    rfc = rfc.strip().upper()
+    try:
+        e = config_store.get_empresa(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No se encontró empresa con RFC {rfc}")
+
+    fiel = None
+    cer, key, pwd = e.get("cer_path"), e.get("key_path"), e.get("password")
+    if cer and key and pwd and os.path.exists(cer) and os.path.exists(key):
+        with open(cer, "rb") as fc, open(key, "rb") as fk:
+            fiel = {
+                "cer_b64": base64.b64encode(fc.read()).decode(),
+                "key_b64": base64.b64encode(fk.read()).decode(),
+                "password": pwd,
+            }
+    return {
+        "rfc": rfc,
+        "nombre": e.get("nombre") or rfc,
+        "fiel": fiel,
+        "ciec": e.get("ciec"),
+    }
+
+
 @router.patch("/empresas/{rfc}")
 def empresas_update(rfc: str, req: EmpresaUpdateRequest):
     """
