@@ -141,6 +141,23 @@ def get_descargas_dir_endpoint():
     return {"dir": config_store.asegurar_descargas_dir()}
 
 
+class SyncCredencialesRequest(BaseModel):
+    activado: bool
+
+
+@router.get("/config/sync-credenciales")
+def get_sync_credenciales_endpoint():
+    """Continuidad de credenciales con el espacio en línea (Ajustes)."""
+    from ...cli import config_store
+    return {"activado": config_store.get_sync_credenciales()}
+
+
+@router.put("/config/sync-credenciales")
+def set_sync_credenciales_endpoint(req: SyncCredencialesRequest):
+    from ...cli import config_store
+    return {"activado": config_store.set_sync_credenciales(req.activado)}
+
+
 @router.put("/config/descargas-dir")
 def set_descargas_dir_endpoint(req: DescargasDirRequest):
     """Cambia la carpeta base de descargas."""

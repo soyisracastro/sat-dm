@@ -534,6 +534,19 @@ export class SatApiClient {
     );
   }
 
+  /** Ajuste: continuidad de credenciales con el espacio en línea. */
+  async getSyncCredenciales(): Promise<{ activado: boolean }> {
+    return this.request<{ activado: boolean }>('/config/sync-credenciales');
+  }
+
+  async setSyncCredenciales(activado: boolean): Promise<{ activado: boolean }> {
+    return this.request<{ activado: boolean }>('/config/sync-credenciales', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activado }),
+    });
+  }
+
   /**
    * (Solo desktop) Sube las credenciales de la empresa al espacio en línea del
    * usuario: van cifradas directo a su agente personal en la nube — nunca a

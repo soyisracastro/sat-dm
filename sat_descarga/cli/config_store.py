@@ -1151,6 +1151,25 @@ def asegurar_descargas_dir() -> str:
     return d
 
 
+def get_sync_credenciales() -> bool:
+    """Continuidad de credenciales con el espacio en línea (default: activada).
+
+    ⚠️ El default cambia la promesa histórica "tu e.firma nunca sale de tu
+    equipo" → "…salvo a TU espacio privado": anunciado en el release y
+    desactivable aquí (Ajustes → Sincronización).
+    """
+    valor = _load_settings().get("sync_credenciales")
+    return True if valor is None else bool(valor)
+
+
+def set_sync_credenciales(activado: bool) -> bool:
+    with _catalogo_lock:
+        data = _load_settings()
+        data["sync_credenciales"] = bool(activado)
+        _save_settings(data)
+    return bool(activado)
+
+
 def set_descargas_dir(path: str) -> str:
     """Fija la carpeta base de descargas (y la crea). Retorna la ruta absoluta."""
     p = str(Path(path).expanduser())

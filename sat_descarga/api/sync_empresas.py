@@ -94,6 +94,14 @@ def sincronizar_async(motivo: str = "") -> None:
         try:
             while True:
                 sincronizar_catalogo()
+                # Continuidad de credenciales (pieza 2): solo desde la desktop
+                # (la nube no puede alcanzar el equipo; este lado inicia).
+                from ..core.config import es_modo_hosted
+
+                if not es_modo_hosted():
+                    from .espacio_online import sincronizar_credenciales
+
+                    sincronizar_credenciales()
                 with _lock:
                     if not _pendiente:
                         _corriendo = False
