@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import contextvars
+from contextlib import asynccontextmanager
 import hashlib
 import hmac
 import logging
@@ -420,6 +421,7 @@ def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: s
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.transport_security import TransportSecuritySettings
 
     mcp_srv = FastMCP(
         "TodoConta",
@@ -429,7 +431,12 @@ try:
             "masiva de CFDIs y listas negras 69/69-B."
         ),
         stateless_http=True,
-        streamable_http_path="/",
+        streamable_http_path="/mcp",
+        # Anti DNS-rebinding del SDK: sin esto solo acepta Host localhost.
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=[DOMINIO, f"{DOMINIO}:443", "localhost", "127.0.0.1:8795"],
+            allowed_origins=[f"https://{DOMINIO}", "https://app.todoconta.com"],
+        ),
     )
 
     def _mcp_user() -> dict:
@@ -527,6 +534,15 @@ try:
 
     _mcp_app = mcp_srv.streamable_http_app()
 
+    # El session manager del SDK exige correr dentro de un lifespan; al montar
+    # el sub-app, FastAPI NO ejecuta el suyo — se engancha al del app padre.
+    @asynccontextmanager
+    async def _lifespan(_app):
+        async with mcp_srv.session_manager.run():
+            yield
+
+    app.router.lifespan_context = _lifespan
+
     @app.middleware("http")
     async def _mcp_auth(request: Request, call_next):
         # /v1 se autentica por endpoint; /mcp aquí (las tools leen ctx_user).
@@ -544,7 +560,9 @@ try:
             ctx_user.set(user)
         return await call_next(request)
 
-    app.mount("/mcp", _mcp_app)
+    # Mount en raíz con path interno /mcp: sirve /mcp EXACTO (sin el 307 a
+    # /mcp/ que rompe a los clientes). Las rutas /v1 se registran antes y ganan.
+    app.mount("/", _mcp_app)
     logger.info("servidor MCP montado en /mcp")
 except ImportError:  # pragma: no cover — sin SDK, la REST sigue funcionando
     logger.warning("SDK de MCP no disponible; /mcp deshabilitado")
