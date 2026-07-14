@@ -552,6 +552,48 @@ def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: s
 
 
 # ---------------------------------------------------------------------------
+# Interno: vínculos del asistente (Abacus) — WhatsApp → API key cifrada
+# ---------------------------------------------------------------------------
+
+# El plugin abacus-todoconta (OpenClaw, mismo VPS) resuelve aquí el remitente
+# de WhatsApp a la key cifrada del usuario, en vez de hablar con Supabase
+# directamente: así el proceso del bot no necesita el service key. La key
+# viaja cifrada (AES-256-GCM, ASISTENTE_VINCULOS_KEY); el gateway nunca la ve
+# en claro. DDL: migración 031_asistente_vinculos.sql (todoconta-apps) ·
+# diseño: docs/api-publica.md.
+VINCULOS_INTERNAL_TOKEN = os.environ.get("VINCULOS_INTERNAL_TOKEN", "")
+
+
+@app.get("/internal/vinculos/{whatsapp}")
+def internal_vinculo(whatsapp: str, x_interno_token: str = Header(None)):
+    """Vínculo activo de un número E.164 (solo para el plugin de Abacus)."""
+    if not VINCULOS_INTERNAL_TOKEN or not hmac.compare_digest(
+        x_interno_token or "", VINCULOS_INTERNAL_TOKEN
+    ):
+        raise HTTPException(status_code=401, detail="Token interno inválido.")
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/asistente_vinculos",
+            params={
+                "whatsapp_e164": f"eq.{whatsapp}",
+                "estado": "eq.activo",
+                "select": "user_id,api_key_cifrada",
+            },
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            },
+            timeout=_TIMEOUT,
+        )
+    except requests.RequestException:
+        raise HTTPException(status_code=502, detail="No se pudo consultar el vínculo.")
+    filas = r.json() if r.status_code == 200 else []
+    if not filas:
+        raise HTTPException(status_code=404, detail="Número sin vínculo activo.")
+    return {"user_id": filas[0]["user_id"], "api_key_cifrada": filas[0]["api_key_cifrada"]}
+
+
+# ---------------------------------------------------------------------------
 # Servidor MCP (Streamable HTTP) — mismas operaciones como tools
 # ---------------------------------------------------------------------------
 
