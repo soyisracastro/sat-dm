@@ -321,13 +321,13 @@ class TestUpdateEmpresaPorcentaje:
         actividad = config_store.get_empresa(self.RFC)["actividades_economicas"][0]
         assert actividad == {"descripcion": "A", "principal": True}
 
-    def test_update_empresa_no_estampa_updated_at(self):
-        # Gap intencional: estos campos no viajan en el sync; estampar aquí
-        # crearía falsos ganadores LWW sobre `nombre` (ver docstring).
+    def test_update_empresa_estampa_updated_at(self):
+        # Régimen/actividades/DIOT ahora viajan en el sync: una edición manual
+        # debe bumpear updated_at para propagarse a la otra instalación.
         self._alta()
-        antes = config_store.get_empresa(self.RFC).get("updated_at")
-        config_store.update_empresa(self.RFC, {"presenta_diot": True})
-        assert config_store.get_empresa(self.RFC).get("updated_at") == antes
+        with patch.object(config_store, "_ahora_sync", return_value="2099-01-01T00:00:00+00:00"):
+            config_store.update_empresa(self.RFC, {"presenta_diot": True})
+        assert config_store.get_empresa(self.RFC).get("updated_at") == "2099-01-01T00:00:00+00:00"
 
 
 class TestAplicarDatosOpinion:
