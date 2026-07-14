@@ -142,6 +142,54 @@ class TestAplicarSyncRemoto:
         e = config_store.load_empresas()["empresas"]["NUE010101AAA"]
         assert e["csf_descargada_en"] == "2026-07-05T00:00:00+00:00"
 
+    def test_importa_metadata_fiscal_parseada(self):
+        regimenes = [{"clave": "601", "descripcion": "General de Ley PM"}]
+        actividades = [{"descripcion": "Gasolina", "principal": True, "porcentaje": 99}]
+        motivos = [{"titulo": "Créditos fiscales", "descripcion": "…", "detalles": ["123"]}]
+        config_store.aplicar_sync_remoto([self._remota(
+            regimenes_fiscales=regimenes,
+            actividades_economicas=actividades,
+            presenta_diot=True,
+            opinion_status="negativa",
+            opinion_motivos=motivos,
+        )])
+        e = config_store.get_empresa("NUE010101AAA")
+        assert e["regimenes_fiscales"] == regimenes
+        assert e["actividades_economicas"] == actividades
+        assert e["presenta_diot"] is True
+        assert e["opinion_status"] == "negativa"
+        assert e["opinion_motivos"] == motivos
+
+    def test_fila_remota_mas_nueva_no_borra_metadata_local(self):
+        # Guarda anti-wipe: una descarga de opinión (fila remota más nueva, pero
+        # SIN régimen) no debe borrar el régimen que este lado sí parseó.
+        with config_store._catalogo_lock:
+            data = config_store.load_empresas()
+            data["empresas"]["NUE010101AAA"] = {
+                "nombre": "X", "metodos": [],
+                "regimenes_fiscales": [{"clave": "626", "descripcion": "RESICO"}],
+                "updated_at": "2020-01-01T00:00:00+00:00",
+            }
+            config_store.save_empresas(data)
+        config_store.aplicar_sync_remoto([self._remota(
+            updated_at="2099-01-01T00:00:00+00:00",
+            regimenes_fiscales=[],  # la fila nueva no trae régimen
+            opinion_status="positiva",
+        )])
+        e = config_store.get_empresa("NUE010101AAA")
+        assert e["regimenes_fiscales"] == [{"clave": "626", "descripcion": "RESICO"}]
+        assert e["opinion_status"] == "positiva"  # sí aplica lo que sí viene
+
+    def test_push_incluye_metadata_fiscal(self):
+        config_store.add_empresa_ciec("XAXX010101000", "Prueba", "ciec")
+        config_store.update_empresa("XAXX010101000", {
+            "regimenes_fiscales": [{"clave": "626", "descripcion": "RESICO"}],
+        })
+        fila = next(f for f in config_store.catalogo_para_sync()
+                    if f["rfc"] == "XAXX010101000")
+        assert fila["regimenes_fiscales"] == [{"clave": "626", "descripcion": "RESICO"}]
+        assert "opinion_status" in fila and "presenta_diot" in fila
+
 
 def test_sincronizar_catalogo_sin_sesion_no_hace_nada(monkeypatch, tmp_path):
     from sat_descarga.api import license_client as lc
