@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 import { RENOVACION_EFIRMA_HABILITADA } from '@/lib/features';
 import { colorEmpresa, tipoPersona } from '@/lib/empresa-visual';
 import { semaforoVencimiento } from '@/lib/vencimiento';
+import { semaforoOpinion } from '@/lib/opinion';
 import type { Empresa } from '@/lib/types';
 import { mensajeDeError } from '@/lib/errores';
 
@@ -124,6 +125,8 @@ export function EmpresaDetalle() {
         onDatosAplicados={refresh}
       />
 
+      <OpinionSection empresa={empresa} onReparsed={refresh} />
+
       <CiecSection
         empresa={empresa}
         onGuardar={(ciec) => addCiec(empresa.rfc, ciec, empresa.nombre)}
@@ -191,6 +194,150 @@ function Guardado() {
     <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
       <Icon icon="ph:check-circle-light" className="size-3.5" /> Guardado
     </span>
+  );
+}
+
+/**
+ * Opinión de Cumplimiento 32-D: semáforo (positiva/negativa) y, cuando es
+ * negativa, los motivos que el SAT marca en la situación fiscal de la empresa.
+ * El sentido lo determina el agente al parsear el PDF descargado; aquí solo se
+ * muestra y se ofrece re-analizar una opinión ya descargada.
+ */
+function OpinionSection({
+  empresa,
+  onReparsed,
+}: {
+  empresa: Empresa;
+  onReparsed: () => void;
+}) {
+  const { apiClient } = useServer();
+  const sem = semaforoOpinion(empresa);
+  const [reanalizando, setReanalizando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Empresa sin ninguna opinión descargada: card informativa (la descarga vive
+  // en la lista de Empresas, fila expandida).
+  const sinOpinion = !empresa.opinion_path && !empresa.opinion_status;
+
+  const colorTono =
+    sem.tono === 'rojo'
+      ? 'text-red-600 dark:text-red-400'
+      : sem.tono === 'verde'
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : sem.tono === 'amarillo'
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-muted-foreground';
+
+  async function reanalizar() {
+    setReanalizando(true);
+    setError(null);
+    try {
+      await apiClient.parsearOpinion(empresa.rfc);
+      onReparsed();
+    } catch (e) {
+      setError(mensajeDeError(e));
+    } finally {
+      setReanalizando(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Icon icon="ph:clipboard-text-light" className="size-4 text-primary" />
+          <span className="text-sm font-medium">Opinión de Cumplimiento 32-D</span>
+        </div>
+        {empresa.opinion_path && (
+          <span title="Vuelve a leer el PDF ya descargado para actualizar el sentido y los motivos.">
+            <Button variant="outline" size="sm" onClick={reanalizar} disabled={reanalizando}>
+              <Icon
+                icon={reanalizando ? 'ph:circle-notch-light' : 'ph:arrows-clockwise-light'}
+                className={cn('size-3.5', reanalizando && 'animate-spin')}
+              />
+              Re-analizar opinión
+            </Button>
+          </span>
+        )}
+      </div>
+
+      {sinOpinion ? (
+        <p className="text-xs text-muted-foreground">
+          Aún no has descargado la opinión de esta empresa. Descárgala desde la
+          lista de Empresas (abre la fila de la empresa) y aquí verás su sentido y,
+          si es negativa, los motivos.
+        </p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <Icon
+              icon={
+                sem.tono === 'rojo'
+                  ? 'ph:warning-circle-light'
+                  : sem.tono === 'verde'
+                    ? 'ph:check-circle-light'
+                    : 'ph:info-light'
+              }
+              className={cn('size-5 shrink-0', colorTono)}
+            />
+            <span className={cn('text-base font-semibold', colorTono)}>
+              Opinión {sem.label.toLowerCase()}
+            </span>
+          </div>
+
+          {empresa.opinion_status === 'negativa' && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                El SAT marca la situación fiscal de esta empresa por lo siguiente:
+              </p>
+              {(empresa.opinion_motivos ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No se pudieron leer los motivos del PDF. Ábrelo desde la lista de
+                  Empresas para ver el detalle.
+                </p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {(empresa.opinion_motivos ?? []).map((m, i) => (
+                    <li
+                      key={`${m.titulo}-${i}`}
+                      className="rounded-md border border-destructive/30 bg-destructive/5 p-3"
+                    >
+                      <div className="flex items-center gap-1.5 text-sm font-semibold text-red-700 dark:text-red-400">
+                        <Icon icon="ph:warning-circle-light" className="size-4 shrink-0" />
+                        {m.titulo}
+                      </div>
+                      {m.descripcion && (
+                        <p className="mt-1 text-xs text-muted-foreground">{m.descripcion}</p>
+                      )}
+                      {m.detalles.length > 0 && (
+                        <ul className="mt-1.5 space-y-1">
+                          {m.detalles.map((d, j) => (
+                            <li key={j} className="flex gap-1.5 text-xs text-foreground">
+                              <span className="text-muted-foreground">•</span>
+                              <span>{d}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {sem.tono === 'amarillo' && (
+            <p className="text-xs text-muted-foreground">
+              {empresa.opinion_status === 'otro'
+                ? 'El sentido de esta opinión no es positiva ni negativa. Abre el PDF para revisarla.'
+                : 'Esta opinión se descargó antes del análisis automático. Usa «Re-analizar opinión» para conocer su sentido.'}
+            </p>
+          )}
+        </>
+      )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </Card>
   );
 }
 

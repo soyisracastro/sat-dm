@@ -19,6 +19,7 @@ import { esWeb } from '@/lib/modo';
 import { mensajeDeError } from '@/lib/errores';
 import { abrirODescargar, iconoAbrir, tituloAbrir } from '@/lib/descargas';
 import { semaforoVencimiento } from '@/lib/vencimiento';
+import { semaforoOpinion } from '@/lib/opinion';
 import { formatDate } from '@/lib/formatting';
 import { metodoPortalPreferido, etiquetaMetodo } from '@/lib/empresa-metodo';
 import { RENOVACION_EFIRMA_HABILITADA } from '@/lib/features';
@@ -328,6 +329,31 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
               ? `Última descarga · ${formatoFecha(empresa.opinion_descargada_en)}`
               : 'Aún no la has descargado'}
           </p>
+          {empresa.opinion_status && (
+            <div
+              className={cn(
+                'flex items-center gap-1.5 text-xs font-medium',
+                semaforoOpinion(empresa).tono === 'rojo'
+                  ? 'text-red-600 dark:text-red-400'
+                  : semaforoOpinion(empresa).tono === 'verde'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400',
+              )}
+            >
+              <Icon
+                icon={
+                  semaforoOpinion(empresa).tono === 'rojo'
+                    ? 'ph:warning-circle-light'
+                    : semaforoOpinion(empresa).tono === 'verde'
+                      ? 'ph:check-circle-light'
+                      : 'ph:info-light'
+                }
+                className="size-3.5 shrink-0"
+              />
+              Opinión {semaforoOpinion(empresa).label.toLowerCase()}
+              {semaforoOpinion(empresa).negativa && ' · ver detalle de la empresa'}
+            </div>
+          )}
           <div className="mt-auto flex items-center gap-1 pt-1">
             <Button
               size="sm"

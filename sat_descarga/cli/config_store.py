@@ -426,6 +426,10 @@ def list_empresas() -> list[dict]:
             "csf_descargada_en": info.get("csf_descargada_en"),
             "opinion_path": info.get("opinion_path"),
             "opinion_descargada_en": info.get("opinion_descargada_en"),
+            # Sentido de la última 32-D parseada (positiva/negativa/otro) + motivos
+            # de la negativa → semáforo y detalle de la empresa en la UI.
+            "opinion_status": info.get("opinion_status"),
+            "opinion_motivos": info.get("opinion_motivos", []),
             "regimenes_fiscales": info.get("regimenes_fiscales", []),
             "actividades_economicas": info.get("actividades_economicas", []),
             # None = sin configurar → la UI lo deriva del régimen (RESICO no
@@ -623,6 +627,37 @@ def set_opinion_descargada(rfc: str, path: str):
         data["empresas"][rfc]["opinion_descargada_en"] = datetime.now().isoformat(timespec="seconds")
         _stamp_sync(data["empresas"][rfc])
         save_empresas(data)
+
+
+def aplicar_datos_opinion(rfc: str, *, sentido: str, motivos: list[dict]) -> bool:
+    """
+    Best-effort: aplica a la empresa el sentido de su Opinión de Cumplimiento
+    32-D (positiva/negativa/otro) y, si es negativa, los motivos parseados.
+    Alimenta el semáforo de la UI. Devuelve True si aplicó cambios.
+
+    Shape de `motivos` (ya validado por el parser):
+      [{titulo: str, descripcion: str, detalles: list[str]}]
+
+    El sentido es derivado del PDF (no editable a mano); se estampa `updated_at`
+    para mantener la consistencia con el resto de mutadores.
+    """
+    with _catalogo_lock:
+        data = load_empresas()
+        emp = data["empresas"].get(rfc)
+        if emp is None:
+            return False
+        emp["opinion_status"] = sentido or None
+        emp["opinion_motivos"] = [
+            {
+                "titulo": str(m.get("titulo") or ""),
+                "descripcion": str(m.get("descripcion") or ""),
+                "detalles": [str(d) for d in (m.get("detalles") or [])],
+            }
+            for m in motivos
+        ]
+        _stamp_sync(emp)
+        save_empresas(data)
+        return True
 
 
 # ---------------------------------------------------------------------------

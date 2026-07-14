@@ -330,6 +330,50 @@ class TestUpdateEmpresaPorcentaje:
         assert config_store.get_empresa(self.RFC).get("updated_at") == antes
 
 
+class TestAplicarDatosOpinion:
+    """Sentido + motivos de la Opinión 32-D → semáforo de la empresa."""
+
+    RFC = "CAUI890921DAA"
+    MOTIVOS = [
+        {"titulo": "Créditos fiscales",
+         "descripcion": "Se ubican los siguientes créditos fiscales firmes o no garantizados a su cargo:",
+         "detalles": ["234910013510"]},
+        {"titulo": "Cumplimiento de obligaciones",
+         "descripcion": "Se detectan omisiones ...:",
+         "detalles": ["Pago provisional mensual de ISR ...", "Ejercicio 2022"]},
+    ]
+
+    def test_negativa_guarda_status_y_motivos(self):
+        config_store.add_empresa_ciec(self.RFC, "Israel", "ciec")
+        assert config_store.aplicar_datos_opinion(
+            self.RFC, sentido="negativa", motivos=self.MOTIVOS) is True
+        emp = config_store.get_empresa(self.RFC)
+        assert emp["opinion_status"] == "negativa"
+        assert [m["titulo"] for m in emp["opinion_motivos"]] == [
+            "Créditos fiscales", "Cumplimiento de obligaciones"]
+        assert emp["opinion_motivos"][0]["detalles"] == ["234910013510"]
+
+    def test_positiva_limpia_motivos(self):
+        config_store.add_empresa_ciec(self.RFC, "Israel", "ciec")
+        config_store.aplicar_datos_opinion(self.RFC, sentido="negativa", motivos=self.MOTIVOS)
+        # Una nueva descarga positiva debe dejar el semáforo verde y sin motivos.
+        config_store.aplicar_datos_opinion(self.RFC, sentido="positiva", motivos=[])
+        emp = config_store.get_empresa(self.RFC)
+        assert emp["opinion_status"] == "positiva"
+        assert emp["opinion_motivos"] == []
+
+    def test_expuesto_en_list_empresas(self):
+        config_store.add_empresa_ciec(self.RFC, "Israel", "ciec")
+        config_store.aplicar_datos_opinion(self.RFC, sentido="negativa", motivos=self.MOTIVOS)
+        emp = config_store.list_empresas()[0]
+        assert emp["opinion_status"] == "negativa"
+        assert len(emp["opinion_motivos"]) == 2
+
+    def test_rfc_inexistente_devuelve_false(self):
+        assert config_store.aplicar_datos_opinion(
+            "XXXX010101XXX", sentido="negativa", motivos=[]) is False
+
+
 # ---------------------------------------------------------------------------
 # Solicitudes
 # ---------------------------------------------------------------------------

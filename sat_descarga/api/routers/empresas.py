@@ -358,6 +358,57 @@ def empresas_parsear_csf(rfc: str):
     }
 
 
+@router.post("/empresas/{rfc}/parsear-opinion")
+def empresas_parsear_opinion(rfc: str):
+    """
+    Re-parsea la Opinión de Cumplimiento 32-D YA descargada (opinion_path) y
+    aplica su sentido (positiva/negativa) + motivos al catálogo — sin volver a
+    ir al SAT. Lo usa el botón "Re-analizar opinión".
+    """
+    from ...cli import config_store
+    from ...utils.opinion_parser import parsear_opinion
+
+    try:
+        empresa = config_store.get_empresa(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No se encontró empresa con RFC {rfc}")
+
+    opinion_path = empresa.get("opinion_path") or ""
+    if not opinion_path:
+        raise HTTPException(
+            status_code=409,
+            detail="Esta empresa no tiene una opinión 32-D descargada. Descárgala primero.",
+        )
+    if not os.path.isfile(opinion_path):
+        raise HTTPException(
+            status_code=409,
+            detail="El archivo de la opinión ya no está en el equipo; descárgala de nuevo.",
+        )
+
+    try:
+        datos = parsear_opinion(opinion_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo leer la opinión: {e}")
+
+    if datos.rfc and datos.rfc.upper() != rfc.upper():
+        raise HTTPException(
+            status_code=409,
+            detail=f"La opinión guardada es de otro RFC ({datos.rfc}); descarga la de esta empresa.",
+        )
+
+    motivos = [
+        {"titulo": m.titulo, "descripcion": m.descripcion, "detalles": m.detalles}
+        for m in datos.motivos
+    ]
+    config_store.aplicar_datos_opinion(rfc, sentido=datos.sentido, motivos=motivos)
+    return {
+        "ok": True,
+        "rfc": rfc,
+        "opinion_status": datos.sentido,
+        "opinion_motivos": motivos,
+    }
+
+
 @router.get("/empresas/{rfc}/solicitudes")
 def empresas_solicitudes(rfc: str):
     """Historial de solicitudes de descarga de la empresa (más recientes primero).

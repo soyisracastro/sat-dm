@@ -253,6 +253,39 @@ def _actualizar_empresa_desde_csf(rfc: str, pdf_path: str) -> None:
         logger.exception("No se pudo actualizar la empresa %s desde su CSF", rfc)
 
 
+def _actualizar_empresa_desde_opinion(rfc: str, pdf_path: str) -> None:
+    """
+    Best-effort: parsea la Opinión 32-D recién descargada y persiste su sentido
+    (positiva/negativa) + motivos en el catálogo (semáforo de la UI). NUNCA rompe
+    el flujo de descarga: cualquier fallo de parseo se registra y se sigue.
+    """
+    try:
+        from ...cli import config_store
+        from ...utils.opinion_parser import parsear_opinion
+
+        datos = parsear_opinion(pdf_path)
+        if datos.rfc and datos.rfc.upper() != rfc.upper():
+            logger.warning(
+                "La opinión 32-D trae RFC %s pero se descargó para %s; no se aplica.",
+                datos.rfc, rfc,
+            )
+            return
+        cambio = config_store.aplicar_datos_opinion(
+            rfc,
+            sentido=datos.sentido,
+            motivos=[{"titulo": m.titulo, "descripcion": m.descripcion,
+                      "detalles": m.detalles}
+                     for m in datos.motivos],
+        )
+        if cambio:
+            logger.info(
+                "Opinión 32-D de %s: sentido %s (%d motivos).",
+                rfc, datos.sentido or "desconocido", len(datos.motivos),
+            )
+    except Exception:
+        logger.exception("No se pudo actualizar la empresa %s desde su opinión 32-D", rfc)
+
+
 @router.post("/ciec/cfdi")
 def ciec_cfdi(req: CIECDescargaRequest):
     """Descarga CFDIs vía CIEC como job (captcha in-app por SSE). → {job_id}."""
@@ -346,6 +379,7 @@ def ciec_opinion(req: OpinionRequest):
         if archivo:
             from ...cli import config_store
             config_store.set_opinion_descargada(req.rfc, archivo)
+            _actualizar_empresa_desde_opinion(req.rfc, archivo)
 
     return _lanzar_job_portal(factory, al_completar=al_completar)
 
@@ -435,6 +469,7 @@ def opinion_fiel_endpoint():
         if _session["rfc"]:
             from ...cli import config_store
             config_store.set_opinion_descargada(_session["rfc"], str(pdf))
+            _actualizar_empresa_desde_opinion(_session["rfc"], str(pdf))
         return {"ok": True, "archivo": str(pdf)}
     except HTTPException:
         raise
