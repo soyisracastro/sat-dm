@@ -30,6 +30,7 @@ import type {
   EmpresaCiecRequest,
   EmpresaUpdatePatch,
   ParsearCsfResponse,
+  ParsearOpinionResponse,
   ActivarEmpresaResponse,
   SolicitudesResponse,
   SolicitudesActividadResponse,
@@ -570,6 +571,16 @@ export class SatApiClient {
   async parsearCsf(rfc: string): Promise<ParsearCsfResponse> {
     return this.post<ParsearCsfResponse>(
       `/empresas/${encodeURIComponent(rfc)}/parsear-csf`,
+    );
+  }
+
+  /**
+   * Re-parsea la Opinión 32-D ya descargada y aplica su sentido + motivos al
+   * catálogo (botón «Re-analizar opinión»).
+   */
+  async parsearOpinion(rfc: string): Promise<ParsearOpinionResponse> {
+    return this.post<ParsearOpinionResponse>(
+      `/empresas/${encodeURIComponent(rfc)}/parsear-opinion`,
     );
   }
 

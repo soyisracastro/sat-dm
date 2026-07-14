@@ -234,6 +234,17 @@ export interface JobEvent {
 
 export type MetodoEmpresa = 'fiel' | 'ciec';
 
+/** Sentido de la Opinión de Cumplimiento 32-D. 'otro' = sentido no
+ * positiva/negativa (p. ej. "sin obligaciones", "no inscrito"). */
+export type OpinionStatus = 'positiva' | 'negativa' | 'otro';
+
+/** Un motivo por el que la 32-D salió negativa (una sección del PDF). */
+export interface OpinionMotivo {
+  titulo: string;
+  descripcion: string;
+  detalles: string[];
+}
+
 export interface RegimenFiscalConfig {
   clave: string;
   descripcion: string;
@@ -269,6 +280,11 @@ export interface Empresa {
   /** Path local de la última Opinión de Cumplimiento 32-D descargada. */
   opinion_path?: string | null;
   opinion_descargada_en?: string | null;
+  /** Sentido de la última 32-D parseada → semáforo (verde/rojo). null = descargada
+   * pero aún sin analizar (opinión previa al parser) o sin descargar. */
+  opinion_status?: OpinionStatus | null;
+  /** Motivos de una 32-D negativa (por qué la situación fiscal está en rojo). */
+  opinion_motivos?: OpinionMotivo[];
   /** Régimen(es) fiscal(es) declarados. Se llenan solos al descargar la CSF
    * (parser en el agente) y siguen siendo editables a mano. */
   regimenes_fiscales?: RegimenFiscalConfig[];
@@ -378,6 +394,15 @@ export interface ParsearCsfResponse {
   nombre: string;
   regimenes_fiscales: RegimenFiscalConfig[];
   actividades_economicas: ActividadEconomicaConfig[];
+}
+
+// POST /empresas/{rfc}/parsear-opinion — re-parsea la 32-D ya descargada y
+// aplica su sentido + motivos al catálogo.
+export interface ParsearOpinionResponse {
+  ok: boolean;
+  rfc: string;
+  opinion_status: OpinionStatus | '';
+  opinion_motivos: OpinionMotivo[];
 }
 
 export interface EmpresasResponse {

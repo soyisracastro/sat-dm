@@ -8,6 +8,18 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **La Opinión de Cumplimiento 32-D ahora pinta el semáforo de la empresa y
+  explica por qué sale negativa.** Al descargar la opinión (CIEC o e.firma) el
+  agente lee el PDF y detecta su **sentido**: si es **positiva** el semáforo de
+  la empresa se pone **verde**, si es **negativa** se pone **rojo**. Cuando es
+  negativa, el detalle de la empresa lista **los motivos** que el SAT marca
+  (créditos fiscales firmes, omisiones de obligaciones, buzón tributario, listado
+  69-B, domicilio no localizado, …) con su descripción y periodos. El análisis es
+  agnóstico al tipo de causa: cualquier motivo por el que salga negativa queda
+  reflejado. Para opiniones ya descargadas, botón **«Re-analizar opinión»** en el
+  detalle (`POST /empresas/{rfc}/parsear-opinion`). Un fallo de lectura nunca
+  rompe la descarga.
+
 - **La Constancia de Situación Fiscal ahora rellena sola la configuración de
   la empresa.** Al descargar la CSF (CIEC o e.firma) el agente parsea el PDF
   y aplica al catálogo: el **nombre/razón social** tal cual el SAT (unifica

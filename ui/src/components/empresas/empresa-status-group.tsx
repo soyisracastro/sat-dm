@@ -1,6 +1,7 @@
 import { Icon } from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
 import { semaforoVencimiento } from '@/lib/vencimiento';
+import { semaforoOpinion, tituloOpinion } from '@/lib/opinion';
 import type { Empresa } from '@/lib/types';
 
 type Tone = 'verde' | 'amarillo' | 'rojo' | 'gris';
@@ -38,9 +39,10 @@ export function csfTone(e: Empresa): Tone {
   return e.csf_path ? 'verde' : 'rojo';
 }
 
-// Rojo (32-D negativa) requiere parsear el PDF — follow-up.
+// El sentido lo determina el agente al parsear el PDF (verde=positiva,
+// rojo=negativa, amarillo=descargada sin analizar/"otro", gris=no descargada).
 export function opinionTone(e: Empresa): Tone {
-  return e.opinion_path ? 'verde' : 'amarillo';
+  return semaforoOpinion(e).tono;
 }
 
 export function EmpresaStatusGroup({ empresa }: { empresa: Empresa }) {
@@ -64,7 +66,7 @@ export function EmpresaStatusGroup({ empresa }: { empresa: Empresa }) {
       <StatusDot
         tone={op}
         icon="ph:clipboard-text-light"
-        title={op === 'verde' ? 'Opinión 32-D descargada' : 'Opinión 32-D pendiente'}
+        title={tituloOpinion(empresa.opinion_status)}
       />
       {empresa.metodos.includes('ciec') && (
         <span

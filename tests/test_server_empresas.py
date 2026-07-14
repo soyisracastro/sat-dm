@@ -261,3 +261,74 @@ def test_parsear_csf_de_otro_rfc_409(client, tmp_path, monkeypatch):
     r = client.post("/empresas/SAJ0205248A9/parsear-csf")
     assert r.status_code == 409
     assert "otro RFC" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# POST /empresas/{rfc}/parsear-opinion — sentido + motivos de la 32-D
+# ---------------------------------------------------------------------------
+
+def _alta_con_opinion(client, tmp_path, rfc="CAUI890921DAA"):
+    client.post("/empresas/ciec", json={"rfc": rfc, "nombre": "", "ciec": "x"})
+    pdf = tmp_path / f"opinion32d_{rfc}.pdf"
+    pdf.write_bytes(b"%PDF-1.4 dummy")
+    config_store.set_opinion_descargada(rfc, str(pdf))
+    return pdf
+
+
+def test_parsear_opinion_empresa_inexistente_404(client):
+    assert client.post("/empresas/XXXX010101XXX/parsear-opinion").status_code == 404
+
+
+def test_parsear_opinion_sin_opinion_409(client):
+    client.post("/empresas/ciec", json={"rfc": "CAUI890921DAA", "nombre": "", "ciec": "x"})
+    r = client.post("/empresas/CAUI890921DAA/parsear-opinion")
+    assert r.status_code == 409
+    assert "no tiene una opinión" in r.json()["detail"]
+
+
+def test_parsear_opinion_archivo_borrado_409(client, tmp_path):
+    pdf = _alta_con_opinion(client, tmp_path)
+    pdf.unlink()
+    r = client.post("/empresas/CAUI890921DAA/parsear-opinion")
+    assert r.status_code == 409
+    assert "ya no está en el equipo" in r.json()["detail"]
+
+
+def test_parsear_opinion_pdf_ilegible_500(client, tmp_path):
+    _alta_con_opinion(client, tmp_path)
+    r = client.post("/empresas/CAUI890921DAA/parsear-opinion")
+    assert r.status_code == 500
+    assert "No se pudo leer la opinión" in r.json()["detail"]
+
+
+def test_parsear_opinion_negativa_aplica(client, tmp_path, monkeypatch):
+    from sat_descarga.utils import opinion_parser
+    from sat_descarga.utils.opinion_parser import DatosOpinion, MotivoOpinion
+
+    _alta_con_opinion(client, tmp_path)
+    monkeypatch.setattr(opinion_parser, "parsear_opinion", lambda _r: DatosOpinion(
+        rfc="CAUI890921DAA", sentido="negativa", folio="26ND5008217",
+        motivos=[MotivoOpinion(titulo="Créditos fiscales",
+                               descripcion="Se ubican ...:", detalles=["234910013510"])],
+    ))
+    r = client.post("/empresas/CAUI890921DAA/parsear-opinion")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["opinion_status"] == "negativa"
+    assert body["opinion_motivos"][0]["titulo"] == "Créditos fiscales"
+
+    emp = client.get("/empresas").json()["empresas"][0]
+    assert emp["opinion_status"] == "negativa"
+    assert emp["opinion_motivos"][0]["detalles"] == ["234910013510"]
+
+
+def test_parsear_opinion_de_otro_rfc_409(client, tmp_path, monkeypatch):
+    from sat_descarga.utils import opinion_parser
+    from sat_descarga.utils.opinion_parser import DatosOpinion
+
+    _alta_con_opinion(client, tmp_path)
+    monkeypatch.setattr(opinion_parser, "parsear_opinion", lambda _r: DatosOpinion(
+        rfc="OTRO010101AAA", sentido="positiva", folio="x", motivos=[]))
+    r = client.post("/empresas/CAUI890921DAA/parsear-opinion")
+    assert r.status_code == 409
+    assert "otro RFC" in r.json()["detail"]
