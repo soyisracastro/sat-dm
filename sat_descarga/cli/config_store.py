@@ -459,10 +459,9 @@ def update_empresa(rfc: str, patch: dict):
       - presenta_diot:         bool (override manual; ausente = derivar del régimen)
     Lanza ValueError si el shape es inválido y KeyError si el RFC no existe.
 
-    OJO: a propósito NO estampa `updated_at` (_stamp_sync). Estos campos no
-    viajan en el sync de catálogo, y estampar aquí haría que una edición manual
-    de regímenes convirtiera al equipo en falso ganador LWW sobre campos que sí
-    viajan (p. ej. `nombre`).
+    Estampa `updated_at`: régimen/actividades/DIOT ahora viajan en el sync de
+    catálogo, así que una edición manual debe propagarse a la otra instalación
+    (misma regla last-write-wins por fila).
     """
     with _catalogo_lock:
         data = load_empresas()
@@ -503,6 +502,7 @@ def update_empresa(rfc: str, patch: dict):
                      if k in ("descripcion", "principal", "porcentaje") and v is not None}
                     for i in value
                 ]
+        _stamp_sync(data["empresas"][rfc])
         save_empresas(data)
 
 
@@ -719,6 +719,13 @@ def catalogo_para_sync() -> list[dict]:
                 "archived_at": info.get("archived_at") or None,
                 "csf_descargada_en": info.get("csf_descargada_en") or None,
                 "opinion_descargada_en": info.get("opinion_descargada_en") or None,
+                # Metadata fiscal parseada (CSF/opinión) o editada a mano: viaja
+                # para que la otra instalación la vea sin re-descargar el PDF.
+                "regimenes_fiscales": info.get("regimenes_fiscales") or [],
+                "actividades_economicas": info.get("actividades_economicas") or [],
+                "presenta_diot": info.get("presenta_diot"),
+                "opinion_status": info.get("opinion_status") or None,
+                "opinion_motivos": info.get("opinion_motivos") or [],
                 "updated_at": info["updated_at"],
             })
         if cambios:
@@ -766,6 +773,19 @@ def aplicar_sync_remoto(remotas: list[dict]) -> int:
             for campo in ("csf_descargada_en", "opinion_descargada_en"):
                 if r.get(campo) and _ts_sync(r[campo]) > _ts_sync(local.get(campo)):
                     local[campo] = r[campo]
+            # Metadata fiscal (régimen/actividades/opinión). La fila remota ya
+            # ganó el LWW, pero solo se pisa con valores PRESENTES: así una
+            # descarga de opinión (fila más nueva, régimen intacto pero vacío en
+            # ese lado) no borra el régimen que la otra instalación sí parseó.
+            # Contrapartida: "vaciar todo el régimen a mano" no se propaga.
+            for campo in ("regimenes_fiscales", "actividades_economicas",
+                          "opinion_motivos"):
+                if r.get(campo):
+                    local[campo] = r[campo]
+            if r.get("opinion_status"):
+                local["opinion_status"] = r["opinion_status"]
+            if isinstance(r.get("presenta_diot"), bool):
+                local["presenta_diot"] = r["presenta_diot"]
             local["updated_at"] = r.get("updated_at") or _ahora_sync()
             aplicadas += 1
         if aplicadas:
