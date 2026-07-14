@@ -3,29 +3,76 @@
 Emite una API key de TodoConta (v1: manual, corre donde haya el service key).
 
     python3 emitir-key.py --email usuario@x.mx --nombre "Sistema de Facturación" \
-        [--scopes documentos:leer,cfdi:solicitar,listas-negras:consultar,mcp]
+        [--scopes documentos:leer,cfdi:solicitar,listas-negras:consultar,mcp] \
+        [--whatsapp +5215512345678]
 
 Imprime la key COMPLETA una sola vez (solo el hash queda en Supabase).
+
+Con `--whatsapp` además vincula el número al usuario en `asistente_vinculos`
+(la consume el plugin abacus-todoconta de OpenClaw): la key viaja cifrada con
+AES-256-GCM para que el bot pueda usarla sin que Supabase la conozca en claro.
+Formato guardado: base64( nonce(12) || ciphertext || tag(16) ).
+
 Env requeridas: TODOCONTA_SUPABASE_URL, SUPABASE_SERVICE_KEY.
+Con --whatsapp: ASISTENTE_VINCULOS_KEY (32 bytes en base64; la misma que
+descifra el plugin en el VPS) y el paquete `cryptography`.
 """
 
 import argparse
+import base64
 import hashlib
 import os
+import re
 import secrets
 import sys
 
 import requests
 
 SCOPES_DEFAULT = "documentos:leer,cfdi:solicitar,listas-negras:consultar,mcp"
+# Scopes que necesita Abacus (sin `mcp`: el plugin usa REST, no el conector).
+SCOPES_ABACUS = "documentos:leer,cfdi:solicitar,listas-negras:consultar"
+WHATSAPP_RE = re.compile(r"^\+[1-9][0-9]{7,14}$")
+
+
+def _cifrar_key(key: str) -> str:
+    """Cifra la API key con AES-256-GCM (ASISTENTE_VINCULOS_KEY, base64)."""
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        print("Falta el paquete `cryptography` (pip install cryptography).", file=sys.stderr)
+        raise SystemExit(1)
+
+    raw = os.environ.get("ASISTENTE_VINCULOS_KEY", "")
+    if not raw:
+        print("Falta ASISTENTE_VINCULOS_KEY (32 bytes base64) para --whatsapp.", file=sys.stderr)
+        raise SystemExit(1)
+    llave = base64.b64decode(raw)
+    if len(llave) != 32:
+        print("ASISTENTE_VINCULOS_KEY debe decodificar a exactamente 32 bytes.", file=sys.stderr)
+        raise SystemExit(1)
+
+    nonce = os.urandom(12)
+    cifrado = AESGCM(llave).encrypt(nonce, key.encode(), None)  # ciphertext||tag
+    return base64.b64encode(nonce + cifrado).decode()
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--email", required=True)
     ap.add_argument("--nombre", required=True)
-    ap.add_argument("--scopes", default=SCOPES_DEFAULT)
+    ap.add_argument("--scopes", default=None, help=f"default: {SCOPES_DEFAULT} (con --whatsapp: {SCOPES_ABACUS})")
+    ap.add_argument(
+        "--whatsapp",
+        default=None,
+        metavar="+52...",
+        help="Número E.164 a vincular en asistente_vinculos (para Abacus).",
+    )
     args = ap.parse_args()
+
+    if args.whatsapp and not WHATSAPP_RE.match(args.whatsapp):
+        print(f"Número inválido: {args.whatsapp} (formato E.164, ej. +5215512345678)", file=sys.stderr)
+        return 1
+    scopes = args.scopes or (SCOPES_ABACUS if args.whatsapp else SCOPES_DEFAULT)
 
     url = os.environ["TODOCONTA_SUPABASE_URL"].rstrip("/")
     svc = os.environ["SUPABASE_SERVICE_KEY"]
@@ -39,22 +86,53 @@ def main() -> int:
         print(f"No existe usuario con email {args.email}", file=sys.stderr)
         return 1
 
+    # Con --whatsapp, cifrar ANTES de insertar nada (si falta la llave, no dejamos key huérfana).
     key = f"tc_live_{secrets.token_urlsafe(32)}"
+    key_cifrada = _cifrar_key(key) if args.whatsapp else None
+
     fila = {
         "user_id": user["id"],
         "nombre": args.nombre,
         "key_hash": hashlib.sha256(key.encode()).hexdigest(),
         "prefijo": key[:16],
-        "scopes": [s.strip() for s in args.scopes.split(",") if s.strip()],
+        "scopes": [s.strip() for s in scopes.split(",") if s.strip()],
     }
-    r = requests.post(f"{url}/rest/v1/api_keys", json=fila, headers={**h, "Prefer": "return=minimal"}, timeout=30)
+    r = requests.post(
+        f"{url}/rest/v1/api_keys",
+        json=fila,
+        headers={**h, "Prefer": "return=representation"},
+        timeout=30,
+    )
     if r.status_code not in (200, 201):
         print(f"Error al insertar: {r.status_code} {r.text}", file=sys.stderr)
         return 1
+    key_id = (r.json() or [{}])[0].get("id")
+
+    if args.whatsapp:
+        vinculo = {
+            "user_id": user["id"],
+            "whatsapp_e164": args.whatsapp,
+            "api_key_id": key_id,
+            "api_key_cifrada": key_cifrada,
+            "estado": "activo",
+        }
+        # Upsert por número: re-vincular reemplaza la key anterior del mismo WhatsApp.
+        r = requests.post(
+            f"{url}/rest/v1/asistente_vinculos",
+            json=vinculo,
+            headers={**h, "Prefer": "resolution=merge-duplicates,return=minimal"},
+            params={"on_conflict": "whatsapp_e164"},
+            timeout=30,
+        )
+        if r.status_code not in (200, 201, 204):
+            print(f"Key emitida pero falló el vínculo WhatsApp: {r.status_code} {r.text}", file=sys.stderr)
+            return 1
 
     print("API key emitida (guárdala AHORA; no se puede recuperar):\n")
     print(f"  {key}\n")
     print(f"  usuario: {args.email} · scopes: {fila['scopes']} · prefijo: {fila['prefijo']}")
+    if args.whatsapp:
+        print(f"  vínculo Abacus: {args.whatsapp} → {args.email} (key cifrada en asistente_vinculos)")
     return 0
 
 

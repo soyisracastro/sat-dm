@@ -6,6 +6,8 @@
 #   TODOCONTA_SUPABASE_URL=
 #   SUPABASE_SERVICE_KEY=         # service role (valida api_keys + RPC listas)
 #   AGENTE_IMAGEN=todoconta/agente:dev
+#   VINCULOS_INTERNAL_TOKEN=      # /internal/vinculos (plugin abacus-todoconta)
+#   ASISTENTE_VINCULOS_KEY=       # AES-256-GCM de emitir-key.py --whatsapp (32 bytes b64)
 #
 # Despliegue: docker compose up -d --build
 
@@ -17,6 +19,10 @@ services:
     mem_limit: 256m
     networks:
       - agentes
+    # Loopback del host: OpenClaw (Abacus) vive FUERA de Docker y consume
+    # /internal/vinculos y /v1 por aquí; Traefik solo publica /v1 y /mcp.
+    ports:
+      - "127.0.0.1:8795:8795"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     env_file: .env

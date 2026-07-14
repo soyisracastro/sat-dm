@@ -66,6 +66,30 @@ https://api.todoconta.com
   `user_id` y deriva el agente. **Scopes** por key: `documentos:leer`,
   `cfdi:solicitar`, `listas-negras:consultar`, `mcp`.
 
+### Vinculación Abacus (WhatsApp)
+
+Abacus (asistente fiscal por WhatsApp, OpenClaw en el mismo VPS) consume la API
+pública **por REST v1 con la key de cada suscriptor** — no por MCP, porque un
+solo bot atiende N usuarios y la config MCP es estática por workspace.
+
+- **Identidad = número de WhatsApp (E.164)**, igual que la whitelist del
+  gatekeeper. El SDK de OpenClaw entrega al plugin `requesterSenderId`
+  (runtime-provided, no falsificable por el modelo); el plugin lo resuelve a la
+  key del usuario.
+- Tabla `asistente_vinculos` (migración `031_asistente_vinculos.sql` en
+  todoconta-apps, como la 030 de `api_keys`):
+  `whatsapp_e164 (unique) → user_id + api_key_cifrada`. La key viaja cifrada
+  con AES-256-GCM (`ASISTENTE_VINCULOS_KEY`, 32 bytes base64, solo en el VPS);
+  formato `base64(nonce(12) || ciphertext || tag(16))`. Supabase solo ve el
+  blob; `api_keys` sigue guardando únicamente el hash.
+- **Emisión + vínculo en un paso**: `emitir-key.py --email … --nombre "Abacus"
+  --whatsapp +52…` (scopes sin `mcp`; upsert por número, re-vincular rota la
+  key de ese WhatsApp).
+- El plugin vive en el repo de Abacus (`plugins/abacus-todoconta/`) y se
+  despliega a `~/.openclaw/plugins-local/` en el VPS.
+- Self-service (código de verificación desde app.todoconta.com) queda para la
+  fase de pricing; hoy la vinculación es manual por script.
+
 ### Contrato REST v1 (borrador)
 
 | Endpoint | Qué hace | Mapea a (agente) |
