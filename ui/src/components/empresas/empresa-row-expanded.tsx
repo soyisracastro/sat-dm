@@ -64,6 +64,9 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
   const [accionBusy, setAccionBusy] = useState<{ kind: Documento; modo: ModoAbrir } | null>(null);
   const [renovarOpen, setRenovarOpen] = useState(false);
   const [subirOpen, setSubirOpen] = useState(false);
+  // Documento cuyo job CIEC está corriendo, para animar el botón que se clickeó
+  // (el job bloquea ambos, pero solo el pulsado muestra el spinner).
+  const [jobKind, setJobKind] = useState<Documento | null>(null);
 
   const sem = empresa.vencimiento ? semaforoVencimiento(empresa.vencimiento) : null;
   const tieneFiel = empresa.metodos.includes('fiel');
@@ -83,8 +86,17 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
     return fielBusy[kind];
   }
 
+  // ¿Este documento se está descargando ahora? FIEL (síncrono) o el job CIEC
+  // que se lanzó desde este botón. Alimenta el spinner + "Descargando…".
+  function bajando(kind: Documento): boolean {
+    return fielBusy[kind] || (ciecCorriendo && jobKind === kind);
+  }
+
   useEffect(() => {
     if (job.estado === 'done') onJobDone();
+    if (job.estado === 'done' || job.estado === 'error' || job.estado === 'cancelled') {
+      setJobKind(null);
+    }
   }, [job.estado, onJobDone]);
 
   async function bajar(kind: Documento) {
@@ -109,6 +121,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
       return;
     }
 
+    setJobKind(kind);
     job.iniciar(
       () =>
         kind === 'constancia'
@@ -168,6 +181,45 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
             className={cargandoCarpeta ? 'size-4 animate-spin' : 'size-4'}
           />
         </Button>
+      </>
+    );
+  }
+
+  /** Botón de descarga + acciones de archivo, con estado de carga. */
+  function renderDescarga(kind: Documento, etiquetaNuevo: string) {
+    const ruta = kind === 'constancia' ? empresa.csf_path : empresa.opinion_path;
+    const trabajando = bajando(kind);
+    return (
+      <>
+        <div className="mt-auto flex items-center gap-1 pt-1">
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-1"
+            disabled={botonDisabled(kind)}
+            onClick={() => bajar(kind)}
+            title={!metodo ? 'Agrega FIEL o CIEC en Empresas' : undefined}
+          >
+            <Icon
+              icon={trabajando ? 'ph:circle-notch-light' : 'ph:download-simple-light'}
+              className={cn('mr-1.5 size-3.5', trabajando && 'animate-spin')}
+            />
+            {trabajando ? 'Descargando…' : ruta ? 'Volver a descargar' : etiquetaNuevo}
+          </Button>
+          {renderAccionesArchivo(kind, ruta)}
+        </div>
+        {/* Con e.firma la descarga es síncrona y puede tardar (login + visor del
+            SAT); sin este aviso el botón solo se ve deshabilitado. Con CIEC el
+            terminal de abajo ya narra el avance. */}
+        {trabajando && metodo === 'fiel' && (
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Icon icon="ph:circle-notch-light" className="mt-0.5 size-3 shrink-0 animate-spin" />
+            <span>
+              Conectando con el SAT y generando el documento con tu e.firma… puede
+              tardar hasta un par de minutos. No cierres la app.
+            </span>
+          </p>
+        )}
       </>
     );
   }
@@ -294,20 +346,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
               ? `Última descarga · ${formatoFecha(empresa.csf_descargada_en)}`
               : 'Aún no la has descargado'}
           </p>
-          <div className="mt-auto flex items-center gap-1 pt-1">
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1"
-              disabled={botonDisabled('constancia')}
-              onClick={() => bajar('constancia')}
-              title={!metodo ? 'Agrega FIEL o CIEC en Empresas' : undefined}
-            >
-              <Icon icon="ph:download-simple-light" className="mr-1.5 size-3.5" />
-              {empresa.csf_path ? 'Volver a descargar' : 'Descargar CSF'}
-            </Button>
-            {renderAccionesArchivo('constancia', empresa.csf_path)}
-          </div>
+          {renderDescarga('constancia', 'Descargar CSF')}
           {!metodo && (
             <p className="text-xs text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
           )}
@@ -354,20 +393,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
               {semaforoOpinion(empresa).negativa && ' · ver detalle de la empresa'}
             </div>
           )}
-          <div className="mt-auto flex items-center gap-1 pt-1">
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1"
-              disabled={botonDisabled('opinion')}
-              onClick={() => bajar('opinion')}
-              title={!metodo ? 'Agrega FIEL o CIEC en Empresas' : undefined}
-            >
-              <Icon icon="ph:download-simple-light" className="mr-1.5 size-3.5" />
-              {empresa.opinion_path ? 'Volver a descargar' : 'Descargar 32-D'}
-            </Button>
-            {renderAccionesArchivo('opinion', empresa.opinion_path)}
-          </div>
+          {renderDescarga('opinion', 'Descargar 32-D')}
           {!metodo && (
             <p className="text-xs text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
           )}
