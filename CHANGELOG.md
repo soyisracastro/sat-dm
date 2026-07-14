@@ -6,6 +6,20 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Feature
+
+- **La Constancia de Situación Fiscal ahora rellena sola la configuración de
+  la empresa.** Al descargar la CSF (CIEC o e.firma) el agente parsea el PDF
+  y aplica al catálogo: el **nombre/razón social** tal cual el SAT (unifica
+  empresas que quedaron con el RFC como nombre o con mayúsculas/minúsculas
+  inconsistentes), los **regímenes fiscales activos** (mapeados a su clave del
+  catálogo c_RegimenFiscal) y las **actividades económicas** con su porcentaje,
+  ordenadas de mayor a menor peso y con la principal marcada. La constancia
+  manda: cada descarga actualiza estos datos (siguen siendo editables a mano).
+  Para constancias ya descargadas, botón **«Rellenar desde la constancia»** en
+  la card de Configuración fiscal (`POST /empresas/{rfc}/parsear-csf`), sin
+  volver a ir al SAT. Un fallo de parseo nunca rompe la descarga.
+
 ### Bug fix
 
 - **Descarga WS: el «Estado de la solicitud» ya no se queda «Verificando…»

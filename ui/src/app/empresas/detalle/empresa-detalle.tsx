@@ -121,6 +121,7 @@ export function EmpresaDetalle() {
       <ConfiguracionFiscalCard
         empresa={empresa}
         onGuardar={(patch) => update(empresa.rfc, patch)}
+        onDatosAplicados={refresh}
       />
 
       <CiecSection

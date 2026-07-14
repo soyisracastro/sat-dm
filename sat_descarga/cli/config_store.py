@@ -451,9 +451,14 @@ def update_empresa(rfc: str, patch: dict):
     el resto se ignora silenciosamente (defensa básica).
     Valida shapes:
       - regimenes_fiscales:    list[{clave: str, descripcion: str}]
-      - actividades_economicas: list[{descripcion: str, principal?: bool}]
+      - actividades_economicas: list[{descripcion: str, principal?: bool, porcentaje?: num}]
       - presenta_diot:         bool (override manual; ausente = derivar del régimen)
     Lanza ValueError si el shape es inválido y KeyError si el RFC no existe.
+
+    OJO: a propósito NO estampa `updated_at` (_stamp_sync). Estos campos no
+    viajan en el sync de catálogo, y estampar aquí haría que una edición manual
+    de regímenes convirtiera al equipo en falso ganador LWW sobre campos que sí
+    viajan (p. ej. `nombre`).
     """
     with _catalogo_lock:
         data = load_empresas()
@@ -486,8 +491,12 @@ def update_empresa(rfc: str, patch: dict):
                         raise ValueError("actividad inválida: requiere descripcion (str)")
                     if "principal" in item and not isinstance(item["principal"], bool):
                         raise ValueError("actividad.principal debe ser bool")
+                    if item.get("porcentaje") is not None \
+                            and not isinstance(item["porcentaje"], (int, float)):
+                        raise ValueError("actividad.porcentaje debe ser numérico")
                 data["empresas"][rfc][key] = [
-                    {k: v for k, v in i.items() if k in ("descripcion", "principal")}
+                    {k: v for k, v in i.items()
+                     if k in ("descripcion", "principal", "porcentaje") and v is not None}
                     for i in value
                 ]
         save_empresas(data)
@@ -561,6 +570,47 @@ def set_csf_descargada(rfc: str, path: str):
         data["empresas"][rfc]["csf_descargada_en"] = datetime.now().isoformat(timespec="seconds")
         _stamp_sync(data["empresas"][rfc])
         save_empresas(data)
+
+
+def aplicar_datos_csf(rfc: str, *, nombre: str,
+                      regimenes: list[dict], actividades: list[dict]) -> bool:
+    """
+    Best-effort: aplica a la empresa los datos parseados de su Constancia de
+    Situación Fiscal. La constancia MANDA: sobrescribe nombre (si viene),
+    regímenes fiscales y actividades económicas aunque estuvieran configurados
+    a mano — es el documento oficial y unifica placeholders (nombre == RFC) y
+    casing inconsistente. Devuelve True si aplicó cambios.
+
+    Shapes esperados (ya validados por el parser):
+      regimenes:   [{clave: str ("" si no matcheó el catálogo), descripcion: str}]
+      actividades: [{descripcion: str, principal: bool, porcentaje?: num}]
+
+    Sí estampa `updated_at`: el `nombre` viaja en el sync de catálogo y este
+    cambio debe ganar el merge LWW.
+    """
+    with _catalogo_lock:
+        data = load_empresas()
+        emp = data["empresas"].get(rfc)
+        if emp is None:
+            return False
+        nuevo_nombre = (nombre or "").strip()
+        if nuevo_nombre:
+            emp["nombre"] = nuevo_nombre
+        emp["regimenes_fiscales"] = [
+            {"clave": str(r.get("clave") or ""), "descripcion": str(r.get("descripcion") or "")}
+            for r in regimenes
+        ]
+        emp["actividades_economicas"] = [
+            {k: v for k, v in {
+                "descripcion": str(a.get("descripcion") or ""),
+                "principal": bool(a.get("principal", False)),
+                "porcentaje": a.get("porcentaje"),
+            }.items() if v is not None}
+            for a in actividades
+        ]
+        _stamp_sync(emp)
+        save_empresas(data)
+        return True
 
 
 def set_opinion_descargada(rfc: str, path: str):

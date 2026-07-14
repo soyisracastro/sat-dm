@@ -175,3 +175,89 @@ def test_solicitudes_actividad_global(client):
     assert por_id["id-a"]["estado"] == "solicitada"
     # La colgada >72 h sale ya como vencida (sin esperar al poller).
     assert por_id["id-b"]["estado"] == "vencida"
+
+
+# ---------------------------------------------------------------------------
+# POST /empresas/{rfc}/parsear-csf — rellenar desde la constancia ya descargada
+# ---------------------------------------------------------------------------
+
+def _alta_con_csf(client, tmp_path, rfc="SAJ0205248A9"):
+    """Empresa con una CSF 'descargada' (archivo dummy en tmp)."""
+    client.post("/empresas/ciec", json={"rfc": rfc, "nombre": "", "ciec": "x"})
+    pdf = tmp_path / f"constancia_{rfc}.pdf"
+    pdf.write_bytes(b"%PDF-1.4 dummy")
+    config_store.set_csf_descargada(rfc, str(pdf))
+    return pdf
+
+
+def test_parsear_csf_empresa_inexistente_404(client):
+    r = client.post("/empresas/XXXX010101XXX/parsear-csf")
+    assert r.status_code == 404
+
+
+def test_parsear_csf_sin_constancia_409(client):
+    client.post("/empresas/ciec", json={"rfc": "SAJ0205248A9", "nombre": "", "ciec": "x"})
+    r = client.post("/empresas/SAJ0205248A9/parsear-csf")
+    assert r.status_code == 409
+    assert "no tiene una constancia" in r.json()["detail"]
+
+
+def test_parsear_csf_archivo_borrado_409(client, tmp_path):
+    pdf = _alta_con_csf(client, tmp_path)
+    pdf.unlink()
+    r = client.post("/empresas/SAJ0205248A9/parsear-csf")
+    assert r.status_code == 409
+    assert "ya no está en el equipo" in r.json()["detail"]
+
+
+def test_parsear_csf_pdf_ilegible_500(client, tmp_path):
+    # El dummy no es un PDF válido → error de lectura controlado en español.
+    _alta_con_csf(client, tmp_path)
+    r = client.post("/empresas/SAJ0205248A9/parsear-csf")
+    assert r.status_code == 500
+    assert "No se pudo leer la constancia" in r.json()["detail"]
+
+
+def test_parsear_csf_aplica_datos(client, tmp_path, monkeypatch):
+    from sat_descarga.utils import csf_parser
+    from sat_descarga.utils.csf_parser import ActividadCsf, DatosCsf, RegimenCsf
+
+    _alta_con_csf(client, tmp_path)
+    monkeypatch.setattr(csf_parser, "parsear_csf", lambda _ruta: DatosCsf(
+        rfc="SAJ0205248A9",
+        nombre="SUPERSERVICIO AJUCHITLAN",
+        tipo_persona="PM",
+        regimenes=[RegimenCsf(clave="601", descripcion="Régimen General de Ley Personas Morales")],
+        actividades=[
+            ActividadCsf(descripcion="Gasolina y diésel", porcentaje=99, principal=True),
+            ActividadCsf(descripcion="Lubricantes", porcentaje=1, principal=False),
+        ],
+    ))
+
+    r = client.post("/empresas/SAJ0205248A9/parsear-csf")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["nombre"] == "SUPERSERVICIO AJUCHITLAN"
+    assert body["regimenes_fiscales"][0]["clave"] == "601"
+    assert body["actividades_economicas"][0] == {
+        "descripcion": "Gasolina y diésel", "principal": True, "porcentaje": 99,
+    }
+
+    # Y quedó persistido en el catálogo (el alta dejó el RFC como placeholder).
+    emp = client.get("/empresas").json()["empresas"][0]
+    assert emp["nombre"] == "SUPERSERVICIO AJUCHITLAN"
+    assert emp["regimenes_fiscales"][0]["clave"] == "601"
+    assert emp["actividades_economicas"][0]["porcentaje"] == 99
+
+
+def test_parsear_csf_de_otro_rfc_409(client, tmp_path, monkeypatch):
+    from sat_descarga.utils import csf_parser
+    from sat_descarga.utils.csf_parser import DatosCsf
+
+    _alta_con_csf(client, tmp_path)
+    monkeypatch.setattr(csf_parser, "parsear_csf", lambda _ruta: DatosCsf(
+        rfc="OTRO010101AAA", nombre="OTRA EMPRESA", tipo_persona="PM",
+    ))
+    r = client.post("/empresas/SAJ0205248A9/parsear-csf")
+    assert r.status_code == 409
+    assert "otro RFC" in r.json()["detail"]

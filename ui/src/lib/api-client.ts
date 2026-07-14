@@ -29,6 +29,7 @@ import type {
   EmpresasResponse,
   EmpresaCiecRequest,
   EmpresaUpdatePatch,
+  ParsearCsfResponse,
   ActivarEmpresaResponse,
   SolicitudesResponse,
   SolicitudesActividadResponse,
@@ -559,6 +560,16 @@ export class SatApiClient {
     return this.post<{ ok: boolean; subidos: string[] }>(
       `/empresas/${encodeURIComponent(rfc)}/subir-al-espacio`,
       { metodos },
+    );
+  }
+
+  /**
+   * Re-parsea la CSF ya descargada y aplica nombre, regímenes y actividades
+   * al catálogo (botón «Rellenar desde la constancia»).
+   */
+  async parsearCsf(rfc: string): Promise<ParsearCsfResponse> {
+    return this.post<ParsearCsfResponse>(
+      `/empresas/${encodeURIComponent(rfc)}/parsear-csf`,
     );
   }
 
