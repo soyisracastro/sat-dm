@@ -32,6 +32,9 @@ from .portal.opinion import descargar_opinion_ciec, descargar_opinion_fiel
 from .portal.csd import enviar_solicitud_csd_fiel, recuperar_ultimo_csd_fiel
 from .portal.renovacion import enviar_renovacion_fiel, recuperar_renovacion_fiel
 
+# Parser de la Constancia de Situación Fiscal (nombre, regímenes, actividades).
+from .utils.csf_parser import DatosCsf, parsear_csf
+
 # Listas negras del SAT (Art. 69 y 69-B). Cliente HTTP hacia todoconta-apps.
 from .utils.listas_negras import (
     MatchListaNegra,
@@ -91,6 +94,8 @@ __all__ = [
     "descargar_constancia_fiel",
     "descargar_opinion_ciec",
     "descargar_opinion_fiel",
+    "DatosCsf",
+    "parsear_csf",
     "MatchListaNegra",
     "ListasMetadata",
     "consultar_rfcs",

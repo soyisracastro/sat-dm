@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
+import { useServer } from '@/providers/server-provider';
 import { cn } from '@/lib/utils';
 import {
   getRegimenesByTipoPersona,
@@ -31,6 +32,8 @@ import { mensajeDeError } from '@/lib/errores';
 interface Props {
   empresa: Empresa;
   onGuardar: (patch: EmpresaUpdatePatch) => Promise<void>;
+  /** Tras rellenar desde la CSF: el padre refresca el catálogo (nombre nuevo). */
+  onDatosAplicados?: () => void;
 }
 
 /** Texto contextual del boceto: explica de dónde sale el valor sugerido. */
@@ -45,7 +48,8 @@ function diotHint(regimenes: RegimenFiscalConfig[]): string {
   return `Sugerido en «No»: ${regimenes[0].descripcion} no está obligado por regla general. Actívalo si un supuesto lo obliga —por ejemplo, rebasar el límite de ingresos.`;
 }
 
-export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
+export function ConfiguracionFiscalCard({ empresa, onGuardar, onDatosAplicados }: Props) {
+  const { apiClient } = useServer();
   const [regimenes, setRegimenes] = useState<RegimenFiscalConfig[]>(
     empresa.regimenes_fiscales ?? [],
   );
@@ -68,6 +72,7 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
   );
 
   const [saving, setSaving] = useState(false);
+  const [parseando, setParseando] = useState(false);
   const [ok, setOk] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,6 +148,30 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
     );
   }
 
+  /**
+   * Rellena la configuración desde la CSF ya descargada: el agente re-parsea
+   * el PDF, persiste (la constancia manda) y devuelve lo aplicado. El estado
+   * local se alimenta de la respuesta (el useState inicial no se re-sincroniza
+   * solo), así estado local == persistido.
+   */
+  async function rellenarDesdeCsf() {
+    setParseando(true);
+    setError(null);
+    setOk(false);
+    try {
+      const resp = await apiClient.parsearCsf(empresa.rfc);
+      setRegimenes(resp.regimenes_fiscales);
+      setActividades(resp.actividades_economicas);
+      if (!diotTocado) setPresentaDiot(regimenesPresentanDiot(resp.regimenes_fiscales));
+      setOk(true);
+      onDatosAplicados?.();
+    } catch (e) {
+      setError(mensajeDeError(e));
+    } finally {
+      setParseando(false);
+    }
+  }
+
   async function guardar() {
     setSaving(true);
     setError(null);
@@ -165,14 +194,32 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
 
   return (
     <Card className="space-y-4 p-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Icon icon="ph:gear-light" className="size-4 text-primary" />
           <span className="text-sm font-medium">Configuración fiscal</span>
+          {ok && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
+              <Icon icon="ph:check-circle-light" className="size-3.5" /> Guardado
+            </span>
+          )}
         </div>
-        {ok && (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-            <Icon icon="ph:check-circle-light" className="size-3.5" /> Guardado
+        {empresa.csf_path && (
+          <span title="Toma régimen, actividades y nombre de tu última Constancia de Situación Fiscal.">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={rellenarDesdeCsf}
+              disabled={parseando}
+            >
+              {parseando ? (
+                <Icon icon="ph:circle-notch-light" className="size-3.5 animate-spin" />
+              ) : (
+                <Icon icon="ph:file-text-light" className="size-3.5" />
+              )}
+              Rellenar desde la constancia
+            </Button>
           </span>
         )}
       </div>
@@ -255,11 +302,11 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
           <div className="flex flex-wrap gap-1.5 pt-1">
             {regimenes.map((r) => (
               <Badge
-                key={r.clave}
+                key={r.clave || r.descripcion}
                 variant="secondary"
                 className="gap-1 pr-1"
               >
-                <span className="font-mono text-[10px]">{r.clave}</span>
+                {r.clave && <span className="font-mono text-[10px]">{r.clave}</span>}
                 <span>{r.descripcion}</span>
                 <button
                   type="button"
@@ -379,6 +426,11 @@ export function ConfiguracionFiscalCard({ empresa, onGuardar }: Props) {
                 </button>
                 <span className="min-w-0 flex-1 text-sm">
                   {a.descripcion}
+                  {typeof a.porcentaje === 'number' && (
+                    <span className="ml-2 font-mono text-xs text-muted-foreground">
+                      {a.porcentaje}%
+                    </span>
+                  )}
                   {a.principal && (
                     <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
                       Principal

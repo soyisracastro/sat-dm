@@ -6,6 +6,7 @@ Endpoints: /ciec/descargar, /constancia/descargar (síncronos), los jobs
 /events/*), y los documentos síncronos /constancia/fiel y /opinion/fiel.
 """
 
+import logging
 from datetime import date
 from typing import Optional
 
@@ -16,6 +17,8 @@ from pydantic import BaseModel
 from .. import jobs
 from ...core.config import TIPO_RECIBIDO
 from ..state import _session, _get_fiel, _descargas_base, _registrar_descarga
+
+logger = logging.getLogger("sat_descarga.api")
 
 router = APIRouter()
 
@@ -213,6 +216,43 @@ def _lanzar_job_portal(fn_factory, al_completar=None):
     return {"job_id": job.id}
 
 
+def _actualizar_empresa_desde_csf(rfc: str, pdf_path: str) -> None:
+    """
+    Best-effort: parsea la CSF recién descargada y actualiza el catálogo
+    (nombre, regímenes fiscales, actividades económicas). NUNCA rompe el flujo
+    de descarga: cualquier fallo de parseo se registra y se sigue adelante.
+    """
+    try:
+        from ...cli import config_store
+        from ...utils.csf_parser import parsear_csf
+
+        datos = parsear_csf(pdf_path)
+        if datos.rfc and datos.rfc.upper() != rfc.upper():
+            logger.warning(
+                "La CSF trae RFC %s pero se descargó para %s; no se aplica.",
+                datos.rfc, rfc,
+            )
+            return
+        cambio = config_store.aplicar_datos_csf(
+            rfc,
+            nombre=datos.nombre,
+            regimenes=[{"clave": r.clave, "descripcion": r.descripcion}
+                       for r in datos.regimenes],
+            actividades=[{"descripcion": a.descripcion, "principal": a.principal,
+                          "porcentaje": a.porcentaje}
+                         for a in datos.actividades],
+        )
+        if cambio:
+            logger.info(
+                "Catálogo actualizado desde la CSF de %s (%d regímenes, %d actividades).",
+                rfc, len(datos.regimenes), len(datos.actividades),
+            )
+            from ..sync_empresas import sincronizar_async
+            sincronizar_async("csf")  # el nombre nuevo viaja al espacio online
+    except Exception:
+        logger.exception("No se pudo actualizar la empresa %s desde su CSF", rfc)
+
+
 @router.post("/ciec/cfdi")
 def ciec_cfdi(req: CIECDescargaRequest):
     """Descarga CFDIs vía CIEC como job (captcha in-app por SSE). → {job_id}."""
@@ -273,6 +313,7 @@ def ciec_constancia(req: ConstanciaRequest):
         if archivo:
             from ...cli import config_store
             config_store.set_csf_descargada(req.rfc, archivo)
+            _actualizar_empresa_desde_csf(req.rfc, archivo)
 
     return _lanzar_job_portal(factory, al_completar=al_completar)
 
@@ -366,6 +407,7 @@ def constancia_fiel_endpoint():
         if _session["rfc"]:
             from ...cli import config_store
             config_store.set_csf_descargada(_session["rfc"], str(pdf))
+            _actualizar_empresa_desde_csf(_session["rfc"], str(pdf))
         return {"ok": True, "archivo": str(pdf)}
     except HTTPException:
         raise

@@ -44,6 +44,8 @@ class RegimenFiscalItem(BaseModel):
 class ActividadEconomicaItem(BaseModel):
     descripcion: str
     principal: Optional[bool] = None
+    # % de ingresos según la CSF; presente cuando se rellenó desde la constancia.
+    porcentaje: Optional[float] = None
 
 
 class EmpresaUpdateRequest(BaseModel):
@@ -295,6 +297,65 @@ def empresas_update(rfc: str, req: EmpresaUpdateRequest):
         raise HTTPException(status_code=400, detail=str(e))
     sincronizar_async("editar")
     return {"ok": True, "rfc": rfc}
+
+
+@router.post("/empresas/{rfc}/parsear-csf")
+def empresas_parsear_csf(rfc: str):
+    """
+    Re-parsea la Constancia de Situación Fiscal YA descargada (csf_path) y
+    aplica nombre, regímenes fiscales y actividades económicas al catálogo —
+    sin volver a ir al SAT. Lo usa el botón "Rellenar desde la constancia".
+    """
+    from ...cli import config_store
+    from ...utils.csf_parser import parsear_csf
+
+    try:
+        empresa = config_store.get_empresa(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No se encontró empresa con RFC {rfc}")
+
+    csf_path = empresa.get("csf_path") or ""
+    if not csf_path:
+        raise HTTPException(
+            status_code=409,
+            detail="Esta empresa no tiene una constancia descargada. Descárgala primero.",
+        )
+    if not os.path.isfile(csf_path):
+        raise HTTPException(
+            status_code=409,
+            detail="El archivo de la constancia ya no está en el equipo; descárgala de nuevo.",
+        )
+
+    try:
+        datos = parsear_csf(csf_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo leer la constancia: {e}")
+
+    if datos.rfc and datos.rfc.upper() != rfc.upper():
+        raise HTTPException(
+            status_code=409,
+            detail=f"La constancia guardada es de otro RFC ({datos.rfc}); descarga la de esta empresa.",
+        )
+
+    regimenes = [{"clave": r.clave, "descripcion": r.descripcion} for r in datos.regimenes]
+    actividades = [
+        {k: v for k, v in {
+            "descripcion": a.descripcion,
+            "principal": a.principal,
+            "porcentaje": a.porcentaje,
+        }.items() if v is not None}
+        for a in datos.actividades
+    ]
+    config_store.aplicar_datos_csf(rfc, nombre=datos.nombre,
+                                   regimenes=regimenes, actividades=actividades)
+    sincronizar_async("editar")
+    return {
+        "ok": True,
+        "rfc": rfc,
+        "nombre": datos.nombre,
+        "regimenes_fiscales": regimenes,
+        "actividades_economicas": actividades,
+    }
 
 
 @router.get("/empresas/{rfc}/solicitudes")

@@ -242,6 +242,8 @@ export interface RegimenFiscalConfig {
 export interface ActividadEconomicaConfig {
   descripcion: string;
   principal?: boolean;
+  /** % de ingresos según la CSF; presente cuando se rellenó desde la constancia. */
+  porcentaje?: number;
 }
 
 // GET /empresas → { empresas: Empresa[] }
@@ -267,8 +269,8 @@ export interface Empresa {
   /** Path local de la última Opinión de Cumplimiento 32-D descargada. */
   opinion_path?: string | null;
   opinion_descargada_en?: string | null;
-  /** Régimen(es) fiscal(es) declarados. Por ahora se llenan a mano; eventualmente
-   * desde el parser de CSF. */
+  /** Régimen(es) fiscal(es) declarados. Se llenan solos al descargar la CSF
+   * (parser en el agente) y siguen siendo editables a mano. */
   regimenes_fiscales?: RegimenFiscalConfig[];
   /** Actividades económicas — descripción libre + marca opcional de la principal. */
   actividades_economicas?: ActividadEconomicaConfig[];
@@ -366,6 +368,16 @@ export interface EmpresaUpdatePatch {
   actividades_economicas?: ActividadEconomicaConfig[];
   /** Override manual de la obligación DIOT (ausente = derivar del régimen). */
   presenta_diot?: boolean;
+}
+
+// POST /empresas/{rfc}/parsear-csf — re-parsea la constancia ya descargada y
+// aplica nombre/regímenes/actividades al catálogo (la CSF manda).
+export interface ParsearCsfResponse {
+  ok: boolean;
+  rfc: string;
+  nombre: string;
+  regimenes_fiscales: RegimenFiscalConfig[];
+  actividades_economicas: ActividadEconomicaConfig[];
 }
 
 export interface EmpresasResponse {

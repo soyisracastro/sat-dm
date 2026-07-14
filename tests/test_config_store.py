@@ -218,6 +218,118 @@ class TestActualizarNombreSiPlaceholder:
         assert config_store.actualizar_nombre_si_placeholder("XXXX010101XXX", "N") is False
 
 
+class TestAplicarDatosCsf:
+    """Aplicación de los datos parseados de la CSF: la constancia MANDA."""
+
+    RFC = "SAJ0205248A9"
+    REGIMENES = [{"clave": "601", "descripcion": "Régimen General de Ley Personas Morales"}]
+    ACTIVIDADES = [
+        {"descripcion": "Comercio al por menor de gasolina y diésel",
+         "principal": True, "porcentaje": 99},
+        {"descripcion": "Comercio al por menor de aceites y grasas lubricantes",
+         "principal": False, "porcentaje": 1},
+    ]
+
+    def _aplicar(self, nombre="SUPERSERVICIO AJUCHITLAN"):
+        return config_store.aplicar_datos_csf(
+            self.RFC, nombre=nombre,
+            regimenes=self.REGIMENES, actividades=self.ACTIVIDADES,
+        )
+
+    def test_sobrescribe_nombre_no_placeholder(self):
+        # A diferencia de actualizar_nombre_si_placeholder, aquí la CSF manda
+        # incluso sobre un nombre "real" (unifica casing y errores de captura).
+        config_store.add_empresa_ciec(self.RFC, "nombre Mal capturado", "ciec")
+        assert self._aplicar() is True
+        emp = config_store.get_empresa(self.RFC)
+        assert emp["nombre"] == "SUPERSERVICIO AJUCHITLAN"
+
+    def test_sobrescribe_configuracion_manual(self):
+        config_store.add_empresa_ciec(self.RFC, "X", "ciec")
+        config_store.update_empresa(self.RFC, {
+            "regimenes_fiscales": [{"clave": "626", "descripcion": "RESICO a mano"}],
+            "actividades_economicas": [{"descripcion": "Otra cosa", "principal": True}],
+        })
+        self._aplicar()
+        emp = config_store.get_empresa(self.RFC)
+        assert emp["regimenes_fiscales"] == self.REGIMENES
+        assert emp["actividades_economicas"] == self.ACTIVIDADES
+
+    def test_estampa_updated_at(self):
+        config_store.add_empresa_ciec(self.RFC, "X", "ciec")
+        antes = config_store.get_empresa(self.RFC).get("updated_at")
+        with patch.object(config_store, "_ahora_sync", return_value="2099-01-01T00:00:00+00:00"):
+            self._aplicar()
+        despues = config_store.get_empresa(self.RFC).get("updated_at")
+        assert despues == "2099-01-01T00:00:00+00:00" and despues != antes
+
+    def test_nombre_vacio_no_pisa_el_existente(self):
+        config_store.add_empresa_ciec(self.RFC, "Nombre Actual", "ciec")
+        assert self._aplicar(nombre="  ") is True
+        emp = config_store.get_empresa(self.RFC)
+        assert emp["nombre"] == "Nombre Actual"
+        assert emp["regimenes_fiscales"] == self.REGIMENES
+
+    def test_porcentaje_none_se_omite(self):
+        config_store.add_empresa_ciec(self.RFC, "X", "ciec")
+        config_store.aplicar_datos_csf(
+            self.RFC, nombre="X",
+            regimenes=[],
+            actividades=[{"descripcion": "Sin dato", "principal": True, "porcentaje": None}],
+        )
+        actividad = config_store.get_empresa(self.RFC)["actividades_economicas"][0]
+        assert "porcentaje" not in actividad
+
+    def test_rfc_inexistente_devuelve_false(self):
+        assert config_store.aplicar_datos_csf(
+            "XXXX010101XXX", nombre="N", regimenes=[], actividades=[],
+        ) is False
+
+
+class TestUpdateEmpresaPorcentaje:
+    """`porcentaje` opcional en actividades (viene del parser de la CSF)."""
+
+    RFC = "CAUI890921DAA"
+
+    def _alta(self):
+        config_store.add_empresa_ciec(self.RFC, "X", "ciec")
+
+    def test_acepta_y_persiste_porcentaje(self):
+        self._alta()
+        config_store.update_empresa(self.RFC, {
+            "actividades_economicas": [
+                {"descripcion": "Asalariado", "principal": True, "porcentaje": 75},
+                {"descripcion": "Contabilidad", "porcentaje": 25},
+            ],
+        })
+        actividades = config_store.get_empresa(self.RFC)["actividades_economicas"]
+        assert actividades[0]["porcentaje"] == 75
+        assert actividades[1] == {"descripcion": "Contabilidad", "porcentaje": 25}
+
+    def test_rechaza_porcentaje_no_numerico(self):
+        self._alta()
+        with pytest.raises(ValueError):
+            config_store.update_empresa(self.RFC, {
+                "actividades_economicas": [{"descripcion": "A", "porcentaje": "75%"}],
+            })
+
+    def test_sin_porcentaje_sigue_funcionando(self):
+        self._alta()
+        config_store.update_empresa(self.RFC, {
+            "actividades_economicas": [{"descripcion": "A", "principal": True}],
+        })
+        actividad = config_store.get_empresa(self.RFC)["actividades_economicas"][0]
+        assert actividad == {"descripcion": "A", "principal": True}
+
+    def test_update_empresa_no_estampa_updated_at(self):
+        # Gap intencional: estos campos no viajan en el sync; estampar aquí
+        # crearía falsos ganadores LWW sobre `nombre` (ver docstring).
+        self._alta()
+        antes = config_store.get_empresa(self.RFC).get("updated_at")
+        config_store.update_empresa(self.RFC, {"presenta_diot": True})
+        assert config_store.get_empresa(self.RFC).get("updated_at") == antes
+
+
 # ---------------------------------------------------------------------------
 # Solicitudes
 # ---------------------------------------------------------------------------
