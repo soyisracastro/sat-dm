@@ -21,4 +21,7 @@ RUN mkdir -p /data
 
 ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
 
-CMD ["supercronic", "-passthrough-logs", "/app/crontab"]
+# Ruta ABSOLUTA obligatoria: como PID 1, supercronic se re-ejecuta a sí mismo
+# vía argv[0] sin resolver PATH — con "supercronic" a secas entra en crash-loop
+# ("Failed to fork exec: no such file or directory").
+CMD ["/usr/local/bin/supercronic", "-passthrough-logs", "/app/crontab"]
