@@ -1139,9 +1139,13 @@ export class SatApiClient {
     return this.post<{ url: string; session_id?: string }>('/auth/upgrade', {});
   }
 
-  /** Checkout de la suscripción anual (tarjeta). El backend elige promo/regular. */
-  async authSubscribe(): Promise<AuthSubscribeResponse> {
-    return this.post<AuthSubscribeResponse>('/auth/subscribe', {});
+  /**
+   * Checkout de la suscripción anual (tarjeta). El backend elige el precio:
+   * 'anual' → regular $2,990 o promo $1,495 si es elegible;
+   * 'anual_ia' → $4,990 (founders pagan su precio dedicado).
+   */
+  async authSubscribe(plan: 'anual' | 'anual_ia' = 'anual'): Promise<AuthSubscribeResponse> {
+    return this.post<AuthSubscribeResponse>('/auth/subscribe', { plan });
   }
 
   /** Cancela la suscripción al fin del periodo. */
@@ -1409,6 +1413,11 @@ export interface LicenseStatus {
 
   premium_features_unlocked?: boolean;
   ai_credits_balance?: number;
+
+  // Plan anual CON IA (campos aditivos del backend; pueden faltar en versiones viejas).
+  ai_features_unlocked?: boolean;
+  ia_price_mxn?: number;
+  ia_founder_price_mxn?: number;
   // Flags del cache local del agente.
   from_cache?: boolean;
   stale?: boolean;
@@ -1420,6 +1429,7 @@ export interface AuthSubscribeResponse {
   url: string;
   session_id?: string;
   promo?: boolean;
+  plan?: 'anual' | 'anual_ia';
 }
 
 export interface CancelSubscriptionResponse {

@@ -45,6 +45,7 @@ export default function SuscripcionPage() {
   const { apiClient } = useServer();
 
   const [busyTarjeta, setBusyTarjeta] = useState(false);
+  const [busyIa, setBusyIa] = useState(false);
   const [busyTransfer, setBusyTransfer] = useState(false);
   const [busyCancel, setBusyCancel] = useState(false);
   const [transfer, setTransfer] = useState<TransferIntentResponse | null>(null);
@@ -77,13 +78,26 @@ export default function SuscripcionPage() {
   const cancela = license.subscription_cancel_at_period_end === true;
   const promoDias = license.promo_ends_at ? diasRestantes(license.promo_ends_at) : null;
   const pct = dias !== null ? Math.max(6, Math.min(100, Math.round((dias / 15) * 100))) : 0;
-  const planLabel = esFundador ? 'Fundador' : esPremium ? 'Plan anual' : esPrueba ? 'Prueba' : 'Gratis';
+  const tieneIa = license.ai_features_unlocked === true;
+  const precioIa = esFundador
+    ? license.ia_founder_price_mxn ?? 2490
+    : license.ia_price_mxn ?? 4990;
+  const precioIaLista = license.ia_price_mxn ?? 4990;
+  const planLabel = esFundador
+    ? 'Fundador'
+    : esPremium
+      ? tieneIa
+        ? 'Plan anual con IA'
+        : 'Plan anual'
+      : esPrueba
+        ? 'Prueba'
+        : 'Gratis';
 
   async function pagarTarjeta() {
     if (busyTarjeta) return;
     setBusyTarjeta(true);
     try {
-      const { url } = await apiClient.authSubscribe();
+      const { url } = await apiClient.authSubscribe('anual');
       window.open(url, '_blank', 'noopener,noreferrer');
       toast.info(
         'Te abrimos el navegador para pagar. Cuando termines, vuelve y toca "Ya pagué — actualizar estado".',
@@ -92,6 +106,22 @@ export default function SuscripcionPage() {
       toast.error(mensajeDeError(e));
     } finally {
       setBusyTarjeta(false);
+    }
+  }
+
+  async function pagarIa() {
+    if (busyIa) return;
+    setBusyIa(true);
+    try {
+      const { url } = await apiClient.authSubscribe('anual_ia');
+      window.open(url, '_blank', 'noopener,noreferrer');
+      toast.info(
+        'Te abrimos el navegador para pagar. Cuando termines, vuelve y toca "Ya pagué — actualizar estado".',
+      );
+    } catch (e) {
+      toast.error(mensajeDeError(e));
+    } finally {
+      setBusyIa(false);
     }
   }
 
@@ -151,55 +181,88 @@ export default function SuscripcionPage() {
         {/* ── Columna principal ── */}
         <div className="flex min-w-0 flex-col gap-5">
           {esFundador ? (
-            <PlanCard
-              markClass="bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
-              icon="ph:crown-simple-fill"
-              titulo="Miembro Fundador"
-              badge={<EstadoBadge tone="amber">De por vida</EstadoBadge>}
-            >
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Tienes acceso de por vida a la app de escritorio y a las herramientas
-                premium en línea. Gracias por construir esto desde el inicio.
-              </p>
-            </PlanCard>
-          ) : esPremium ? (
-            <PlanCard
-              markClass="bg-success/10 text-success"
-              icon="ph:crown-simple-light"
-              titulo="Plan anual"
-              badge={
-                <EstadoBadge tone="success">
-                  <Icon
-                    icon={cancela ? 'ph:info-light' : 'ph:check-circle-light'}
-                    className="size-3.5"
-                  />
-                  {cancela ? 'Cancela al renovar' : 'Activo'}
-                </EstadoBadge>
-              }
-            >
-              <div className="flex flex-col">
-                <InfoRow
-                  label={cancela ? 'Termina el' : 'Próxima renovación'}
-                  value={license.expires_at ? formatDate(license.expires_at) : '—'}
-                />
-                <InfoRow label="Acceso premium en línea" value="Incluido" />
-              </div>
-              {cancela ? (
-                <Note icon="ph:info-light">
-                  Tu suscripción terminará el {formatDate(license.expires_at ?? '')} y no se
-                  renovará. Conservas el acceso hasta esa fecha.
+            <>
+              <PlanCard
+                markClass="bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
+                icon="ph:crown-simple-fill"
+                titulo="Miembro Fundador"
+                badge={<EstadoBadge tone="amber">De por vida</EstadoBadge>}
+              >
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  Tienes acceso de por vida a la app de escritorio y a las herramientas
+                  premium en línea. Gracias por construir esto desde el inicio.
+                </p>
+              </PlanCard>
+              {tieneIa ? (
+                <Note icon="ph:sparkle-light">
+                  Tu plan con IA está activo: Abacus por WhatsApp y la conexión de tu IA
+                  (API + MCP) trabajan con tus empresas.
                 </Note>
               ) : (
-                <div>
-                  <Button variant="outline" onClick={() => setCancelOpen(true)}>
-                    <Icon icon="ph:x-circle-light" className="size-4" />
-                    Cancelar plan
-                  </Button>
-                </div>
+                <IaUpsellCard
+                  precio={precioIa}
+                  precioLista={precioIaLista}
+                  esFundador
+                  busy={busyIa}
+                  onPagar={pagarIa}
+                />
               )}
-            </PlanCard>
+            </>
+          ) : esPremium ? (
+            <>
+              <PlanCard
+                markClass="bg-success/10 text-success"
+                icon="ph:crown-simple-light"
+                titulo={tieneIa ? 'Plan anual con IA' : 'Plan anual'}
+                badge={
+                  <EstadoBadge tone="success">
+                    <Icon
+                      icon={cancela ? 'ph:info-light' : 'ph:check-circle-light'}
+                      className="size-3.5"
+                    />
+                    {cancela ? 'Cancela al renovar' : 'Activo'}
+                  </EstadoBadge>
+                }
+              >
+                <div className="flex flex-col">
+                  <InfoRow
+                    label={cancela ? 'Termina el' : 'Próxima renovación'}
+                    value={license.expires_at ? formatDate(license.expires_at) : '—'}
+                  />
+                  <InfoRow label="Acceso premium en línea" value="Incluido" />
+                  {tieneIa && <InfoRow label="Asistente con IA (Abacus + MCP)" value="Incluido" />}
+                </div>
+                {cancela ? (
+                  <Note icon="ph:info-light">
+                    Tu suscripción terminará el {formatDate(license.expires_at ?? '')} y no se
+                    renovará. Conservas el acceso hasta esa fecha.
+                  </Note>
+                ) : (
+                  <div>
+                    <Button variant="outline" onClick={() => setCancelOpen(true)}>
+                      <Icon icon="ph:x-circle-light" className="size-4" />
+                      Cancelar plan
+                    </Button>
+                  </div>
+                )}
+              </PlanCard>
+              {!tieneIa && (
+                <Note icon="ph:sparkle-light">
+                  ¿Quieres agregar la IA (Abacus por WhatsApp + conexión de Claude/ChatGPT)?
+                  Escríbenos a{' '}
+                  <a
+                    href="mailto:soporte@todoconta.com?subject=Subir a plan con IA"
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    soporte@todoconta.com
+                  </a>{' '}
+                  y hacemos el cambio sin que pierdas lo que ya pagaste.
+                </Note>
+              )}
+            </>
           ) : (
             /* trial / free → oferta */
+            <>
             <PlanCard
               className="border-primary/40"
               markClass="bg-accent text-primary"
@@ -258,16 +321,6 @@ export default function SuscripcionPage() {
                   </p>
                 </div>
               )}
-
-              {/* nota IA */}
-              <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-                <Icon icon="ph:sparkle-light" className="mt-0.5 size-4 shrink-0 text-accent-ai" />
-                <span>
-                  Este plan <strong className="font-medium text-foreground/80">no incluye</strong> las
-                  funciones de inteligencia artificial que llegarán más adelante; se ofrecerán por
-                  separado.
-                </span>
-              </p>
 
               {/* separador */}
               <div className="flex items-center gap-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -363,6 +416,13 @@ export default function SuscripcionPage() {
                 Ya pagué — actualizar estado
               </button>
             </PlanCard>
+            <IaUpsellCard
+              precio={precioIa}
+              precioLista={precioIaLista}
+              busy={busyIa}
+              onPagar={pagarIa}
+            />
+            </>
           )}
         </div>
 
@@ -452,6 +512,80 @@ export default function SuscripcionPage() {
 }
 
 /* ─────────────────────────── Helpers ─────────────────────────── */
+
+const INCLUYE_IA = [
+  'Abacus: tu asistente fiscal por WhatsApp',
+  'Documentos SAT por chat (CSF, 32-D, CFDIs)',
+  'Conecta Claude/ChatGPT a tus datos (API + MCP)',
+  'Reportes y cálculos fiscales conversacionales',
+];
+
+function IaUpsellCard({
+  precio,
+  precioLista,
+  esFundador,
+  busy,
+  onPagar,
+}: {
+  precio: number;
+  precioLista: number;
+  esFundador?: boolean;
+  busy: boolean;
+  onPagar: () => void;
+}) {
+  const conDescuento = esFundador && precio < precioLista;
+  return (
+    <PlanCard
+      markClass="bg-accent text-accent-ai"
+      icon="ph:sparkle-light"
+      titulo="Anual con IA"
+      badge={
+        conDescuento ? (
+          <EstadoBadge tone="amber">Precio Fundador · de por vida</EstadoBadge>
+        ) : (
+          <EstadoBadge tone="primary">Nuevo</EstadoBadge>
+        )
+      }
+    >
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="text-3xl font-extrabold tracking-tight tabular-nums">
+          {formatPesosEnteros(precio)}
+        </span>
+        <span className="text-sm font-medium text-muted-foreground">/ año</span>
+        {conDescuento && (
+          <span className="text-base text-muted-foreground/70 line-through tabular-nums">
+            {formatPesosEnteros(precioLista)}
+          </span>
+        )}
+      </div>
+      <ul className="flex flex-col gap-2.5">
+        {INCLUYE_IA.map((t) => (
+          <li key={t} className="flex items-center gap-2.5 text-sm text-foreground/90">
+            <Icon icon="ph:check-circle-light" className="size-4 shrink-0 text-success" />
+            {t}
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Incluye todo lo del plan Anual. Tu precio se respeta en cada renovación mientras no
+        canceles.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button size="lg" onClick={onPagar} disabled={busy}>
+          <Icon
+            icon={busy ? 'ph:circle-notch-light' : 'ph:sparkle-light'}
+            className={cn('size-4', busy && 'animate-spin')}
+          />
+          Pagar {formatPesosEnteros(precio)} con tarjeta
+        </Button>
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Icon icon="ph:lock-light" className="size-3.5" />
+          Pago seguro con Stripe.
+        </span>
+      </div>
+    </PlanCard>
+  );
+}
 
 function PlanCard({
   className,
