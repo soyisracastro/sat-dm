@@ -48,10 +48,10 @@ SENDY_DB_USER=ops_ro
 SENDY_DB_PASSWORD=
 SENDY_DB_NAME=sendy
 
-# SES (mismas credenciales que apps/web)
+# SES (mismas credenciales y nombres que apps/web)
 AWS_SES_REGION=us-east-1
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
+AWS_SES_ACCESS_KEY_ID=
+AWS_SES_SECRET_ACCESS_KEY=
 REPORTE_FROM=no-reply@todoconta.com
 REPORTE_TO=israel.castro@gmail.com
 
