@@ -6,7 +6,20 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [2.0.0] - 2026-07-14
+
+Versión mayor: llega **TodoConta en línea**. Tu app de escritorio sigue igual y con
+tus datos intactos (`~/.sat-descarga/` no se toca); la versión web es adicional.
+
 ### Feature
+
+- **Ahora también puedes usar TodoConta desde el navegador (app.todoconta.com).**
+  Los mismos trámites del SAT, ahora también en línea. Desde la app de escritorio
+  puedes activar **«Usar en la web»** para subir tus credenciales cifradas a tu
+  espacio privado y operar desde cualquier equipo; tu **catálogo de empresas y tu
+  configuración fiscal se sincronizan** entre la desktop y la versión en línea. Las
+  credenciales solo viajan si tú lo eliges: por defecto tu e.firma nunca sale de tu
+  equipo.
 
 - **La Opinión de Cumplimiento 32-D ahora pinta el semáforo de la empresa y
   explica por qué sale negativa.** Al descargar la opinión (CIEC o e.firma) el
@@ -32,6 +45,11 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   la card de Configuración fiscal (`POST /empresas/{rfc}/parsear-csf`), sin
   volver a ir al SAT. Un fallo de parseo nunca rompe la descarga.
 
+- **Al descargar la Constancia o la Opinión 32-D con e.firma ya se ve que está
+  trabajando.** El botón muestra «Descargando…» con un indicador de avance y un
+  aviso de que puede tardar un momento — antes solo se veía deshabilitado y no
+  quedaba claro si seguía en curso o se había quedado atorado.
+
 ### Bug fix
 
 - **Descarga WS: el «Estado de la solicitud» ya no se queda «Verificando…»
@@ -52,6 +70,8 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   filtro solo aplica a HTTPException) y el renderer tampoco lo reporta. La UI
   trata el 503 como transitorio: muestra «El SAT está tardando en responder;
   seguimos verificando» y el polling continúa en lugar de morir en error.
+
+- Bump 1.7.0 → 2.0.0 (3 archivos).
 
 ## [1.7.0] - 2026-07-10
 
