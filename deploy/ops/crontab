@@ -1,0 +1,5 @@
+# Agentes programados (hora del VPS = UTC; CDMX = UTC-6).
+# Escalonados en horas valle para no competir por las 2 CPU.
+
+# Reporte semanal de métricas → correo a Israel. Lunes 07:00 CDMX.
+0 13 * * 1 python /app/agents/reporte_semanal.py

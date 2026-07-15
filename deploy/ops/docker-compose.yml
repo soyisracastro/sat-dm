@@ -1,0 +1,31 @@
+# Agentes operativos del ecosistema de ventas (reporte semanal, y después
+# contenido/SDR/soporte), en el VPS junto a Sendy/gateway/provisioner.
+#
+# Prerrequisitos:
+#   - .env junto a este archivo (gitignored) — ver README.md (chmod 600)
+#   - usuario MySQL de SOLO LECTURA en sendy-db (ver README.md)
+#
+# Despliegue:  docker compose up -d --build
+# Corrida manual (prueba):
+#   docker compose run --rm ops python agents/reporte_semanal.py --dry-run
+
+services:
+  ops:
+    build: .
+    container_name: ops
+    restart: unless-stopped
+    mem_limit: 256m
+    env_file: .env
+    volumes:
+      - ops-data:/data
+    networks:
+      - default          # salida a internet (Supabase, Stripe, SES, Anthropic)
+      - sendy-internal   # SELECT read-only a sendy-db
+
+volumes:
+  ops-data:
+
+networks:
+  sendy-internal:
+    external: true
+    name: sendy-internal
