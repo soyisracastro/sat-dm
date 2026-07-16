@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
 
 from ...core.config import es_modo_hosted
@@ -496,14 +496,16 @@ def auth_upgrade():
 
 
 @router.post("/auth/subscribe")
-def auth_subscribe():
+def auth_subscribe(body: dict | None = Body(default=None)):
     """
     Crea la Stripe Checkout session de la suscripción anual de TodoConta Desktop.
-    Devuelve `{url, session_id, promo}`; el renderer abre el URL en el navegador.
+    Body opcional `{plan: 'anual' | 'anual_ia'}` (sin body = 'anual').
+    Devuelve `{url, session_id, promo, plan}`; el renderer abre el URL en el navegador.
     """
     from .. import license_client as lc
 
-    return _accion_con_refresh(lc.init_subscribe_checkout)
+    plan = "anual_ia" if (body or {}).get("plan") == "anual_ia" else "anual"
+    return _accion_con_refresh(lambda s: lc.init_subscribe_checkout(s, plan))
 
 
 @router.post("/auth/cancel-subscription")

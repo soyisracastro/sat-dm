@@ -363,14 +363,19 @@ def init_checkout(session: Session) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def init_subscribe_checkout(session: Session) -> dict:
+def init_subscribe_checkout(session: Session, plan: str = "anual") -> dict:
     """
-    POST /api/desktop/subscribe → `{url, session_id, promo}`.
+    POST /api/desktop/subscribe → `{url, session_id, promo, plan}`.
 
-    Crea la Stripe Checkout session de la suscripción anual. El backend decide
-    el precio (promo $1,495 si el usuario es elegible, si no $2,990).
+    Crea la Stripe Checkout session de la suscripción anual. `plan` es
+    'anual' (base $2,990; promo $1,495 si es elegible) o 'anual_ia'
+    ($4,990; founders pagan su precio dedicado). El backend SIEMPRE decide
+    el precio — el cliente solo dice qué plan quiere.
     """
-    return _post_desktop(session, "/api/desktop/subscribe", "init_subscribe_checkout")
+    body = {"plan": "anual_ia"} if plan == "anual_ia" else {"plan": "anual"}
+    return _post_desktop(
+        session, "/api/desktop/subscribe", "init_subscribe_checkout", body
+    )
 
 
 def cancel_subscription(session: Session) -> dict:
@@ -396,14 +401,17 @@ def create_transfer_intent(session: Session) -> dict:
     )
 
 
-def _post_desktop(session: Session, path: str, op: str) -> dict:
-    """POST sin body a un endpoint `/api/desktop/*` con Bearer. 401→PermissionError."""
+def _post_desktop(
+    session: Session, path: str, op: str, body: dict | None = None
+) -> dict:
+    """POST a un endpoint `/api/desktop/*` con Bearer (body opcional). 401→PermissionError."""
     resp = requests.post(
         f"{API_BASE_URL}{path}",
         headers={
             "Authorization": f"Bearer {session.access_token}",
             "Content-Type": "application/json",
         },
+        json=body,
         timeout=10,
     )
     if resp.status_code == 200:
