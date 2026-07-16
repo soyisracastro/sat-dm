@@ -220,7 +220,7 @@ export default function DescargaPage() {
     : tieneFiel
       ? 'Descarga en bloque por el Web Service oficial del SAT con tu e.firma. Ideal para grandes volúmenes; normalmente queda lista en un par de horas, aunque en días de mucha demanda el SAT puede tardar más.'
       : tieneCiec
-        ? 'Trae tus facturas directo del portal del SAT con tu CIEC. Te pediremos resolver el captcha del SAT y aplica el límite diario del portal.'
+        ? 'Trae tus facturas directo del portal del SAT con tu Contraseña (antes CIEC). Te pediremos resolver el captcha del SAT y aplica el límite diario del portal.'
         : 'Esta empresa no tiene accesos registrados.';
 
   return (
@@ -263,7 +263,7 @@ export default function DescargaPage() {
             {/* Un solo <p>: AlertDescription es grid y apilaría texto y Link. */}
             <p>
               Agrega tu <strong>e.firma</strong> (recomendado — desbloquea descarga masiva por Web
-              Service y elimina el captcha) o tu <strong>CIEC</strong> (descarga directa con captcha)
+              Service y elimina el captcha) o tu <strong>Contraseña del SAT</strong> (descarga directa con captcha)
               en{' '}
               <Link href="/empresas" className="font-medium underline underline-offset-2">
                 Empresas

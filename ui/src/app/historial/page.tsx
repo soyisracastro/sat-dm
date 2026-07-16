@@ -33,7 +33,7 @@ const TIPO_META: Record<TipoDescarga, { label: string; icon: string }> = {
 
 const CANAL_LABEL: Record<CanalDescarga, string> = {
   ws: 'Web Service',
-  ciec: 'CIEC',
+  ciec: 'Contraseña',
   fiel: 'e.firma',
 };
 
@@ -129,7 +129,7 @@ export default function HistorialPage() {
           <Icon icon="ph:clock-counter-clockwise-light" className="size-8 text-muted-foreground" />
           <p className="text-sm font-medium">Aún no hay descargas registradas</p>
           <p className="text-sm text-muted-foreground">
-            Cuando completes una descarga (CIEC o Web Service) aparecerá aquí.
+            Cuando completes una descarga (Contraseña del SAT o Web Service) aparecerá aquí.
           </p>
         </Card>
       ) : (

@@ -19,5 +19,5 @@ export function metodoPortalPreferido(
 
 /** Etiqueta visible al usuario en chips/avisos. */
 export function etiquetaMetodo(m: MetodoPortal): string {
-  return m === 'fiel' ? 'e.firma' : 'CIEC';
+  return m === 'fiel' ? 'e.firma' : 'Contraseña';
 }

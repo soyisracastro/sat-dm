@@ -21,7 +21,7 @@ export function EstadoCarteraDonut({ cartera }: EstadoCarteraDonutProps) {
       color: 'var(--warning)',
     },
     {
-      etiqueta: 'Solo con CIEC',
+      etiqueta: 'Solo con Contraseña',
       valor: cartera.soloCiec,
       color: 'var(--accent-ai)',
     },

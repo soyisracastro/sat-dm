@@ -30,12 +30,12 @@ const POOLS_DESCARGA: Record<DescargaCanal, Pool> = {
   },
   ciec: {
     success: [
-      'Descargamos {count} CFDIs vía CIEC para {rfc}.',
+      'Descargamos {count} CFDIs con tu Contraseña del SAT para {rfc}.',
       'Listo, {count} XMLs guardados desde el portal.',
-      'Descarga CIEC completa: {count} comprobantes para {rfc}.',
+      'Descarga con Contraseña completa: {count} comprobantes para {rfc}.',
     ],
     error: [
-      'La descarga CIEC de {rfc} falló. {motivo}',
+      'La descarga con Contraseña del SAT de {rfc} falló. {motivo}',
       'No pudimos completar la descarga del portal. {motivo}',
     ],
   },
@@ -60,7 +60,7 @@ const POOL_EFIRMA_AVISO = [
 
 // Cuando la más urgente YA venció ({dias} llega negativo desde el semáforo).
 const POOL_EFIRMA_VENCIDA = [
-  'La e.firma de {rfc} venció hace {dias} días. Renuévala o quítala y sigue con la CIEC.',
+  'La e.firma de {rfc} venció hace {dias} días. Renuévala o quítala y sigue con la Contraseña del SAT.',
   'Tienes una e.firma vencida: {rfc} (hace {dias} días). Puedes renovarla o quitarla en Empresas.',
 ];
 

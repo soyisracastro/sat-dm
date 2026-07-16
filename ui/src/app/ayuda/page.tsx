@@ -31,11 +31,11 @@ const FAQ_GROUPS: FaqGroup[] = [
     items: [
       {
         q: '¿Cómo agrego una empresa?',
-        a: 'Ve a Empresas y toca «Agregar empresa». Solo necesitas el RFC y un acceso: tu e.firma (con su contraseña) o tu CIEC. Puedes registrar todas las empresas que manejes y cambiar entre ellas desde la parte superior del menú.',
+        a: 'Ve a Empresas y toca «Agregar empresa». Solo necesitas el RFC y un acceso: tu e.firma (con su contraseña) o tu Contraseña del SAT (antes CIEC). Puedes registrar todas las empresas que manejes y cambiar entre ellas desde la parte superior del menú.',
       },
       {
-        q: '¿Necesito e.firma o me basta con la CIEC?',
-        a: 'Las dos sirven. Con e.firma puedes hacer descargas masivas sin límite diario. Con CIEC puedes hacer descargas rápidas del portal, ideales para pocas facturas. Si tienes ambas, TodoConta elige la mejor opción para cada descarga.',
+        q: '¿Necesito e.firma o me basta con la Contraseña del SAT?',
+        a: 'Las dos sirven. Con e.firma puedes hacer descargas masivas sin límite diario. Con la Contraseña del SAT puedes hacer descargas rápidas del portal, ideales para pocas facturas. Si tienes ambas, TodoConta elige la mejor opción para cada descarga.',
       },
     ],
   },
@@ -66,7 +66,7 @@ const FAQ_GROUPS: FaqGroup[] = [
         a: 'Necesitas renovarla ante el SAT (en línea si aún está vigente, o presencialmente si ya venció). Cuando tengas los archivos nuevos, actualízalos en Empresas. Te avisamos cuando a tu e.firma le queden 30 días o menos.',
       },
       {
-        q: '¿Es seguro guardar mi e.firma y mi CIEC?',
+        q: '¿Es seguro guardar mi e.firma y mi Contraseña del SAT?',
         a: 'Sí. Se guardan protegidas y solo en este equipo; nunca se muestran a la vista ni se envían a internet. Solo se usan en el momento de conectarte con el SAT.',
       },
       {
@@ -135,7 +135,7 @@ export default function AyudaPage() {
         <Icon icon="ph:magnifying-glass-light" className="size-4.5 shrink-0 text-muted-foreground" />
         <input
           className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          placeholder="Busca una pregunta…  p. ej. descargar, e.firma, CIEC"
+          placeholder="Busca una pregunta…  p. ej. descargar, e.firma, Contraseña"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />

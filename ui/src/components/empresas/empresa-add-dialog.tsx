@@ -102,7 +102,7 @@ export function EmpresaAddDialog({
               <Icon icon="ph:shield-check-light" className="size-4" /> e.firma
             </TabsTrigger>
             <TabsTrigger value="ciec">
-              <Icon icon="ph:key-light" className="size-4" /> CIEC
+              <Icon icon="ph:key-light" className="size-4" /> Contraseña
             </TabsTrigger>
           </TabsList>
 
@@ -155,7 +155,7 @@ export function EmpresaAddDialog({
                        className="font-mono uppercase"
                        onChange={(e) => setRfc(e.target.value)} />
               </Field>
-              <Field label="Contraseña CIEC" htmlFor="ciec-pass">
+              <Field label="Contraseña del SAT (antes CIEC)" htmlFor="ciec-pass">
                 <Input id="ciec-pass" type="password" value={ciec}
                        placeholder="••••••••"
                        onChange={(e) => setCiec(e.target.value)} />
@@ -163,7 +163,7 @@ export function EmpresaAddDialog({
               <HintNombre />
               <Button type="submit" className="w-full" disabled={!ciecOk || loading}>
                 {loading ? <Icon icon="ph:circle-notch-light" className="size-4 animate-spin" /> : <Icon icon="ph:key-light" className="size-4" />}
-                Registrar con CIEC
+                Registrar con Contraseña
               </Button>
             </form>
           </TabsContent>

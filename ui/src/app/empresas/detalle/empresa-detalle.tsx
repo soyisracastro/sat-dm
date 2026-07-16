@@ -112,7 +112,7 @@ export function EmpresaDetalle() {
           )}
           {tieneCiec && (
             <Badge variant="secondary" className="gap-1">
-              <Icon icon="ph:key-light" className="size-3" /> CIEC
+              <Icon icon="ph:key-light" className="size-3" /> Contraseña
             </Badge>
           )}
           {tieneFiel && <VencimientoBadge vencimiento={empresa.vencimiento} />}
@@ -381,17 +381,17 @@ function CiecSection({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Icon icon="ph:key-light" className="size-4 text-primary" />
-            <span className="text-sm font-medium">Acceso con CIEC</span>
+            <span className="text-sm font-medium">Acceso con Contraseña del SAT</span>
             {ok && <Guardado />}
           </div>
           <Button variant="outline" size="sm" onClick={() => setMostrarForm(true)}>
             <Icon icon="ph:key-light" className="size-3.5" />
-            Cambiar CIEC
+            Cambiar Contraseña
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Tu contraseña CIEC se guarda protegida y solo en este equipo. Nunca se
-          muestra a la vista.
+          Tu Contraseña del SAT (antes CIEC) se guarda protegida y solo en este
+          equipo. Nunca se muestra a la vista.
         </p>
       </Card>
     );
@@ -403,7 +403,7 @@ function CiecSection({
         <div className="flex items-center gap-2">
           <Icon icon="ph:key-light" className="size-4 text-primary" />
           <span className="text-sm font-medium">
-            {tiene ? 'Cambiar contraseña CIEC' : 'Agregar CIEC'}
+            {tiene ? 'Cambiar Contraseña del SAT' : 'Agregar Contraseña del SAT'}
           </span>
         </div>
         {ok && <Guardado />}
@@ -412,7 +412,7 @@ function CiecSection({
         <Input
           type="password"
           value={ciec}
-          placeholder="Nueva contraseña CIEC"
+          placeholder="Nueva Contraseña del SAT"
           onChange={(e) => {
             setCiec(e.target.value);
             setOk(false);
@@ -597,7 +597,7 @@ function FielSection({
           >
             <AlertDescription className="text-xs">
               {sem.vencida
-                ? `Esta e.firma venció el ${fechaLarga(sem.fecha)}. Renuévala con el nuevo .cer y .key — o quítala y sigue trabajando con tu CIEC mientras la renuevas.`
+                ? `Esta e.firma venció el ${fechaLarga(sem.fecha)}. Renuévala con el nuevo .cer y .key — o quítala y sigue trabajando con tu Contraseña del SAT mientras la renuevas.`
                 : RENOVACION_EFIRMA_HABILITADA
                   ? `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en línea desde aquí — no necesitas ir al SAT.`
                   : `${sem.estado === 'rojo' ? 'Vence muy pronto.' : 'Está por vencer.'} Renuévala en el SAT y actualiza aquí los archivos nuevos (.cer/.key).`}
@@ -631,8 +631,8 @@ function FielSection({
               <DialogTitle>Quitar e.firma</DialogTitle>
               <DialogDescription>
                 {tieneCiec
-                  ? `Se quitará la e.firma de "${empresa.nombre}" de este equipo (archivos y contraseña). La empresa seguirá funcionando con su CIEC; podrás cargar una e.firma nueva cuando la renueves.`
-                  : `Se quitará la e.firma de "${empresa.nombre}" de este equipo (archivos y contraseña). Esta empresa no tiene CIEC registrada, así que quedará sin acceso al SAT hasta que agregues una e.firma o una CIEC.`}
+                  ? `Se quitará la e.firma de "${empresa.nombre}" de este equipo (archivos y contraseña). La empresa seguirá funcionando con su Contraseña del SAT; podrás cargar una e.firma nueva cuando la renueves.`
+                  : `Se quitará la e.firma de "${empresa.nombre}" de este equipo (archivos y contraseña). Esta empresa no tiene Contraseña del SAT registrada, así que quedará sin acceso al SAT hasta que agregues una e.firma o una Contraseña.`}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

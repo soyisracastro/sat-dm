@@ -36,7 +36,7 @@ interface EfirmaItem {
 function efirmaItem(empresa: Empresa | null): EfirmaItem | null {
   if (!empresa) return null;
   if (!empresa.metodos.includes('fiel')) {
-    return { tono: 'muted', icono: 'ph:key-light', texto: 'Acceso con CIEC' };
+    return { tono: 'muted', icono: 'ph:key-light', texto: 'Acceso con Contraseña' };
   }
   const sem = semaforoVencimiento(empresa.vencimiento);
   if (!sem) return null;
