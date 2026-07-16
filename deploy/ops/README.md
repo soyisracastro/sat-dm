@@ -7,9 +7,9 @@ de "departamentos" automatizados del plan de ventas jul–dic 2026:
 | Agente | Estado | Qué hace |
 |---|---|---|
 | `agents/reporte_semanal.py` | ✅ | Lunes 07:00 CDMX: métricas de Supabase (usuarios/planes/CRM 034) + Stripe (suscripciones/ARR) + Sendy (listas) → deltas vs semana pasada → narrativa con Claude → correo SES a Israel. |
-| `agents/contenido_semanal.py` | ⏳ siguiente | Borradores semanales (post de blog `draft:true`, guion de video, posts sociales, email) → PR `drafts/semana-NN` vía GitHub API. Nunca publica directo. |
-| `agents/sdr_inbound.py` | ⏳ siguiente | Lee `crm_leads` etapa=lead (SOLO gente que llenó un formulario — opt-in), scoring, primer contacto por SES con BCC a Israel, límite diario + kill switch. |
-| `agents/soporte.py` | ⏳ siguiente | Buzón soporte@ (Google Workspace): clasifica y redacta BORRADORES para aprobar; no auto-responde en v1. |
+| `agents/contenido_semanal.py` | ✅ | Lunes 06:30 CDMX: genera con Claude (Sonnet) el paquete semanal — post de blog con frontmatter listo, guion de video, 3 posts sociales, 1 email — y abre PR `drafts/semana-NN` en todoconta-apps. Los archivos viven en `drafts/`: **mergear tampoco publica**; Israel mueve el post al blog cuando lo aprueba. Backlog de temas en el propio agente. |
+| `agents/sdr_inbound.py` | ✅ | Cada hora (9:15–17:15 CDMX): lee `crm_leads` etapa=lead con fuente `qualifier`/`abacus` (SOLO gente que llenó un formulario — opt-in estricto), puntúa y redacta con Claude, manda UN primer correo por SES como Israel (BCC a Israel), etapa→`mql` + evento `email_enviado` (candado anti-duplicado). Sin follow-ups: Israel cierra. |
+| `agents/soporte.py` | ✅ | Cada hora: lee los no-leídos de soporte@ (IMAP, app password), descarta auto-correos, clasifica y redacta BORRADOR con Claude, lo deja hilado en la carpeta Borradores de soporte@ y avisa a Israel con el original + clasificación. **No auto-responde a nadie** (v1). |
 
 ## Despliegue (patrón de deploy/{gateway,provisioner,sendy})
 
@@ -23,15 +23,22 @@ docker exec -it sendy-db mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" -e \
    GRANT SELECT ON sendy.* TO 'ops_ro'@'%'; FLUSH PRIVILEGES;"
 # 4. Levantar:
 cd /docker/ops && docker compose up -d --build
-# 5. Probar sin mandar correo:
+# 5. Probar sin efectos (ninguno manda nada en --dry-run):
 docker compose run --rm ops python agents/reporte_semanal.py --dry-run
+docker compose run --rm ops python agents/contenido_semanal.py --dry-run
+docker compose run --rm ops python agents/sdr_inbound.py --dry-run
+docker compose run --rm ops python agents/soporte.py --dry-run
 ```
 
 ## `.env` (chmod 600, NUNCA al repo)
 
 ```bash
-# Kill switches (1 = encendido)
+# Kill switches (1 = encendido). SDR/soporte/contenido nacen APAGADOS:
+# se encienden uno por uno cuando Israel valida su dry-run.
 OPS_REPORTE_ENABLED=1
+OPS_CONTENIDO_ENABLED=0
+OPS_SDR_ENABLED=0
+OPS_SOPORTE_ENABLED=0
 
 # Supabase (mismo proyecto que todoconta-apps; service role)
 TODOCONTA_SUPABASE_URL=https://pyyyzvicjpffohwjsmzi.supabase.co
@@ -55,25 +62,57 @@ AWS_SES_SECRET_ACCESS_KEY=
 REPORTE_FROM=no-reply@todoconta.com
 REPORTE_TO=israel.castro@gmail.com
 
-# Narrativa (opcional — sin key el reporte sale solo con números)
+# Claude (reporte/SDR/soporte usan LLM_MODEL; contenido usa Sonnet)
 ANTHROPIC_API_KEY=
 LLM_MODEL=claude-haiku-4-5-20251001
+LLM_MODEL_CONTENIDO=claude-sonnet-5
+
+# Contenido semanal — fine-grained PAT con Contents:write + Pull requests:write
+# SOLO sobre el repo de contenido.
+GITHUB_PAT=
+CONTENIDO_REPO=soyisracastro/todoconta-apps
+
+# SDR inbound
+SDR_FROM="Israel Castro <israel@todoconta.com>"
+SDR_BCC=israel.castro@gmail.com
+OPS_SDR_MAX_DIA=5        # tope de correos por día
+SDR_MAX_EDAD_DIAS=14     # no contactar leads más viejos que esto
+
+# Soporte (Google Workspace: activar 2FA en soporte@ y generar app password)
+SOPORTE_IMAP_HOST=imap.gmail.com
+SOPORTE_EMAIL=soporte@todoconta.com
+SOPORTE_APP_PASSWORD=
+OPS_SOPORTE_MAX=10       # mensajes por corrida
 ```
 
 ## Reglas del contenedor
 
-- **Solo lectura hacia afuera**: Supabase con service key (los agentes futuros que
-  escriban lo harán a `crm_*` únicamente), Stripe con restricted key RO, Sendy con
+- **Escritura mínima y acotada**: Supabase solo a tablas `crm_*` (SDR); GitHub
+  solo PRs de borradores con PAT fine-grained (contenido); Gmail solo carpeta
+  Borradores + marcar leído (soporte). Stripe con restricted key RO, Sendy con
   usuario MySQL `SELECT`-only. Nada de docker.sock, nada de Traefik (sin inbound).
+- **Nadie recibe correo sin humano o sin opt-in**: el SDR solo escribe a quien
+  llenó un formulario (una sola vez, con BCC a Israel); soporte solo deja
+  borradores. Los envíos masivos siguen siendo territorio de Sendy.
 - **Sin daemons**: supercronic dispara procesos que terminan. `mem_limit: 256m`.
-- **Cada agente con kill switch por env** y horarios escalonados en el crontab.
+- **Cada agente con kill switch por env** (SDR/soporte/contenido nacen apagados)
+  y horarios escalonados en el crontab. Todos aceptan `--dry-run`.
 - **OpenClaw intocable**: este contenedor no toca nada de /root ni del host.
-- El snapshot semanal (para deltas) vive en el volumen `ops-data` (`/data`).
+- El estado de cada agente (snapshots, candados diarios, procesados) vive en el
+  volumen `ops-data` (`/data`).
 
 ## Verificación post-deploy
 
 ```bash
 docker logs ops --tail 20              # supercronic cargó el crontab
 docker compose run --rm ops python agents/reporte_semanal.py --dry-run
+docker compose run --rm ops python agents/contenido_semanal.py --dry-run   # imprime el paquete, sin PR
+docker compose run --rm ops python agents/sdr_inbound.py --dry-run         # imprime correos, sin mandar
+docker compose run --rm ops python agents/soporte.py --dry-run             # imprime clasificación, sin tocar el buzón
 pgrep -f openclaw                      # checklist del host (runbook deploy/vps)
 ```
+
+Secuencia de encendido sugerida: validar cada dry-run → `OPS_CONTENIDO_ENABLED=1`
+(el PR es inofensivo) → `OPS_SOPORTE_ENABLED=1` (solo borradores) →
+`OPS_SDR_ENABLED=1` al final (este sí manda correo a leads; empezar con
+`OPS_SDR_MAX_DIA=2` y subir cuando el tono esté validado).
