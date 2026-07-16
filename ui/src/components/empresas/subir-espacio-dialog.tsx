@@ -31,7 +31,7 @@ import type { Empresa } from '@/lib/types';
 function etiquetaCredenciales(metodos: string[]): string {
   const partes = [];
   if (metodos.includes('fiel')) partes.push('tu e.firma (.cer, .key) y su contraseña');
-  if (metodos.includes('ciec')) partes.push('tu CIEC');
+  if (metodos.includes('ciec')) partes.push('tu Contraseña del SAT');
   return partes.join(' y ');
 }
 
@@ -60,10 +60,10 @@ export function SubirEspacioDialog({
       const r = await apiClient.subirAlEspacio(empresa.rfc, empresa.metodos);
       toast.success(
         r.subidos.length > 1
-          ? 'Listo: tu e.firma y tu CIEC ya están en tu espacio en línea.'
+          ? 'Listo: tu e.firma y tu Contraseña del SAT ya están en tu espacio en línea.'
           : r.subidos[0] === 'fiel'
             ? 'Listo: tu e.firma ya está en tu espacio en línea.'
-            : 'Listo: tu CIEC ya está en tu espacio en línea.',
+            : 'Listo: tu Contraseña del SAT ya está en tu espacio en línea.',
       );
       onOpenChange(false);
       onDone?.();

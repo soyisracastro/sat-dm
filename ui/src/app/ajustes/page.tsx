@@ -270,7 +270,7 @@ export default function AjustesPage() {
           {!web && (
             <AjRow
               label="Sincronizar credenciales con mi espacio en línea"
-              sub="Tu e.firma y CIEC viajan cifradas directo a tu espacio privado — nunca a bases de datos compartidas — para que puedas seguir trabajando desde el navegador, y lo que captures en la web aparezca aquí."
+              sub="Tu e.firma y Contraseña del SAT viajan cifradas directo a tu espacio privado — nunca a bases de datos compartidas — para que puedas seguir trabajando desde el navegador, y lo que captures en la web aparezca aquí."
               control={
                 <Switch
                   checked={syncCreds ?? true}
@@ -313,7 +313,7 @@ export default function AjustesPage() {
         <AjCard icon="ph:bell-light" title="Notificaciones">
           <AjRow
             label="Avisarme cuando termine una descarga"
-            sub="Vale para e.firma o CIEC. También te avisamos si alguna falla."
+            sub="Vale para e.firma o Contraseña del SAT. También te avisamos si alguna falla."
             control={
               <Switch
                 checked={notifPrefs.descargas}

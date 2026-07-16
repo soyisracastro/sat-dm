@@ -265,7 +265,7 @@ function EmpresasContenido() {
       <div className="flex items-center gap-2.5 rounded-lg border bg-card px-4 py-3.5 text-[13px] text-muted-foreground">
         <Icon icon="ph:key-light" className="size-4.5 shrink-0" />
         <span>
-          e.firma y CIEC se guardan{' '}
+          e.firma y Contraseña del SAT se guardan{' '}
           <span className="font-semibold text-foreground">
             protegidas y solo en este equipo
           </span>
@@ -345,7 +345,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <div className="space-y-1">
         <p className="font-medium">Aún no tienes empresas</p>
         <p className="text-sm text-muted-foreground">
-          Registra tu primera empresa (e.firma o CIEC) para empezar a descargar.
+          Registra tu primera empresa (e.firma o Contraseña del SAT) para empezar a descargar.
         </p>
       </div>
       <Button onClick={onAdd}>

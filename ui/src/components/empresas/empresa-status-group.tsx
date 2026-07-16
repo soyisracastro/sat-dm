@@ -70,8 +70,8 @@ export function EmpresaStatusGroup({ empresa }: { empresa: Empresa }) {
       />
       {empresa.metodos.includes('ciec') && (
         <span
-          title="CIEC registrada"
-          aria-label="CIEC registrada"
+          title="Contraseña del SAT registrada"
+          aria-label="Contraseña del SAT registrada"
           className="inline-flex items-center"
         >
           <Icon icon="ph:key-light" className="size-4 text-muted-foreground/70" />
@@ -81,7 +81,7 @@ export function EmpresaStatusGroup({ empresa }: { empresa: Empresa }) {
           todavía no hay credenciales — captúralas para operar en este lado. */}
       {empresa.metodos.length === 0 && (empresa.metodos_sync?.length ?? 0) > 0 && (
         <span
-          title="Sincronizada desde tu otra instalación: captura aquí su e.firma o CIEC para usarla"
+          title="Sincronizada desde tu otra instalación: captura aquí su e.firma o Contraseña del SAT para usarla"
           className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
         >
           <Icon icon="ph:key-light" className="size-3" />

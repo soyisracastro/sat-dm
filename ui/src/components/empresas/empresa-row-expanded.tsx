@@ -198,7 +198,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
             className="flex-1"
             disabled={botonDisabled(kind)}
             onClick={() => bajar(kind)}
-            title={!metodo ? 'Agrega FIEL o CIEC en Empresas' : undefined}
+            title={!metodo ? 'Agrega FIEL o Contraseña del SAT en Empresas' : undefined}
           >
             <Icon
               icon={trabajando ? 'ph:circle-notch-light' : 'ph:download-simple-light'}
@@ -275,7 +275,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
             </p>
           ) : (
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Esta empresa opera con CIEC. Registra su e.firma para la descarga masiva.
+              Esta empresa opera con Contraseña del SAT. Registra su e.firma para la descarga masiva.
             </p>
           )}
           <div className="mt-auto flex items-center gap-1.5 pt-1">
@@ -348,7 +348,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
           </p>
           {renderDescarga('constancia', 'Descargar CSF')}
           {!metodo && (
-            <p className="text-xs text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
+            <p className="text-xs text-muted-foreground">Agrega FIEL o Contraseña del SAT en Empresas.</p>
           )}
         </DocCardShell>
 
@@ -395,7 +395,7 @@ export function EmpresaRowExpanded({ empresa, onJobDone }: Props) {
           )}
           {renderDescarga('opinion', 'Descargar 32-D')}
           {!metodo && (
-            <p className="text-xs text-muted-foreground">Agrega FIEL o CIEC en Empresas.</p>
+            <p className="text-xs text-muted-foreground">Agrega FIEL o Contraseña del SAT en Empresas.</p>
           )}
         </DocCardShell>
       </div>
