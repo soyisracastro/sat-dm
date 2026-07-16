@@ -3,13 +3,12 @@
     { "source": "/api/:path*", "destination": "https://api.todoconta.com/api/:path*" },
     { "source": "/desktop/:path*", "destination": "https://api.todoconta.com/desktop/:path*" },
     { "source": "/auth/:path*", "destination": "https://api.todoconta.com/auth/:path*" },
-    { "source": "/planes", "destination": "https://api.todoconta.com/planes" },
     { "source": "/cuenta/:path*", "destination": "https://api.todoconta.com/cuenta/:path*" },
     { "source": "/_next/:path*", "destination": "https://api.todoconta.com/_next/:path*" }
   ],
   "headers": [
     {
-      "source": "/((?!api/|auth/|desktop/|planes|cuenta|_next/).*)",
+      "source": "/((?!api/|auth/|desktop/|cuenta|_next/).*)",
       "headers": [
         {
           "key": "Content-Security-Policy",
