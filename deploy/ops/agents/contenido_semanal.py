@@ -38,7 +38,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from lib import github, llm
+from lib import github, imagen, llm
 
 ESTADO = Path("/data/contenido_estado.json")
 
@@ -401,7 +401,30 @@ def main() -> int:
     if dry_run:
         for ruta, contenido in archivos.items():
             print(f"\n───── {ruta} ─────\n{contenido}")
+        print("(dry-run: la heroImage no se genera para no gastar API)")
         return 0
+
+    # heroImage automática (Gemini económico → TinyPNG → JPG en el mismo PR).
+    # Best-effort: sin keys o con fallo, el PR sale sin imagen y la ficha
+    # conserva el prompt para generarla a mano.
+    hero_incluida = False
+    prompt_img = str(ficha.get("prompt_imagen") or "")
+    if prompt_img:
+        png = imagen.generar_hero(prompt_img)
+        jpg = imagen.comprimir_jpg(png) if png else None
+        if jpg:
+            archivos[f"apps/landing/public/assets/blog/{slug}.jpg"] = jpg
+            hero_incluida = True
+            print(f"[contenido] heroImage generada e incluida ({len(jpg) // 1024} KB)")
+        else:
+            print("[contenido] sin heroImage automática — la ficha trae el prompt")
+
+    linea_hero = (
+        f"- [ ] Revisar la heroImage incluida (`public/assets/blog/{slug}.jpg`)\n"
+        if hero_incluida
+        else "- [ ] Generar la heroImage con el prompt de `ficha-seo.md` "
+        f"(Gemini → tinypng → `public/assets/blog/{slug}.jpg`)\n"
+    )
 
     url = github.crear_pr_con_archivos(
         repo=os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
@@ -415,9 +438,8 @@ def main() -> int:
             "Checklist de Israel:\n"
             f"- [ ] Revisar/editar `{pub_date}-{slug}.md` y moverlo tal cual a "
             "`apps/landing/src/content/blog/`\n"
-            "- [ ] Generar la heroImage con el prompt de `ficha-seo.md` "
-            f"(Gemini → tinypng → `public/assets/blog/{slug}.jpg`)\n"
-            "- [ ] Marcar la fila como `publicado=si` en "
+            + linea_hero
+            + "- [ ] Marcar la fila como `publicado=si` en "
             "`apps/landing/editorial/calendario-editorial-2026.csv`\n"
             "- [ ] Grabar el video con `guion-video.md` (miércoles)\n"
             "- [ ] Programar `posts-sociales.md`\n"

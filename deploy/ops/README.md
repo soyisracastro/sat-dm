@@ -72,6 +72,13 @@ LLM_MODEL_CONTENIDO=claude-sonnet-5
 GITHUB_PAT=
 CONTENIDO_REPO=soyisracastro/todoconta-apps
 
+# heroImage automática (opcional — sin estas keys el PR sale sin imagen y la
+# ficha trae el prompt para generarla a mano). Modelo económico a propósito
+# (Nano Banana 2 Lite ~$0.03/imagen); TinyPNG comprime y convierte a JPG.
+GEMINI_API_KEY=
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image
+TINYPNG_API_KEY=
+
 # SDR inbound
 SDR_FROM="Israel Castro <israel@todoconta.com>"
 SDR_BCC=israel.castro@gmail.com
