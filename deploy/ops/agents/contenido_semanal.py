@@ -2,17 +2,19 @@
 
 Cada lunes genera con Claude (Sonnet) el paquete de contenido de la semana:
 
-  drafts/semana-NN/post-blog.md      borrador de post (frontmatter del blog listo)
-  drafts/semana-NN/guion-video.md    guion de 5-8 min para el video de Israel
-  drafts/semana-NN/posts-sociales.md 3 posts (LinkedIn, X/Threads, Facebook)
-  drafts/semana-NN/email-sendy.md    1 correo para campaña en Sendy
+  drafts/semana-NN/YYYY-MM-DD-slug.md  post listo para mover al blog (spec de Israel)
+  drafts/semana-NN/ficha-seo.md        palabra clave, título SEO, alt, prompt de imagen
+  drafts/semana-NN/guion-video.md      guion de 5-8 min para el video de Israel
+  drafts/semana-NN/posts-sociales.md   3 posts (LinkedIn, X/Threads, Facebook)
+  drafts/semana-NN/email-sendy.md      1 correo para campaña en Sendy
 
-La FUENTE PRIMARIA de temas es el calendario editorial del repo
-(apps/landing/editorial/calendario-editorial-2026.csv, leído en runtime vía la
-GitHub API): toma la fila más próxima con publicado=no. Israel edita el CSV (o
-marca publicado=si) SIN redeployar el contenedor. Si el calendario no está
-disponible o se agotó, cae a un backlog embebido (dolores reales de Abacus que
-el calendario aún no cubre).
+Gobernado por DOS archivos del repo de contenido, leídos en runtime vía la
+GitHub API (editarlos NO requiere redeploy):
+  - apps/landing/editorial/calendario-editorial-2026.csv — FUENTE de temas:
+    toma la fila más próxima con publicado=no (brief, producto, fuentes).
+  - apps/landing/editorial/instrucciones-blog.md — SPEC del post (SEO, quotes,
+    encabezados, linking, mobile-first, serialización, Estilo 06, taxonomía).
+Si alguno falta, cae a respaldos embebidos (backlog de temas / reglas mínimas).
 
 Abre un PR en el repo de contenido (env CONTENIDO_REPO). NUNCA publica
 directo: los archivos viven en drafts/ — mergear el PR tampoco publica nada;
@@ -42,6 +44,22 @@ ESTADO = Path("/data/contenido_estado.json")
 
 REPO_DEFAULT = "soyisracastro/todoconta-apps"
 CALENDARIO_RUTA_DEFAULT = "apps/landing/editorial/calendario-editorial-2026.csv"
+INSTRUCCIONES_RUTA_DEFAULT = "apps/landing/editorial/instrucciones-blog.md"
+
+# Resumen mínimo por si instrucciones-blog.md no está disponible (la versión
+# completa y canónica vive en el repo de contenido y manda sobre esto).
+REGLAS_RESPALDO = (
+    "REGLAS DEL POST: palabra clave presente en el primer párrafo y 2-3 veces "
+    "en total; slug evergreen de máx 4 palabras sin números; title visible + "
+    "description ≤140 chars; 1-2 blockquotes destacados; 2-4 H2 con narrativa "
+    "problema→solución→cierre; máx 3 referencias externas de fuentes oficiales "
+    "(notas al pie [^1]) y 1-3 interlinks internos (/blog/INTERLINK:tema si no "
+    "conoces el slug); párrafos de 2-3 oraciones (mobile-first); 800-1,200 "
+    "palabras (máx 1,800); frontmatter SIN author, SIN cta, SIN isFeatured; "
+    "heroImage /assets/blog/{slug}.jpg; categorías válidas: comprobantes-"
+    "fiscales, impuestos-declaraciones, cumplimiento-sat, nomina-laboral, "
+    "regimenes, contabilidad-despachos, ia-tecnologia; tags 3-5 en Title Case."
+)
 
 CATEGORIAS_VALIDAS = {
     "comprobantes-fiscales",
@@ -232,46 +250,73 @@ def main() -> int:
             "lo que no puedas confirmar márcalo [VERIFICAR]).\n"
         )
 
-    post = llm.generar(
-        "Escribe un post de blog de 1,000-1,300 palabras sobre este tema:\n"
+    instrucciones = github.leer_archivo(
+        os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
+        os.environ.get("CONTENIDO_INSTRUCCIONES_RUTA", INSTRUCCIONES_RUTA_DEFAULT),
+    )
+    if instrucciones:
+        reglas = (
+            "INSTRUCCIONES CANÓNICAS DEL BLOG (mandan sobre cualquier otra "
+            "indicación de formato):\n\n" + instrucciones
+        )
+    else:
+        print("[contenido] instrucciones-blog.md no disponible — reglas embebidas")
+        reglas = REGLAS_RESPALDO
+
+    crudo = llm.generar(
+        f"{reglas}\n\n"
+        "════════\n"
+        "Genera el post de esta semana siguiendo esas instrucciones.\n"
         f"TEMA: {tema['tema']}\n"
         + brief
-        + f"PRODUCTO/HERRAMIENTA A LIGAR EN EL BLOQUE cta: {tema['gancho']} "
-        "(si es solo un nombre de producto, redacta tú el copy del cta "
-        "alrededor de él, siempre cerrando en descargar TodoConta Desktop).\n"
+        + f"CATEGORÍA SUGERIDA POR EL CALENDARIO: {json.dumps(tema['categorias'])} "
+        "(decide primaria/secundaria con la sección 8).\n"
+        f"PRODUCTO/HERRAMIENTA A LIGAR: {tema['gancho']} — cierre suave DENTRO "
+        "del cuerpo: el último párrafo invita a resolverlo con esa herramienta "
+        "de TodoConta Desktop enlazando a https://todoconta.com/descargar. "
+        "Recuerda: el frontmatter NO lleva bloque cta.\n"
+        f"pubDate: {pub_date}\n"
         f"MES ACTUAL: {hoy.strftime('%Y-%m')} (si el calendario fiscal mexicano "
         "tiene una fecha relevante cerca, úsala como percha; si no, no fuerces).\n"
-        "El blog ya tiene 86+ posts publicados: no repitas guías básicas que "
-        "seguramente existen (qué es un CFDI, qué es la DIOT); entra directo al "
-        "ángulo del brief.\n\n"
-        "FORMATO OBLIGATORIO — archivo Markdown que empieza EXACTAMENTE con "
-        "frontmatter YAML válido para este schema de Astro:\n"
-        "---\n"
-        'title: "…" (máx 65 caracteres)\n'
-        'description: "…" (140-160 caracteres)\n'
-        f"pubDate: {pub_date}\n"
-        f"categories: {json.dumps(tema['categorias'])}\n"
-        'tags: ["…", "…", "…"] (3-5 tags)\n'
-        'heroImage: "/assets/blog/PENDIENTE.jpg"\n'
-        "cta:\n"
-        '  title: "…"\n'
-        '  text: "…" (usa el gancho de producto)\n'
-        '  href: "https://todoconta.com/descargar"\n'
-        '  cta: "Descargar TodoConta Desktop"\n'
-        "---\n\n"
-        "Después del frontmatter: el post en Markdown (##/### para secciones, "
-        "negritas con moderación, un blockquote con la idea clave). Estructura: "
-        "problema concreto → cómo se ve en la práctica → cómo resolverlo paso a "
-        "paso → cierre breve. NO menciones TodoConta en el cuerpo más de una "
-        "vez; el bloque cta ya vende. Responde SOLO con el archivo, sin "
-        "explicaciones alrededor.",
+        "El blog ya tiene 86+ posts publicados: no repitas guías básicas; usa "
+        "interlinks con placeholder INTERLINK: al referir temas hermanos.\n\n"
+        "RESPONDE EXACTAMENTE con dos secciones y nada más:\n"
+        "=== FICHA ===\n"
+        "Un objeto JSON con: palabra_clave, slug, titulo_seo (≤60 chars, con la "
+        "palabra clave), alt (descripción de la heroImage, con la palabra "
+        "clave), prompt_imagen (el prompt Estilo 06 completo, con [SUBJECT] ya "
+        "resuelto para este post), plan_serie (null; o, si el material rebasa "
+        "1,800 palabras, {\"articulos\": [\"título 1\", …], \"razon\": \"…\"}).\n"
+        "=== POST ===\n"
+        "El archivo Markdown completo, empezando por el frontmatter YAML "
+        "(title, description, pubDate, heroImage \"/assets/blog/<slug>.jpg\", "
+        "categories, tags) — sin fences de código alrededor.",
         sistema=SISTEMA,
         modelo=modelo,
-        max_tokens=4000,
+        max_tokens=6000,
     )
-    if not post:
-        print("[contenido] Claude no devolvió el post — abortando")
+    if not crudo or "=== POST ===" not in crudo:
+        print("[contenido] Claude no devolvió ficha+post — abortando")
         return 1
+
+    ficha_cruda, post = (p.strip() for p in crudo.split("=== POST ===", 1))
+    ficha_cruda = ficha_cruda.split("=== FICHA ===", 1)[-1].strip()
+    if ficha_cruda.startswith("```"):
+        ficha_cruda = ficha_cruda.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    if post.startswith("```"):
+        post = post.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        ficha = json.loads(ficha_cruda)
+    except ValueError:
+        print("[contenido] ficha ilegible — sigo sin ella")
+        ficha = {}
+
+    # Slug saneado (evergreen: minúsculas, guiones, sin números — regla 4b).
+    base = str(ficha.get("slug") or tema["tema"]).lower().replace("-", " ")
+    palabras = [
+        "".join(c for c in p if c.isalnum() and not c.isdigit()) for p in base.split()
+    ]
+    slug = "-".join([p for p in palabras if p][:4]) or "post-semanal"
 
     derivados = llm.generar(
         "A partir de este post de blog, genera las piezas derivadas de la "
@@ -314,9 +359,32 @@ def main() -> int:
     partes["guion"], tras_sociales = tras_guion.split("=== SOCIALES ===", 1)
     partes["sociales"], partes["email"] = tras_sociales.split("=== EMAIL ===", 1)
 
+    plan_serie = ficha.get("plan_serie")
+    ficha_md = (
+        f"# Ficha SEO e imagen — semana {semana}\n\n"
+        f"- **Tema:** {tema['tema']}\n"
+        f"- **Palabra clave:** {ficha.get('palabra_clave', '[PENDIENTE]')}\n"
+        f"- **Slug:** `{slug}`\n"
+        f"- **Título SEO (≤60):** {ficha.get('titulo_seo', '[PENDIENTE]')}\n"
+        f"- **Alt de la heroImage:** {ficha.get('alt', '[PENDIENTE]')}\n"
+        f"- **heroImage:** `/assets/blog/{slug}.jpg` (16:9, fondo #FAFAF7)\n\n"
+        "## Prompt de imagen (Estilo 06 — isométrico minimalista)\n\n"
+        f"```\n{ficha.get('prompt_imagen', '[PENDIENTE — usar el prompt base de instrucciones-blog.md §7]')}\n```\n\n"
+        "Generar con Gemini (gemini-3-pro-image, 16:9) → comprimir "
+        "(scripts/convert-images.py con TinyPNG) → guardar como "
+        f"`apps/landing/public/assets/blog/{slug}.jpg`.\n"
+        + (
+            "\n## ⚠️ Plan de serie sugerido (el material rebasa 1,800 palabras)\n\n"
+            f"{json.dumps(plan_serie, ensure_ascii=False, indent=2)}\n"
+            if plan_serie
+            else ""
+        )
+    )
+
     carpeta = f"drafts/semana-{semana}"
     archivos = {
-        f"{carpeta}/post-blog.md": post.strip() + "\n",
+        f"{carpeta}/{pub_date}-{slug}.md": post.strip() + "\n",
+        f"{carpeta}/ficha-seo.md": ficha_md,
         f"{carpeta}/guion-video.md": (
             f"# Guion de video — semana {semana}\n\nTema: {tema['tema']}\n\n"
             + partes["guion"].strip()
@@ -345,8 +413,10 @@ def main() -> int:
             "mergear** — los archivos viven en `drafts/`.\n\n"
             f"**Tema:** {tema['tema']}\n\n"
             "Checklist de Israel:\n"
-            "- [ ] Revisar/editar `post-blog.md` y moverlo a "
-            "`apps/landing/src/content/blog/` con su heroImage\n"
+            f"- [ ] Revisar/editar `{pub_date}-{slug}.md` y moverlo tal cual a "
+            "`apps/landing/src/content/blog/`\n"
+            "- [ ] Generar la heroImage con el prompt de `ficha-seo.md` "
+            f"(Gemini → tinypng → `public/assets/blog/{slug}.jpg`)\n"
             "- [ ] Marcar la fila como `publicado=si` en "
             "`apps/landing/editorial/calendario-editorial-2026.csv`\n"
             "- [ ] Grabar el video con `guion-video.md` (miércoles)\n"
