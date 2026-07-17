@@ -1,0 +1,301 @@
+"""Soporte en modo BORRADOR: clasifica el buzón soporte@ y redacta respuestas
+que Israel aprueba — este agente NO responde solo a nadie (regla v1).
+
+Cada corrida:
+  1. Lee por IMAP los correos NO leídos de soporte@todoconta.com (Google
+     Workspace, app password) descartando auto-respuestas/boletines.
+  2. Clasifica cada uno con Claude (categoría, urgencia, resumen) y redacta un
+     borrador de respuesta con contexto real del producto.
+  3. Deja el borrador EN LA CARPETA BORRADORES de soporte@ (hilado a la
+     conversación: Israel solo abre Gmail, ajusta y manda) y le avisa por
+     correo con el original + la clasificación + el borrador.
+  4. Marca el mensaje como leído para no reprocesarlo.
+
+Uso:
+    python agents/soporte.py            # corre (si está encendido)
+    python agents/soporte.py --dry-run  # imprime clasificación/borradores, no toca nada
+
+Kill switch: OPS_SOPORTE_ENABLED != "1" → no hace nada (default APAGADO).
+Requiere: SOPORTE_EMAIL + SOPORTE_APP_PASSWORD (app password de Workspace).
+"""
+
+from __future__ import annotations
+
+import email
+import email.utils
+import html as html_mod
+import imaplib
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from email.header import decode_header
+from email.mime.text import MIMEText
+from pathlib import Path
+
+from lib import correo, llm
+
+ESTADO = Path("/data/soporte_estado.json")
+MAX_PROCESADOS_GUARDADOS = 500
+
+REMITENTES_AUTO = re.compile(
+    r"no-?reply|mailer-daemon|postmaster|bounce|notificacion|donotreply", re.I
+)
+
+SISTEMA = (
+    "Eres el agente de soporte de TodoConta (todoconta.com): app de escritorio "
+    "(Windows/macOS) para contadores en México que descarga CFDI y documentos "
+    "del SAT de forma masiva, con versión web en app.todoconta.com. Contexto "
+    "real del producto: prueba gratis de 15 días al registrarse; plan Anual "
+    "$2,990 MXN y Anual con IA $4,990 MXN (incluye Abacus, asistente fiscal por "
+    "WhatsApp); métodos de acceso al SAT: e.firma (sin captcha), Contraseña del "
+    "SAT (antes CIEC, con captcha) y Web Service para volumen; la e.firma y las "
+    "contraseñas se guardan cifradas en el equipo del usuario — «tú decides "
+    "dónde viven tus datos»; descargas: CFDI emitidos/recibidos, Constancia de "
+    "Situación Fiscal, Opinión de cumplimiento 32-D, DIOT 2025; procesadores "
+    "XML→Excel y calculadoras fiscales; soporte humano: Israel Castro. Redacta "
+    "en español de México, cálido y directo, máximo 180 palabras, firmando "
+    "«Israel — TodoConta». Si el problema requiere datos que no tienes (logs, "
+    "capturas, versión), pídelos. NUNCA prometas fechas de features ni "
+    "reembolsos: eso lo decide Israel (déjalo como [ISRAEL DECIDE] si aplica). "
+    "Nunca digas «CIEC» a secas ni «espejo» (di «versión web»)."
+)
+
+
+def _decodificar(valor: str | None) -> str:
+    if not valor:
+        return ""
+    partes = []
+    for texto, charset in decode_header(valor):
+        if isinstance(texto, bytes):
+            partes.append(texto.decode(charset or "utf-8", errors="replace"))
+        else:
+            partes.append(texto)
+    return "".join(partes)
+
+
+def _cuerpo_texto(msg: email.message.Message) -> str:
+    """Extrae texto plano (o HTML desetiquetado) del mensaje."""
+    def _decodifica_parte(parte: email.message.Message) -> str:
+        payload = parte.get_payload(decode=True) or b""
+        charset = parte.get_content_charset() or "utf-8"
+        return payload.decode(charset, errors="replace")
+
+    if msg.is_multipart():
+        html_fallback = ""
+        for parte in msg.walk():
+            tipo = parte.get_content_type()
+            if "attachment" in str(parte.get("Content-Disposition", "")):
+                continue
+            if tipo == "text/plain":
+                return _decodifica_parte(parte)
+            if tipo == "text/html" and not html_fallback:
+                html_fallback = _decodifica_parte(parte)
+        texto = re.sub(r"<[^>]+>", " ", html_fallback)
+        return html_mod.unescape(re.sub(r"\s+", " ", texto)).strip()
+    if msg.get_content_type() == "text/html":
+        texto = re.sub(r"<[^>]+>", " ", _decodifica_parte(msg))
+        return html_mod.unescape(re.sub(r"\s+", " ", texto)).strip()
+    return _decodifica_parte(msg)
+
+
+def _es_automatico(msg: email.message.Message, de_email: str) -> bool:
+    if REMITENTES_AUTO.search(de_email or ""):
+        return True
+    auto = str(msg.get("Auto-Submitted", "no")).lower()
+    if auto and auto != "no":
+        return True
+    if str(msg.get("Precedence", "")).lower() in ("bulk", "junk", "list"):
+        return True
+    if msg.get("List-Unsubscribe"):
+        return True
+    return False
+
+
+def _carpeta_borradores(imap: imaplib.IMAP4_SSL) -> str | None:
+    """Encuentra la carpeta con flag \\Drafts (Gmail la nombra según idioma)."""
+    ok, carpetas = imap.list()
+    if ok != "OK" or not carpetas:
+        return None
+    for linea in carpetas:
+        texto = linea.decode("utf-8", errors="replace") if isinstance(linea, bytes) else str(linea)
+        if "\\Drafts" in texto:
+            m = re.search(r'"([^"]+)"\s*$', texto)
+            if m:
+                return m.group(1)
+    return None
+
+
+def _cargar_estado() -> dict:
+    if ESTADO.exists():
+        try:
+            return json.loads(ESTADO.read_text())
+        except Exception:  # noqa: BLE001
+            pass
+    return {"procesados": []}
+
+
+def main() -> int:
+    dry_run = "--dry-run" in sys.argv
+    if os.environ.get("OPS_SOPORTE_ENABLED", "0") != "1" and not dry_run:
+        print("[soporte] apagado por OPS_SOPORTE_ENABLED — no se hace nada")
+        return 0
+
+    cuenta = os.environ.get("SOPORTE_EMAIL")
+    password = os.environ.get("SOPORTE_APP_PASSWORD")
+    if not cuenta or not password:
+        print("[soporte] faltan SOPORTE_EMAIL/SOPORTE_APP_PASSWORD")
+        return 1
+    max_corrida = int(os.environ.get("OPS_SOPORTE_MAX", "10"))
+    estado = _cargar_estado()
+    procesados: list[str] = estado.get("procesados", [])
+
+    imap = imaplib.IMAP4_SSL(os.environ.get("SOPORTE_IMAP_HOST", "imap.gmail.com"))
+    try:
+        imap.login(cuenta, password)
+        imap.select("INBOX")
+        ok, resultado = imap.uid("SEARCH", None, "UNSEEN")
+        uids = resultado[0].split() if ok == "OK" and resultado and resultado[0] else []
+        if not uids:
+            print("[soporte] buzón sin mensajes nuevos")
+            return 0
+
+        borradores = None if dry_run else _carpeta_borradores(imap)
+        atendidos = 0
+        for uid in uids[:max_corrida]:
+            ok, datos = imap.uid("FETCH", uid, "(BODY.PEEK[])")
+            if ok != "OK" or not datos or not isinstance(datos[0], tuple):
+                continue
+            msg = email.message_from_bytes(datos[0][1])
+            message_id = str(msg.get("Message-ID", "")).strip()
+            if message_id and message_id in procesados:
+                imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+                continue
+
+            de_nombre, de_email = email.utils.parseaddr(_decodificar(msg.get("From")))
+            asunto = _decodificar(msg.get("Subject")) or "(sin asunto)"
+            if _es_automatico(msg, de_email):
+                if not dry_run:
+                    imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+                    if message_id:
+                        procesados.append(message_id)
+                print(f"[soporte] auto/boletín descartado: {de_email} — {asunto[:60]}")
+                continue
+
+            cuerpo = _cuerpo_texto(msg)[:6000]
+            resultado_llm = llm.generar_json(
+                "Clasifica este correo de soporte y redacta el borrador de "
+                'respuesta. Responde JSON: {"categoria": "tecnico|facturacion|'
+                'ventas|cuenta|otro|no_requiere_respuesta", "urgencia": "alta|'
+                'media|baja", "resumen": "1-2 oraciones", "borrador": "texto '
+                'plano con saltos \\n (vacío si no requiere respuesta)"}\n\n'
+                f"DE: {de_nombre} <{de_email}>\nASUNTO: {asunto}\n\nCUERPO:\n{cuerpo}",
+                sistema=SISTEMA,
+                max_tokens=1200,
+            ) or {
+                "categoria": "sin_clasificar",
+                "urgencia": "media",
+                "resumen": "(sin ANTHROPIC_API_KEY: clasificación no disponible)",
+                "borrador": "",
+            }
+            categoria = str(resultado_llm.get("categoria") or "otro")
+            urgencia = str(resultado_llm.get("urgencia") or "media")
+            resumen = str(resultado_llm.get("resumen") or "")
+            borrador = str(resultado_llm.get("borrador") or "").strip()
+
+            if dry_run:
+                print(
+                    f"\n───── {de_email} — {asunto} ─────\n"
+                    f"[{categoria}/{urgencia}] {resumen}\n\nBORRADOR:\n{borrador or '(sin respuesta)'}\n"
+                )
+                atendidos += 1
+                continue
+
+            if categoria == "no_requiere_respuesta":
+                imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+                if message_id:
+                    procesados.append(message_id)
+                print(f"[soporte] sin respuesta necesaria: {de_email} — {asunto[:60]}")
+                continue
+
+            # 1) Borrador hilado en la carpeta Borradores de soporte@.
+            deja_borrador = False
+            if borrador and borradores:
+                try:
+                    respuesta = MIMEText(borrador, "plain", "utf-8")
+                    respuesta["From"] = f"TodoConta Soporte <{cuenta}>"
+                    respuesta["To"] = email.utils.formataddr((de_nombre, de_email))
+                    respuesta["Subject"] = (
+                        asunto if asunto.lower().startswith("re:") else f"Re: {asunto}"
+                    )
+                    if message_id:
+                        respuesta["In-Reply-To"] = message_id
+                        respuesta["References"] = message_id
+                    imap.append(
+                        f'"{borradores}"',
+                        r"(\Draft)",
+                        imaplib.Time2Internaldate(datetime.now(timezone.utc).timestamp()),
+                        respuesta.as_bytes(),
+                    )
+                    deja_borrador = True
+                except Exception as e:  # noqa: BLE001
+                    print(f"[soporte] no pude dejar el borrador en Gmail: {e}")
+
+            # 2) Aviso a Israel con todo el contexto.
+            nota_borrador = (
+                "El borrador ya está en la carpeta Borradores de soporte@ (hilado): ajústalo y envía."
+                if deja_borrador
+                else "No se pudo dejar el borrador en Gmail — cópialo de aquí."
+            )
+            texto_aviso = (
+                f"De: {de_nombre} <{de_email}>\nAsunto: {asunto}\n"
+                f"Clasificación: {categoria} / urgencia {urgencia}\n\n"
+                f"Resumen: {resumen}\n\n{nota_borrador}\n\n"
+                f"── BORRADOR PROPUESTO ──\n{borrador or '(sin borrador)'}\n\n"
+                f"── MENSAJE ORIGINAL ──\n{cuerpo[:3000]}"
+            )
+            html_aviso = (
+                '<div style="font-family:system-ui,sans-serif;font-size:14px;max-width:640px;color:#111">'
+                f"<p><b>De:</b> {html_mod.escape(de_nombre)} &lt;{html_mod.escape(de_email)}&gt;<br>"
+                f"<b>Asunto:</b> {html_mod.escape(asunto)}<br>"
+                f"<b>Clasificación:</b> {html_mod.escape(categoria)} · urgencia {html_mod.escape(urgencia)}</p>"
+                f"<p>{html_mod.escape(resumen)}</p><p><i>{html_mod.escape(nota_borrador)}</i></p>"
+                f'<h4 style="margin-bottom:4px">Borrador propuesto</h4>'
+                f'<div style="white-space:pre-wrap;background:#f6f6f3;border-radius:8px;padding:12px">{html_mod.escape(borrador or "(sin borrador)")}</div>'
+                f'<h4 style="margin-bottom:4px">Mensaje original</h4>'
+                f'<div style="white-space:pre-wrap;color:#52514e">{html_mod.escape(cuerpo[:3000])}</div></div>'
+            )
+            try:
+                correo.enviar(
+                    f"[soporte@] {urgencia} · {categoria} — {asunto[:70]}",
+                    html_aviso,
+                    texto_aviso,
+                )
+            except Exception as e:  # noqa: BLE001
+                print(f"[soporte] aviso a Israel falló: {e} — NO marco leído para reintentar")
+                continue
+
+            imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+            if message_id:
+                procesados.append(message_id)
+            atendidos += 1
+            print(f"[soporte] atendido: {de_email} — {asunto[:60]} [{categoria}/{urgencia}]")
+
+        if not dry_run:
+            estado["procesados"] = procesados[-MAX_PROCESADOS_GUARDADOS:]
+            try:
+                ESTADO.write_text(json.dumps(estado))
+            except Exception as e:  # noqa: BLE001
+                print(f"[soporte] estado no guardado: {e}")
+        print(f"[soporte] corrida terminada — {atendidos} mensaje(s) atendidos")
+        return 0
+    finally:
+        try:
+            imap.logout()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
