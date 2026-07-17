@@ -1,14 +1,22 @@
 """Borradores de contenido semanal → PR `drafts/semana-NN` en todoconta-apps.
 
-Cada lunes genera con Claude (Sonnet) el paquete de contenido de la semana a
-partir de un backlog de temas (dolores reales de clientes + calendario fiscal):
+Cada lunes genera con Claude (Sonnet) el paquete de contenido de la semana:
 
-  drafts/semana-NN/post-blog.md      borrador de post (frontmatter del blog listo)
-  drafts/semana-NN/guion-video.md    guion de 5-8 min para el video de Israel
-  drafts/semana-NN/posts-sociales.md 3 posts (LinkedIn, X/Threads, Facebook)
-  drafts/semana-NN/email-sendy.md    1 correo para campaña en Sendy
+  drafts/semana-NN/YYYY-MM-DD-slug.md  post listo para mover al blog (spec de Israel)
+  drafts/semana-NN/ficha-seo.md        palabra clave, título SEO, alt, prompt de imagen
+  drafts/semana-NN/guion-video.md      guion de 5-8 min para el video de Israel
+  drafts/semana-NN/posts-sociales.md   3 posts (LinkedIn, X/Threads, Facebook)
+  drafts/semana-NN/email-sendy.md      1 correo para campaña en Sendy
 
-y abre un PR en el repo de contenido (env CONTENIDO_REPO). NUNCA publica
+Gobernado por DOS archivos del repo de contenido, leídos en runtime vía la
+GitHub API (editarlos NO requiere redeploy):
+  - apps/landing/editorial/calendario-editorial-2026.csv — FUENTE de temas:
+    toma la fila más próxima con publicado=no (brief, producto, fuentes).
+  - apps/landing/editorial/instrucciones-blog.md — SPEC del post (SEO, quotes,
+    encabezados, linking, mobile-first, serialización, Estilo 06, taxonomía).
+Si alguno falta, cae a respaldos embebidos (backlog de temas / reglas mínimas).
+
+Abre un PR en el repo de contenido (env CONTENIDO_REPO). NUNCA publica
 directo: los archivos viven en drafts/ — mergear el PR tampoco publica nada;
 Israel mueve el post a apps/landing/src/content/blog/ cuando lo apruebe.
 
@@ -22,110 +30,140 @@ Requiere: ANTHROPIC_API_KEY (la generación ES el agente) y GITHUB_PAT.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from lib import github, llm
+from lib import github, imagen, llm
 
 ESTADO = Path("/data/contenido_estado.json")
 
 REPO_DEFAULT = "soyisracastro/todoconta-apps"
+CALENDARIO_RUTA_DEFAULT = "apps/landing/editorial/calendario-editorial-2026.csv"
+INSTRUCCIONES_RUTA_DEFAULT = "apps/landing/editorial/instrucciones-blog.md"
 
-# Backlog editorial: dolores reales (docs/abacus-oportunidades-producto.md) +
-# calendario fiscal + pilares del producto. El agente los rota en orden; para
-# ajustar la línea editorial basta con editar esta lista y redeployar.
-# categorias válidas del blog: comprobantes-fiscales, impuestos-declaraciones,
-# cumplimiento-sat, nomina-laboral, regimenes, contabilidad-despachos,
-# ia-tecnologia.
-TEMAS: list[dict] = [
-    {
-        "id": "descarga-masiva-3-vias",
-        "tema": "Web Service, Contraseña del SAT o e.firma: las 3 vías para descargar tus CFDI y cuándo usar cada una",
-        "categorias": ["comprobantes-fiscales"],
-        "gancho": "TodoConta Desktop usa las 3 vías y elige la mejor según el volumen; prueba 15 días gratis.",
-    },
+# Resumen mínimo por si instrucciones-blog.md no está disponible (la versión
+# completa y canónica vive en el repo de contenido y manda sobre esto).
+REGLAS_RESPALDO = (
+    "REGLAS DEL POST: palabra clave presente en el primer párrafo y 2-3 veces "
+    "en total; slug evergreen de máx 4 palabras sin números; title visible + "
+    "description ≤140 chars; 1-2 blockquotes destacados; 2-4 H2 con narrativa "
+    "problema→solución→cierre; máx 3 referencias externas de fuentes oficiales "
+    "(notas al pie [^1]) y 1-3 interlinks internos (/blog/INTERLINK:tema si no "
+    "conoces el slug); párrafos de 2-3 oraciones (mobile-first); 800-1,200 "
+    "palabras (máx 1,800); frontmatter SIN author, SIN cta, SIN isFeatured; "
+    "heroImage /assets/blog/{slug}.jpg; categorías válidas: comprobantes-"
+    "fiscales, impuestos-declaraciones, cumplimiento-sat, nomina-laboral, "
+    "regimenes, contabilidad-despachos, ia-tecnologia; tags 3-5 en Title Case."
+)
+
+CATEGORIAS_VALIDAS = {
+    "comprobantes-fiscales",
+    "impuestos-declaraciones",
+    "cumplimiento-sat",
+    "nomina-laboral",
+    "regimenes",
+    "contabilidad-despachos",
+    "ia-tecnologia",
+}
+
+# Backlog de RESPALDO (dolores reales de docs/abacus-oportunidades-producto.md
+# que el calendario editorial aún no cubre). Solo se usa si el CSV del repo no
+# está disponible o se agotó — la fuente primaria es el calendario. Depurado
+# contra lo ya publicado en el blog (SBC, 69-B, DIOT, descarga masiva, IA en
+# el despacho y e.firma ya tienen post).
+TEMAS_RESPALDO: list[dict] = [
     {
         "id": "opinion-32d-negativa",
         "tema": "Opinión de cumplimiento 32-D negativa: qué la causa y cómo resolver cada motivo",
+        "contexto": "",
         "categorias": ["cumplimiento-sat"],
         "gancho": "TodoConta descarga la 32-D de todas tus empresas y te pinta el semáforo con los motivos.",
-    },
-    {
-        "id": "sbc-imss-parametros",
-        "tema": "SBC y cuotas IMSS: los 3 parámetros que cambian el cálculo (días del mes, prima de riesgo, CEyV vigente)",
-        "categorias": ["nomina-laboral"],
-        "gancho": "Las calculadoras de TodoConta usan tablas oficiales vigentes, no estimaciones.",
-    },
-    {
-        "id": "materialidad-apic",
-        "tema": "Materialidad: cómo revisa el SAT que tu operación existió (Activos, Personal, Infraestructura, Capacidad)",
-        "categorias": ["cumplimiento-sat"],
-        "gancho": "Empieza por tener tus CFDI completos y organizados: descarga masiva con TodoConta.",
-    },
-    {
-        "id": "listas-69-69b",
-        "tema": "Listas 69 y 69-B del SAT: qué significan y cómo revisar a tus proveedores antes de deducir",
-        "categorias": ["cumplimiento-sat"],
-        "gancho": "TodoConta cruza tus CFDI recibidos contra las listas negras del SAT.",
-    },
-    {
-        "id": "diot-2025-layout",
-        "tema": "DIOT 2025: cómo armar el archivo de carga masiva de 54 campos sin capturar a mano",
-        "categorias": ["impuestos-declaraciones"],
-        "gancho": "TodoConta prellena la DIOT desde tus XML y exporta el TXT de carga masiva.",
-    },
-    {
-        "id": "csf-al-dia",
-        "tema": "Constancia de Situación Fiscal: por qué te la piden en todos lados y cómo tenerla siempre al día",
-        "categorias": ["cumplimiento-sat"],
-        "gancho": "TodoConta descarga la CSF de todas tus empresas y extrae regímenes y actividades solos.",
+        "fuente_ref": "Art. 32-D CFF; regla 2.1.37 RMF",
     },
     {
         "id": "errores-portal-sat",
         "tema": "Los errores más comunes del portal del SAT, traducidos: qué significan y qué hacer",
+        "contexto": "",
         "categorias": ["cumplimiento-sat"],
         "gancho": "TodoConta reintenta y te avisa cuando el SAT falla — tú no peleas con el portal.",
+        "fuente_ref": "Experiencia operativa con el portal del SAT",
     },
     {
         "id": "prestamo-socio-dividendo",
         "tema": "Préstamos a socios: cuándo el SAT los recalifica como dividendo ficto y qué documentar",
+        "contexto": "",
         "categorias": ["regimenes", "cumplimiento-sat"],
         "gancho": "Ten el expediente de CFDI y estados de cuenta a la mano con TodoConta.",
+        "fuente_ref": "LISR art. 140 (dividendo ficto)",
     },
     {
         "id": "conciliacion-plataformas",
         "tema": "Vendes por plataformas digitales: cómo conciliar lo que te retuvieron contra tus CFDI",
+        "contexto": "",
         "categorias": ["impuestos-declaraciones"],
         "gancho": "Descarga todos tus CFDI del periodo y cruza retenciones en el procesador de TodoConta.",
+        "fuente_ref": "LISR/LIVA retenciones de plataformas tecnológicas",
     },
     {
         "id": "papeles-trabajo-xml",
         "tema": "Papeles de trabajo desde tus XML: del ZIP del SAT al Excel que sí usas",
+        "contexto": "",
         "categorias": ["contabilidad-despachos"],
         "gancho": "Los procesadores de TodoConta convierten miles de XML en un Excel profesional.",
-    },
-    {
-        "id": "ia-despacho-limites",
-        "tema": "IA en el despacho contable: qué sí delegar, qué no, y cómo mantener el control de tu e.firma",
-        "categorias": ["ia-tecnologia", "contabilidad-despachos"],
-        "gancho": "En TodoConta la IA pide y el software ejecuta — tu e.firma nunca sale de tu equipo.",
-    },
-    {
-        "id": "cierre-mensual-checklist",
-        "tema": "Cierre mensual en 90 minutos: el checklist para no empezar de cero cada día 17",
-        "categorias": ["contabilidad-despachos", "impuestos-declaraciones"],
-        "gancho": "Automatiza la parte 1 del checklist (bajar y validar CFDI) con TodoConta.",
-    },
-    {
-        "id": "efirma-vigilancia",
-        "tema": "e.firma vencida: cómo no descubrirlo el día que la necesitas (y qué hacer si ya venció)",
-        "categorias": ["cumplimiento-sat"],
-        "gancho": "TodoConta te avisa con semáforo cuando la e.firma de cualquier empresa está por vencer.",
+        "fuente_ref": "",
     },
 ]
+
+
+def _temas_del_calendario(hoy: datetime) -> list[dict]:
+    """Filas con publicado=no del calendario editorial del repo, como temas.
+
+    Solo considera filas cuya fecha_pub no quedó más de 7 días atrás (lo más
+    viejo es coyuntura vencida: se deja en el CSV para que Israel decida).
+    Ordenadas por fecha_pub — la primera es la siguiente a escribir.
+    """
+    crudo = github.leer_archivo(
+        os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
+        os.environ.get("CONTENIDO_CALENDARIO_RUTA", CALENDARIO_RUTA_DEFAULT),
+    )
+    if not crudo:
+        return []
+    temas: list[dict] = []
+    try:
+        for fila in csv.DictReader(io.StringIO(crudo)):
+            if (fila.get("publicado") or "").strip().lower() == "si":
+                continue
+            titulo = (fila.get("titulo") or "").strip()
+            fecha = (fila.get("fecha_pub") or "").strip()
+            if not titulo or not fecha:
+                continue
+            try:
+                fecha_pub = datetime.strptime(fecha, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if fecha_pub < hoy - timedelta(days=7):
+                continue
+            categoria = (fila.get("categoria") or "").strip()
+            temas.append(
+                {
+                    "id": titulo,
+                    "tema": titulo,
+                    "contexto": (fila.get("contexto") or "").strip(),
+                    "categorias": [categoria if categoria in CATEGORIAS_VALIDAS else "cumplimiento-sat"],
+                    "gancho": (fila.get("producto_ligado") or "TodoConta Desktop").strip(),
+                    "fuente_ref": (fila.get("fuente") or "").strip(),
+                    "fecha_pub": fecha_pub.strftime("%Y-%m-%d"),
+                }
+            )
+    except (csv.Error, KeyError) as e:
+        print(f"[contenido] calendario ilegible ({e}) — uso el backlog de respaldo")
+        return []
+    return sorted(temas, key=lambda t: t["fecha_pub"])
 
 SISTEMA = (
     "Eres el redactor de contenido de TodoConta (todoconta.com), una app de "
@@ -158,12 +196,21 @@ def _cargar_estado() -> dict:
     return {"temas_usados": [], "ultima_semana": None}
 
 
-def _elegir_tema(estado: dict) -> dict:
+def _elegir_tema(estado: dict, hoy: datetime) -> dict:
+    """Siguiente tema: calendario editorial primero, backlog de respaldo después.
+
+    `temas_usados` (por id/título en /data) evita repetir un tema ya generado
+    aunque la fila del CSV siga con publicado=no (p. ej. si Israel todavía no
+    la marca tras publicar).
+    """
     usados = set(estado.get("temas_usados", []))
-    pendientes = [t for t in TEMAS if t["id"] not in usados]
-    if not pendientes:  # backlog agotado → reinicia el ciclo
-        estado["temas_usados"] = []
-        pendientes = TEMAS
+    del_calendario = [t for t in _temas_del_calendario(hoy) if t["id"] not in usados]
+    if del_calendario:
+        return del_calendario[0]
+    print("[contenido] calendario sin pendientes (o no disponible) — backlog de respaldo")
+    pendientes = [t for t in TEMAS_RESPALDO if t["id"] not in usados]
+    if not pendientes:  # respaldo agotado → reinicia el ciclo del respaldo
+        pendientes = TEMAS_RESPALDO
     return pendientes[0]
 
 
@@ -186,45 +233,90 @@ def main() -> int:
         print(f"[contenido] la semana {semana} ya se generó — no se repite")
         return 0
 
-    tema = _elegir_tema(estado)
+    tema = _elegir_tema(estado, hoy)
     modelo = os.environ.get("LLM_MODEL_CONTENIDO", "claude-sonnet-5")
-    pub_date = _proximo_miercoles(hoy)
+    # La fecha planeada en el calendario manda; si ya pasó, el próximo miércoles.
+    pub_date = tema.get("fecha_pub") or _proximo_miercoles(hoy)
+    if pub_date < hoy.strftime("%Y-%m-%d"):
+        pub_date = _proximo_miercoles(hoy)
     print(f"[contenido] semana {semana} — tema: {tema['id']}")
 
-    post = llm.generar(
-        "Escribe un post de blog de 1,000-1,300 palabras sobre este tema:\n"
+    brief = ""
+    if tema.get("contexto"):
+        brief += f"BRIEF EDITORIAL (síguelo — es el ángulo acordado): {tema['contexto']}\n"
+    if tema.get("fuente_ref"):
+        brief += (
+            f"FUENTES DE REFERENCIA: {tema['fuente_ref']} (apóyate en ellas; "
+            "lo que no puedas confirmar márcalo [VERIFICAR]).\n"
+        )
+
+    instrucciones = github.leer_archivo(
+        os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
+        os.environ.get("CONTENIDO_INSTRUCCIONES_RUTA", INSTRUCCIONES_RUTA_DEFAULT),
+    )
+    if instrucciones:
+        reglas = (
+            "INSTRUCCIONES CANÓNICAS DEL BLOG (mandan sobre cualquier otra "
+            "indicación de formato):\n\n" + instrucciones
+        )
+    else:
+        print("[contenido] instrucciones-blog.md no disponible — reglas embebidas")
+        reglas = REGLAS_RESPALDO
+
+    crudo = llm.generar(
+        f"{reglas}\n\n"
+        "════════\n"
+        "Genera el post de esta semana siguiendo esas instrucciones.\n"
         f"TEMA: {tema['tema']}\n"
-        f"GANCHO DE PRODUCTO (para el bloque cta): {tema['gancho']}\n"
-        f"MES ACTUAL: {hoy.strftime('%Y-%m')} (si el calendario fiscal mexicano "
-        "tiene una fecha relevante cerca, úsala como percha; si no, no fuerces).\n\n"
-        "FORMATO OBLIGATORIO — archivo Markdown que empieza EXACTAMENTE con "
-        "frontmatter YAML válido para este schema de Astro:\n"
-        "---\n"
-        'title: "…" (máx 65 caracteres)\n'
-        'description: "…" (140-160 caracteres)\n'
+        + brief
+        + f"CATEGORÍA SUGERIDA POR EL CALENDARIO: {json.dumps(tema['categorias'])} "
+        "(decide primaria/secundaria con la sección 8).\n"
+        f"PRODUCTO/HERRAMIENTA A LIGAR: {tema['gancho']} — cierre suave DENTRO "
+        "del cuerpo: el último párrafo invita a resolverlo con esa herramienta "
+        "de TodoConta Desktop enlazando a https://todoconta.com/descargar. "
+        "Recuerda: el frontmatter NO lleva bloque cta.\n"
         f"pubDate: {pub_date}\n"
-        f"categories: {json.dumps(tema['categorias'])}\n"
-        'tags: ["…", "…", "…"] (3-5 tags)\n'
-        'heroImage: "/assets/blog/PENDIENTE.jpg"\n'
-        "cta:\n"
-        '  title: "…"\n'
-        '  text: "…" (usa el gancho de producto)\n'
-        '  href: "https://todoconta.com/descargar"\n'
-        '  cta: "Descargar TodoConta Desktop"\n'
-        "---\n\n"
-        "Después del frontmatter: el post en Markdown (##/### para secciones, "
-        "negritas con moderación, un blockquote con la idea clave). Estructura: "
-        "problema concreto → cómo se ve en la práctica → cómo resolverlo paso a "
-        "paso → cierre breve. NO menciones TodoConta en el cuerpo más de una "
-        "vez; el bloque cta ya vende. Responde SOLO con el archivo, sin "
-        "explicaciones alrededor.",
+        f"MES ACTUAL: {hoy.strftime('%Y-%m')} (si el calendario fiscal mexicano "
+        "tiene una fecha relevante cerca, úsala como percha; si no, no fuerces).\n"
+        "El blog ya tiene 86+ posts publicados: no repitas guías básicas; usa "
+        "interlinks con placeholder INTERLINK: al referir temas hermanos.\n\n"
+        "RESPONDE EXACTAMENTE con dos secciones y nada más:\n"
+        "=== FICHA ===\n"
+        "Un objeto JSON con: palabra_clave, slug, titulo_seo (≤60 chars, con la "
+        "palabra clave), alt (descripción de la heroImage, con la palabra "
+        "clave), prompt_imagen (el prompt Estilo 06 completo, con [SUBJECT] ya "
+        "resuelto para este post), plan_serie (null; o, si el material rebasa "
+        "1,800 palabras, {\"articulos\": [\"título 1\", …], \"razon\": \"…\"}).\n"
+        "=== POST ===\n"
+        "El archivo Markdown completo, empezando por el frontmatter YAML "
+        "(title, description, pubDate, heroImage \"/assets/blog/<slug>.jpg\", "
+        "categories, tags) — sin fences de código alrededor.",
         sistema=SISTEMA,
         modelo=modelo,
-        max_tokens=4000,
+        max_tokens=6000,
     )
-    if not post:
-        print("[contenido] Claude no devolvió el post — abortando")
+    if not crudo or "=== POST ===" not in crudo:
+        print("[contenido] Claude no devolvió ficha+post — abortando")
         return 1
+
+    ficha_cruda, post = (p.strip() for p in crudo.split("=== POST ===", 1))
+    ficha_cruda = ficha_cruda.split("=== FICHA ===", 1)[-1].strip()
+    if ficha_cruda.startswith("```"):
+        ficha_cruda = ficha_cruda.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    if post.startswith("```"):
+        post = post.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        ficha = json.loads(ficha_cruda)
+    except ValueError:
+        print("[contenido] ficha ilegible — sigo sin ella")
+        ficha = {}
+
+    # Slug saneado (evergreen: minúsculas, guiones, sin números — regla 4b).
+    base = str(ficha.get("slug") or tema["tema"]).lower().replace("-", " ")
+    palabras = [
+        "".join(c for c in p if c.isalnum() and not c.isdigit()) for p in base.split()
+    ]
+    slug = "-".join([p for p in palabras if p][:4]) or "post-semanal"
 
     derivados = llm.generar(
         "A partir de este post de blog, genera las piezas derivadas de la "
@@ -267,9 +359,32 @@ def main() -> int:
     partes["guion"], tras_sociales = tras_guion.split("=== SOCIALES ===", 1)
     partes["sociales"], partes["email"] = tras_sociales.split("=== EMAIL ===", 1)
 
+    plan_serie = ficha.get("plan_serie")
+    ficha_md = (
+        f"# Ficha SEO e imagen — semana {semana}\n\n"
+        f"- **Tema:** {tema['tema']}\n"
+        f"- **Palabra clave:** {ficha.get('palabra_clave', '[PENDIENTE]')}\n"
+        f"- **Slug:** `{slug}`\n"
+        f"- **Título SEO (≤60):** {ficha.get('titulo_seo', '[PENDIENTE]')}\n"
+        f"- **Alt de la heroImage:** {ficha.get('alt', '[PENDIENTE]')}\n"
+        f"- **heroImage:** `/assets/blog/{slug}.jpg` (16:9, fondo #FAFAF7)\n\n"
+        "## Prompt de imagen (Estilo 06 — isométrico minimalista)\n\n"
+        f"```\n{ficha.get('prompt_imagen', '[PENDIENTE — usar el prompt base de instrucciones-blog.md §7]')}\n```\n\n"
+        "Generar con Gemini (gemini-3-pro-image, 16:9) → comprimir "
+        "(scripts/convert-images.py con TinyPNG) → guardar como "
+        f"`apps/landing/public/assets/blog/{slug}.jpg`.\n"
+        + (
+            "\n## ⚠️ Plan de serie sugerido (el material rebasa 1,800 palabras)\n\n"
+            f"{json.dumps(plan_serie, ensure_ascii=False, indent=2)}\n"
+            if plan_serie
+            else ""
+        )
+    )
+
     carpeta = f"drafts/semana-{semana}"
     archivos = {
-        f"{carpeta}/post-blog.md": post.strip() + "\n",
+        f"{carpeta}/{pub_date}-{slug}.md": post.strip() + "\n",
+        f"{carpeta}/ficha-seo.md": ficha_md,
         f"{carpeta}/guion-video.md": (
             f"# Guion de video — semana {semana}\n\nTema: {tema['tema']}\n\n"
             + partes["guion"].strip()
@@ -286,7 +401,30 @@ def main() -> int:
     if dry_run:
         for ruta, contenido in archivos.items():
             print(f"\n───── {ruta} ─────\n{contenido}")
+        print("(dry-run: la heroImage no se genera para no gastar API)")
         return 0
+
+    # heroImage automática (Gemini económico → TinyPNG → JPG en el mismo PR).
+    # Best-effort: sin keys o con fallo, el PR sale sin imagen y la ficha
+    # conserva el prompt para generarla a mano.
+    hero_incluida = False
+    prompt_img = str(ficha.get("prompt_imagen") or "")
+    if prompt_img:
+        png = imagen.generar_hero(prompt_img)
+        jpg = imagen.comprimir_jpg(png) if png else None
+        if jpg:
+            archivos[f"apps/landing/public/assets/blog/{slug}.jpg"] = jpg
+            hero_incluida = True
+            print(f"[contenido] heroImage generada e incluida ({len(jpg) // 1024} KB)")
+        else:
+            print("[contenido] sin heroImage automática — la ficha trae el prompt")
+
+    linea_hero = (
+        f"- [ ] Revisar la heroImage incluida (`public/assets/blog/{slug}.jpg`)\n"
+        if hero_incluida
+        else "- [ ] Generar la heroImage con el prompt de `ficha-seo.md` "
+        f"(Gemini → tinypng → `public/assets/blog/{slug}.jpg`)\n"
+    )
 
     url = github.crear_pr_con_archivos(
         repo=os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
@@ -298,8 +436,11 @@ def main() -> int:
             "mergear** — los archivos viven en `drafts/`.\n\n"
             f"**Tema:** {tema['tema']}\n\n"
             "Checklist de Israel:\n"
-            "- [ ] Revisar/editar `post-blog.md` y moverlo a "
-            "`apps/landing/src/content/blog/` con su heroImage\n"
+            f"- [ ] Revisar/editar `{pub_date}-{slug}.md` y moverlo tal cual a "
+            "`apps/landing/src/content/blog/`\n"
+            + linea_hero
+            + "- [ ] Marcar la fila como `publicado=si` en "
+            "`apps/landing/editorial/calendario-editorial-2026.csv`\n"
             "- [ ] Grabar el video con `guion-video.md` (miércoles)\n"
             "- [ ] Programar `posts-sociales.md`\n"
             "- [ ] Cargar `email-sendy.md` como campaña en Sendy\n\n"

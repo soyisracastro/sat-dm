@@ -23,15 +23,36 @@ def _headers() -> dict[str, str]:
     }
 
 
+def leer_archivo(repo: str, ruta: str, ref: str = "main") -> str | None:
+    """Contenido de un archivo del repo (o None si no existe / sin PAT)."""
+    if not os.environ.get("GITHUB_PAT"):
+        return None
+    try:
+        resp = requests.get(
+            f"{API}/repos/{repo}/contents/{ruta}",
+            headers={**_headers(), "Accept": "application/vnd.github.raw+json"},
+            params={"ref": ref},
+            timeout=TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return None
+        return resp.text
+    except requests.RequestException as e:
+        print(f"[github] no pude leer {ruta}: {e}")
+        return None
+
+
 def crear_pr_con_archivos(
     repo: str,
     rama: str,
     titulo: str,
     cuerpo: str,
-    archivos: dict[str, str],
+    archivos: dict[str, str | bytes],
     base: str = "main",
 ) -> str:
     """Crea `rama` desde `base`, sube `archivos` {ruta: contenido} y abre el PR.
+
+    El contenido puede ser str (texto) o bytes (binarios, p. ej. imágenes).
 
     Idempotente a nivel corrida: si la rama o el PR ya existen, los reutiliza.
     Devuelve la URL del PR.
@@ -54,9 +75,10 @@ def crear_pr_con_archivos(
 
     # Subir cada archivo (PUT contents crea el commit en la rama).
     for ruta, contenido in archivos.items():
+        crudo = contenido.encode("utf-8") if isinstance(contenido, str) else contenido
         payload: dict = {
             "message": f"drafts: {ruta}",
-            "content": base64.b64encode(contenido.encode("utf-8")).decode("ascii"),
+            "content": base64.b64encode(crudo).decode("ascii"),
             "branch": rama,
         }
         # Si el archivo ya existe en la rama (re-corrida), hay que mandar su sha.
