@@ -9,7 +9,7 @@ de "departamentos" automatizados del plan de ventas jul–dic 2026:
 | `agents/reporte_semanal.py` | ✅ | Lunes 07:00 CDMX: métricas de Supabase (usuarios/planes/CRM 034) + Stripe (suscripciones/ARR) + Sendy (listas) → deltas vs semana pasada → narrativa con Claude → correo SES a Israel. |
 | `agents/contenido_semanal.py` | ✅ | Lunes 06:30 CDMX: genera con Claude (Sonnet) el paquete semanal — post de blog con frontmatter listo, guion de video, 3 posts sociales, 1 email — y abre PR `drafts/semana-NN` en todoconta-apps. Los archivos viven en `drafts/`: **mergear tampoco publica**; Israel mueve el post al blog cuando lo aprueba. Fuente de temas: **el calendario editorial del repo** (`apps/landing/editorial/calendario-editorial-2026.csv`, leído en runtime — editarlo NO requiere redeploy; toma la fila más próxima con `publicado=no` y usa su brief/fuentes); backlog embebido solo como respaldo. |
 | `agents/sdr_inbound.py` | ✅ | Cada hora (9:15–17:15 CDMX): lee `crm_leads` etapa=lead con fuente `qualifier`/`abacus` (SOLO gente que llenó un formulario — opt-in estricto), puntúa y redacta con Claude, manda UN primer correo por SES como Israel (BCC a Israel), etapa→`mql` + evento `email_enviado` (candado anti-duplicado). Sin follow-ups: Israel cierra. |
-| `agents/soporte.py` | ✅ | Cada hora: lee los no-leídos de soporte@ (IMAP, app password), descarta auto-correos, clasifica y redacta BORRADOR con Claude, lo deja hilado en la carpeta Borradores de soporte@ y avisa a Israel con el original + clasificación. **No auto-responde a nadie** (v1). |
+| `agents/soporte.py` | ✅ | Cada hora: busca correos dirigidos a soporte@todoconta.com (que es un ALIAS dentro de la cuenta real de Israel — el agente entra por IMAP a esa cuenta pero SOLO procesa lo dirigido al alias, INBOX en readonly, banderas intactas), descarta auto-correos, clasifica y redacta BORRADOR con Claude, lo deja hilado en Borradores (sale como el alias) y avisa a Israel. Dedupe por Message-ID en `/data`. **No auto-responde a nadie** (v1). |
 
 ## Despliegue (patrón de deploy/{gateway,provisioner,sendy})
 
@@ -85,18 +85,24 @@ SDR_BCC=israel.castro@gmail.com
 OPS_SDR_MAX_DIA=5        # tope de correos por día
 SDR_MAX_EDAD_DIAS=14     # no contactar leads más viejos que esto
 
-# Soporte (Google Workspace: activar 2FA en soporte@ y generar app password)
+# Soporte (Google Workspace). soporte@todoconta.com es un ALIAS que entrega en
+# la cuenta real (@sicastro.com): el login IMAP va con la CUENTA REAL y su app
+# password (myaccount.google.com → Seguridad → Verificación en 2 pasos →
+# Contraseñas de aplicaciones); el agente solo procesa lo dirigido al alias.
 SOPORTE_IMAP_HOST=imap.gmail.com
-SOPORTE_EMAIL=soporte@todoconta.com
-SOPORTE_APP_PASSWORD=
+SOPORTE_EMAIL=israel@sicastro.com        # cuenta real (login IMAP)
+SOPORTE_APP_PASSWORD=                    # app password de ESA cuenta
+SOPORTE_ALIAS=soporte@todoconta.com      # dirección que filtra y desde la que responde
+SOPORTE_VENTANA_DIAS=2   # qué tan atrás busca (no barre correo viejo al encender)
 OPS_SOPORTE_MAX=10       # mensajes por corrida
 ```
 
 ## Reglas del contenedor
 
 - **Escritura mínima y acotada**: Supabase solo a tablas `crm_*` (SDR); GitHub
-  solo PRs de borradores con PAT fine-grained (contenido); Gmail solo carpeta
-  Borradores + marcar leído (soporte). Stripe con restricted key RO, Sendy con
+  solo PRs de borradores con PAT fine-grained (contenido); Gmail solo APPEND a
+  la carpeta Borradores — INBOX se abre readonly y las banderas de leído son de
+  Israel, no del agente (soporte). Stripe con restricted key RO, Sendy con
   usuario MySQL `SELECT`-only. Nada de docker.sock, nada de Traefik (sin inbound).
 - **Nadie recibe correo sin humano o sin opt-in**: el SDR solo escribe a quien
   llenó un formulario (una sola vez, con BCC a Israel); soporte solo deja
