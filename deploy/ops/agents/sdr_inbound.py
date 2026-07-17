@@ -1,9 +1,20 @@
 """SDR inbound: primer contacto (y SOLO el primero) a leads que llenaron un
 formulario de la landing.
 
-Cada hora lee `crm_leads` con etapa=lead, consent_marketing=true y fuente
-qualifier|abacus (opt-in estricto: gente que PIDIÓ algo — nunca suscriptores
-del newsletter ni importados). Por cada lead:
+Cada hora lee `crm_leads` con etapa=lead, consent_marketing=true y fuente en
+SDR_FUENTES (opt-in estricto: gente que PIDIÓ algo — nunca suscriptores del
+newsletter ni importados). Fuentes activas hoy: SOLO `abacus` (decisión
+2026-07-17: `qualifier` se descartó — era la campaña de saldo a favor para
+personas físicas, pausada y sin relación con el producto; si se retoma será
+en sicastro.com). Cuando exista la página /diagnostico se agrega su fuente
+aquí vía env, sin tocar código.
+
+REGLA DE ORO del primer toque: responder a la intención REAL del lead, no
+crearle una. El lead de `abacus` pidió probar el asistente por WhatsApp
+(que ahora es parte de TodoConta, plan Anual con IA): el correo lo ayuda a
+ACTIVAR su prueba — no le vende la app de entrada.
+
+Por cada lead:
 
   1. Lo puntúa con Claude (rúbrica) y redacta un primer correo personal.
   2. Lo manda por SES como Israel (Reply-To israel@todoconta.com) con BCC a
@@ -35,11 +46,17 @@ from lib import correo, crm, llm
 
 ESTADO = Path("/data/sdr_estado.json")
 
-FUENTES_OPT_IN = "(qualifier,abacus)"
-
 DESCRIPCION_FUENTE = {
-    "qualifier": "llenó el cuestionario de saldo a favor en todoconta.com",
-    "abacus": "pidió probar Abacus (el asistente fiscal por WhatsApp) en todoconta.com",
+    "abacus": (
+        "pidió probar Abacus, el asistente fiscal por WhatsApp que forma parte "
+        "de TodoConta — su intención es probar el asistente; el objetivo del "
+        "correo es ayudarle a ACTIVAR su prueba de WhatsApp (y quedar a la "
+        "mano), NO venderle la app de escritorio de entrada"
+    ),
+    "diagnostico": (
+        "pidió un diagnóstico en todoconta.com/diagnostico sobre su operación "
+        "fiscal — el correo retoma su caso y lo aterriza"
+    ),
 }
 
 SISTEMA = (
@@ -47,13 +64,16 @@ SISTEMA = (
     "TodoConta (todoconta.com): app de escritorio que automatiza la descarga "
     "masiva de CFDI y documentos del SAT para contadores en México (prueba "
     "gratis 15 días; plan Anual $2,990 MXN; Anual con IA $4,990 MXN, que "
-    "incluye a Abacus, el asistente fiscal por WhatsApp). Redactas el PRIMER "
-    "correo a una persona que acaba de llenar un formulario en el sitio. "
-    "Reglas: español de México, tono personal de Israel (directo, servicial, "
-    "cero plantilla corporativa), máximo 120 palabras, UNA sola pregunta "
-    "concreta al final que invite a responder, sin listas de features, sin "
-    "presión de venta, sin enlaces salvo que el contexto lo pida. Nunca digas "
-    "«CIEC» (di «Contraseña del SAT»). Nunca inventes datos del lead."
+    "incluye a Abacus, el asistente fiscal por WhatsApp — Abacus es un feature "
+    "del paquete TodoConta, no un producto aparte). Redactas el PRIMER correo "
+    "a una persona que acaba de llenar un formulario en el sitio. La regla de "
+    "oro: responde a la intención REAL de lo que la persona pidió (viene en el "
+    "contexto de la fuente) — no le vendas otra cosa. Reglas de forma: español "
+    "de México, tono personal de Israel (directo, servicial, cero plantilla "
+    "corporativa), máximo 120 palabras, UNA sola pregunta concreta al final "
+    "que invite a responder, sin listas de features, sin presión de venta, sin "
+    "enlaces salvo que el contexto lo pida. Nunca digas «CIEC» (di «Contraseña "
+    "del SAT»). Nunca inventes datos del lead."
 )
 
 
@@ -94,6 +114,19 @@ def _rubrica_fallback(lead: dict) -> tuple[int, str]:
 def _correo_fallback(lead: dict) -> tuple[str, str]:
     nombre = (lead.get("nombre") or "").split(" ")[0]
     saludo = f"Hola {nombre}" if nombre else "Hola"
+    if lead.get("fuente") == "abacus":
+        cuerpo = (
+            f"{saludo},\n\n"
+            "Vi que pediste probar Abacus, el asistente fiscal por WhatsApp de "
+            "TodoConta, y quería escribirte directo para que no se te quede a "
+            "medias.\n\n"
+            "Soy Israel, contador y el que construye TodoConta. Si aún no te "
+            "llega el acceso o algo no jaló, respóndeme este correo y lo "
+            "destrabamos hoy mismo.\n\n"
+            "¿Ya pudiste mandarle tu primera pregunta por WhatsApp?\n\n"
+            "Saludos,\nIsrael Castro\ntodoconta.com"
+        )
+        return "Tu prueba de Abacus — ¿ya quedó?", cuerpo
     contexto = DESCRIPCION_FUENTE.get(lead.get("fuente", ""), "dejaste tus datos en todoconta.com")
     cuerpo = (
         f"{saludo},\n\n"
@@ -121,12 +154,19 @@ def main() -> int:
         print(f"[sdr] límite diario alcanzado ({max_dia}) — hasta mañana")
         return 0
 
+    # Fuentes habilitadas (coma-separadas). Solo abacus por ahora; /diagnostico
+    # se sumará por env cuando exista. qualifier queda fuera a propósito.
+    fuentes = [
+        f.strip()
+        for f in os.environ.get("SDR_FUENTES", "abacus").split(",")
+        if f.strip()
+    ]
     corte = (datetime.now(timezone.utc) - timedelta(days=max_edad)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
     leads = crm.sb_get(
         "crm_leads?select=id,email,nombre,telefono,fuente,etapa,created_at,notas"
-        f"&etapa=eq.lead&consent_marketing=eq.true&fuente=in.{FUENTES_OPT_IN}"
+        f"&etapa=eq.lead&consent_marketing=eq.true&fuente=in.({','.join(fuentes)})"
         f"&created_at=gte.{corte}&order=created_at.asc&limit=20"
     )
     if not leads:
