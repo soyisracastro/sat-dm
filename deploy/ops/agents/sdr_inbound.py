@@ -54,8 +54,13 @@ DESCRIPCION_FUENTE = {
         "mano), NO venderle la app de escritorio de entrada"
     ),
     "diagnostico": (
-        "pidió un diagnóstico en todoconta.com/diagnostico sobre su operación "
-        "fiscal — el correo retoma su caso y lo aterriza"
+        "contestó el diagnóstico en todoconta.com/diagnostico y PIDIÓ su plan "
+        "personalizado (se le prometió: 'te lo mando mañana — qué automatizar "
+        "primero y cuánto tiempo recuperas'). Sus respuestas vienen en `notas` "
+        "(rol, RFCs, dolor, volumen, veredicto, tema del post que lo trajo). "
+        "Este correo ES esa entrega: un mini-plan concreto para SU caso (por "
+        "dónde empezar y qué gana), no un saludo genérico — puede extenderse "
+        "hasta ~220 palabras"
     ),
 }
 
@@ -191,7 +196,7 @@ def main() -> int:
             "propio vs gratuito) y redacta su primer correo. Responde JSON: "
             '{"score": int, "razones": "…", "asunto": "… (máx 50 chars, sin '
             'mayúsculas de spam)", "cuerpo": "… (texto plano con saltos \\n)"}'
-            f"\n\nLEAD: {json.dumps({k: lead.get(k) for k in ('nombre', 'email', 'telefono', 'fuente', 'created_at')}, ensure_ascii=False)}"
+            f"\n\nLEAD: {json.dumps({k: lead.get(k) for k in ('nombre', 'email', 'telefono', 'fuente', 'created_at', 'notas')}, ensure_ascii=False)}"
             f"\nCONTEXTO DE LA FUENTE: {DESCRIPCION_FUENTE.get(lead.get('fuente', ''), '')}",
             sistema=SISTEMA,
             max_tokens=900,
