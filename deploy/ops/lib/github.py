@@ -23,6 +23,25 @@ def _headers() -> dict[str, str]:
     }
 
 
+def leer_archivo(repo: str, ruta: str, ref: str = "main") -> str | None:
+    """Contenido de un archivo del repo (o None si no existe / sin PAT)."""
+    if not os.environ.get("GITHUB_PAT"):
+        return None
+    try:
+        resp = requests.get(
+            f"{API}/repos/{repo}/contents/{ruta}",
+            headers={**_headers(), "Accept": "application/vnd.github.raw+json"},
+            params={"ref": ref},
+            timeout=TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return None
+        return resp.text
+    except requests.RequestException as e:
+        print(f"[github] no pude leer {ruta}: {e}")
+        return None
+
+
 def crear_pr_con_archivos(
     repo: str,
     rama: str,
