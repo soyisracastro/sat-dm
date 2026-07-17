@@ -1,22 +1,35 @@
-"""Soporte en modo BORRADOR: clasifica el buzón soporte@ y redacta respuestas
-que Israel aprueba — este agente NO responde solo a nadie (regla v1).
+"""Soporte en modo BORRADOR: clasifica el correo de soporte@ y redacta
+respuestas que Israel aprueba — este agente NO responde solo a nadie (regla v1).
+
+Realidad del buzón (Workspace de Israel): soporte@todoconta.com es un ALIAS
+que entrega en su cuenta real (dominio @sicastro.com) — no existe un buzón
+separado. Por eso el agente:
+
+  - Hace login IMAP con la CUENTA REAL (SOPORTE_EMAIL + su app password) pero
+    SOLO procesa correos dirigidos al alias (SOPORTE_ALIAS) — jamás lee el
+    resto del buzón.
+  - NUNCA toca banderas de leído/no-leído ni modifica nada del buzón (INBOX se
+    abre readonly): la deduplicación va exclusivamente por Message-ID en /data.
+  - Busca en una ventana corta (SOPORTE_VENTANA_DIAS, default 2) para no
+    barrer correo viejo ya atendido al encenderse.
 
 Cada corrida:
-  1. Lee por IMAP los correos NO leídos de soporte@todoconta.com (Google
-     Workspace, app password) descartando auto-respuestas/boletines.
-  2. Clasifica cada uno con Claude (categoría, urgencia, resumen) y redacta un
-     borrador de respuesta con contexto real del producto.
-  3. Deja el borrador EN LA CARPETA BORRADORES de soporte@ (hilado a la
-     conversación: Israel solo abre Gmail, ajusta y manda) y le avisa por
-     correo con el original + la clasificación + el borrador.
-  4. Marca el mensaje como leído para no reprocesarlo.
+  1. Busca correos al alias en la ventana (Gmail X-GM-RAW; fallback IMAP
+     estándar), descartando auto-respuestas/boletines, correo propio y lo ya
+     procesado.
+  2. Clasifica con Claude (categoría, urgencia, resumen) y redacta un borrador
+     con contexto real del producto.
+  3. Deja el borrador EN LA CARPETA BORRADORES (hilado a la conversación, con
+     remitente soporte@todoconta.com — Gmail lo respeta como send-as del
+     alias) y avisa a Israel por correo con el original + la clasificación.
 
 Uso:
     python agents/soporte.py            # corre (si está encendido)
     python agents/soporte.py --dry-run  # imprime clasificación/borradores, no toca nada
 
 Kill switch: OPS_SOPORTE_ENABLED != "1" → no hace nada (default APAGADO).
-Requiere: SOPORTE_EMAIL + SOPORTE_APP_PASSWORD (app password de Workspace).
+Requiere: SOPORTE_EMAIL (cuenta real) + SOPORTE_APP_PASSWORD (app password de
+esa cuenta, con verificación en 2 pasos activa).
 """
 
 from __future__ import annotations
@@ -29,7 +42,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.header import decode_header
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -113,6 +126,30 @@ def _es_automatico(msg: email.message.Message, de_email: str) -> bool:
     return False
 
 
+def _buscar_al_alias(imap: imaplib.IMAP4_SSL, alias: str, dias: int) -> list[bytes]:
+    """UIDs de correos dirigidos al alias dentro de la ventana.
+
+    Primero con búsqueda nativa de Gmail (X-GM-RAW: su `to:` cubre To/Cc y la
+    entrega al alias); si el servidor no la soporta, IMAP estándar (TO/CC +
+    SINCE). Nunca usa UNSEEN: las banderas son de Israel, no del agente.
+    """
+    try:
+        ok, resultado = imap.uid(
+            "SEARCH", "X-GM-RAW", f'"to:{alias} newer_than:{dias}d"'
+        )
+        if ok == "OK":
+            return resultado[0].split() if resultado and resultado[0] else []
+    except imaplib.IMAP4.error:
+        pass
+    desde = (datetime.now(timezone.utc) - timedelta(days=dias)).strftime("%d-%b-%Y")
+    ok, resultado = imap.uid(
+        "SEARCH", None, f'(OR TO "{alias}" CC "{alias}") SINCE {desde}'
+    )
+    if ok != "OK":
+        return []
+    return resultado[0].split() if resultado and resultado[0] else []
+
+
 def _carpeta_borradores(imap: imaplib.IMAP4_SSL) -> str | None:
     """Encuentra la carpeta con flag \\Drafts (Gmail la nombra según idioma)."""
     ok, carpetas = imap.list()
@@ -147,6 +184,8 @@ def main() -> int:
     if not cuenta or not password:
         print("[soporte] faltan SOPORTE_EMAIL/SOPORTE_APP_PASSWORD")
         return 1
+    alias = os.environ.get("SOPORTE_ALIAS", "soporte@todoconta.com")
+    ventana = int(os.environ.get("SOPORTE_VENTANA_DIAS", "2"))
     max_corrida = int(os.environ.get("OPS_SOPORTE_MAX", "10"))
     estado = _cargar_estado()
     procesados: list[str] = estado.get("procesados", [])
@@ -154,32 +193,39 @@ def main() -> int:
     imap = imaplib.IMAP4_SSL(os.environ.get("SOPORTE_IMAP_HOST", "imap.gmail.com"))
     try:
         imap.login(cuenta, password)
-        imap.select("INBOX")
-        ok, resultado = imap.uid("SEARCH", None, "UNSEEN")
-        uids = resultado[0].split() if ok == "OK" and resultado and resultado[0] else []
+        # readonly: este buzón es el personal de Israel — el agente jamás lo
+        # modifica (ni banderas ni borrados). El APPEND del borrador va a la
+        # carpeta Borradores, que no requiere escribir en INBOX.
+        imap.select("INBOX", readonly=True)
+        uids = _buscar_al_alias(imap, alias, ventana)
         if not uids:
-            print("[soporte] buzón sin mensajes nuevos")
+            print(f"[soporte] sin correos nuevos para {alias}")
             return 0
 
         borradores = None if dry_run else _carpeta_borradores(imap)
         atendidos = 0
-        for uid in uids[:max_corrida]:
+        for uid in uids:
+            if atendidos >= max_corrida:
+                break
             ok, datos = imap.uid("FETCH", uid, "(BODY.PEEK[])")
             if ok != "OK" or not datos or not isinstance(datos[0], tuple):
                 continue
             msg = email.message_from_bytes(datos[0][1])
-            message_id = str(msg.get("Message-ID", "")).strip()
-            if message_id and message_id in procesados:
-                imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+            # Llave de dedupe: Message-ID (o el UID como último recurso).
+            clave = str(msg.get("Message-ID", "")).strip() or f"uid:{uid.decode()}"
+            if clave in procesados:
                 continue
 
             de_nombre, de_email = email.utils.parseaddr(_decodificar(msg.get("From")))
             asunto = _decodificar(msg.get("Subject")) or "(sin asunto)"
+            # Correo propio (Israel respondiendo con copia al alias): ignorar.
+            if de_email.lower() in (cuenta.lower(), alias.lower()):
+                if not dry_run:
+                    procesados.append(clave)
+                continue
             if _es_automatico(msg, de_email):
                 if not dry_run:
-                    imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
-                    if message_id:
-                        procesados.append(message_id)
+                    procesados.append(clave)
                 print(f"[soporte] auto/boletín descartado: {de_email} — {asunto[:60]}")
                 continue
 
@@ -213,22 +259,21 @@ def main() -> int:
                 continue
 
             if categoria == "no_requiere_respuesta":
-                imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
-                if message_id:
-                    procesados.append(message_id)
+                procesados.append(clave)
                 print(f"[soporte] sin respuesta necesaria: {de_email} — {asunto[:60]}")
                 continue
 
-            # 1) Borrador hilado en la carpeta Borradores de soporte@.
+            # 1) Borrador hilado en la carpeta Borradores, saliendo como el alias.
             deja_borrador = False
             if borrador and borradores:
                 try:
                     respuesta = MIMEText(borrador, "plain", "utf-8")
-                    respuesta["From"] = f"TodoConta Soporte <{cuenta}>"
+                    respuesta["From"] = f"TodoConta Soporte <{alias}>"
                     respuesta["To"] = email.utils.formataddr((de_nombre, de_email))
                     respuesta["Subject"] = (
                         asunto if asunto.lower().startswith("re:") else f"Re: {asunto}"
                     )
+                    message_id = str(msg.get("Message-ID", "")).strip()
                     if message_id:
                         respuesta["In-Reply-To"] = message_id
                         respuesta["References"] = message_id
@@ -244,7 +289,8 @@ def main() -> int:
 
             # 2) Aviso a Israel con todo el contexto.
             nota_borrador = (
-                "El borrador ya está en la carpeta Borradores de soporte@ (hilado): ajústalo y envía."
+                "El borrador ya está en tu carpeta Borradores (hilado; sale como "
+                f"{alias}): ajústalo y envía."
                 if deja_borrador
                 else "No se pudo dejar el borrador en Gmail — cópialo de aquí."
             )
@@ -268,17 +314,15 @@ def main() -> int:
             )
             try:
                 correo.enviar(
-                    f"[soporte@] {urgencia} · {categoria} — {asunto[:70]}",
+                    f"[{alias}] {urgencia} · {categoria} — {asunto[:70]}",
                     html_aviso,
                     texto_aviso,
                 )
             except Exception as e:  # noqa: BLE001
-                print(f"[soporte] aviso a Israel falló: {e} — NO marco leído para reintentar")
+                print(f"[soporte] aviso a Israel falló: {e} — NO registro para reintentar")
                 continue
 
-            imap.uid("STORE", uid, "+FLAGS", r"(\Seen)")
-            if message_id:
-                procesados.append(message_id)
+            procesados.append(clave)
             atendidos += 1
             print(f"[soporte] atendido: {de_email} — {asunto[:60]} [{categoria}/{urgencia}]")
 
