@@ -299,11 +299,14 @@ def auth_poll(req: AuthPollRequest):
 def _guardar_sesion(session) -> dict:
     from .. import license_client as lc
     from ..sync_empresas import sincronizar_async
+    from ..sync_tareas import sincronizar_async as sincronizar_tareas_async
 
     lc.save_session(session)
     lc.clear_license_cache()
-    # Con sesión fresca, jala/empuja el catálogo de empresas (best-effort).
+    # Con sesión fresca, jala/empuja el catálogo de empresas y las tareas
+    # (best-effort, cada uno en su hilo).
     sincronizar_async("login")
+    sincronizar_tareas_async("login")
     return {"ok": True, "user": {"id": session.user_id, "email": session.email}}
 
 

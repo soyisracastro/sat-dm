@@ -7,6 +7,9 @@ Endpoints: /tareas*. Un solo estado global del usuario
 
 El modelo ya trae ``gcal_event_id`` reservado para la sincronización
 unidireccional con Google Calendar (plan: docs/producto/tareas-gcal-sync.md).
+
+Cada mutación dispara el sync desktop ⇄ online en background (best-effort,
+ver ``api/sync_tareas.py``) — mismo patrón que el catálogo de empresas.
 """
 
 import logging
@@ -14,6 +17,8 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from ..sync_tareas import sincronizar_async
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +62,7 @@ def crear_tarea(req: TareaCrearRequest) -> dict:
     from ...tareas import crear
 
     try:
-        return crear(
+        tarea = crear(
             req.titulo,
             rfc=req.rfc,
             tipo=req.tipo,
@@ -68,6 +73,8 @@ def crear_tarea(req: TareaCrearRequest) -> dict:
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    sincronizar_async("crear")
+    return tarea
 
 
 @router.patch("/tareas/{tarea_id}")
@@ -81,6 +88,7 @@ def actualizar_tarea(tarea_id: str, req: TareaPatchRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(e))
     if tarea is None:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    sincronizar_async("editar")
     return tarea
 
 
@@ -90,6 +98,7 @@ def eliminar_tarea(tarea_id: str) -> dict:
 
     if not eliminar(tarea_id):
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    sincronizar_async("eliminar")
     return {"ok": True}
 
 
@@ -98,6 +107,8 @@ def descartar_sugerencia(req: SugerenciaDescartarRequest) -> dict:
     from ...tareas import descartar_sugerencia as descartar
 
     try:
-        return {"ok": True, "sugerencias_descartadas": descartar(req.id)}
+        descartadas = descartar(req.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    sincronizar_async("descartar")
+    return {"ok": True, "sugerencias_descartadas": descartadas}

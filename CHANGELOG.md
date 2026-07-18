@@ -8,6 +8,12 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **Tus tareas te siguen: se sincronizan entre la app de escritorio y la
+  versión web.** Las tareas del centro de mando ahora viajan entre tus
+  instalaciones igual que el catálogo de empresas: lo que crees, edites,
+  completes o borres en un lado aparece en el otro — los borrados también se
+  respetan, nada resucita. Los descartes de sugerencias se comparten igual.
+  Best-effort y sin credenciales: solo tus tareas.
 - **El organizador recuerda tu configuración — una sola vez para todas tus
   empresas.** La estructura de carpetas, el formato de renombrado y la opción
   de copiar/mover ahora se guardan como configuración global: la defines una
