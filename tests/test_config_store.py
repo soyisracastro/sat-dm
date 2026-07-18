@@ -801,3 +801,45 @@ class TestCertifica:
         with pytest.raises(KeyError):
             config_store.registrar_csd("XAXX010101000", {"uso": "x", "numero_operacion": "1",
                                                          "acuse_pdf": None, "key_path": "k"})
+
+
+# ---------------------------------------------------------------------------
+# Config del organizador (GLOBAL por usuario)
+# ---------------------------------------------------------------------------
+
+class TestOrganizadorConfig:
+
+    def test_defaults_sin_guardar(self):
+        cfg = config_store.get_organizador_config()
+        assert cfg["guardada"] is False
+        assert cfg["estructura"] == "rfc_emisor/anio/mes"
+        assert cfg["niveles_custom"] == ["anio", "mes", "flujo"]
+        assert cfg["copiar"] is True
+
+    def test_patch_parcial_hace_merge(self):
+        config_store.set_organizador_config(
+            {"estructura": "custom", "niveles_custom": ["rfc", "anio", "mes"]}
+        )
+        config_store.set_organizador_config({"separador": "_"})
+
+        cfg = config_store.get_organizador_config()
+        assert cfg["guardada"] is True
+        assert cfg["estructura"] == "custom"
+        assert cfg["niveles_custom"] == ["rfc", "anio", "mes"]
+        assert cfg["separador"] == "_"
+        # Lo no tocado conserva su default
+        assert cfg["copiar"] is True
+        assert cfg["renombrar_patron"] == "emisor_fecha_total"
+
+    def test_ignora_claves_desconocidas(self):
+        config_store.set_organizador_config({"inyectada": "x", "copiar": False})
+        cfg = config_store.get_organizador_config()
+        assert "inyectada" not in cfg
+        assert cfg["copiar"] is False
+
+    def test_persiste_en_settings_json(self):
+        config_store.set_organizador_config({"renombrar_patron": "uuid"})
+        raw = json.loads(
+            (config_store.get_config_dir() / "settings.json").read_text(encoding="utf-8")
+        )
+        assert raw["organizador"]["renombrar_patron"] == "uuid"

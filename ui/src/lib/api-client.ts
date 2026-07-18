@@ -11,6 +11,7 @@ import type {
   DescargarResponse,
   DescargaCompletaRequest,
   SolicitudFolioRequest,
+  OrganizadorConfig,
   OrganizadorRequest,
   OrganizadorResult,
   RenombrarRequest,
@@ -676,6 +677,22 @@ export class SatApiClient {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dir }),
+    });
+  }
+
+  /** Config GLOBAL del organizador (aplica a todas las empresas). */
+  async getOrganizadorConfig(): Promise<OrganizadorConfig> {
+    return this.request<OrganizadorConfig>('/config/organizador');
+  }
+
+  /** Guarda un patch parcial de la config global del organizador. */
+  async setOrganizadorConfig(
+    patch: Partial<Omit<OrganizadorConfig, 'guardada'>>,
+  ): Promise<OrganizadorConfig> {
+    return this.request<OrganizadorConfig>('/config/organizador', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
     });
   }
 

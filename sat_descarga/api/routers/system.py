@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
@@ -163,6 +163,30 @@ def set_descargas_dir_endpoint(req: DescargasDirRequest):
     """Cambia la carpeta base de descargas."""
     from ...cli import config_store
     return {"dir": config_store.set_descargas_dir(req.dir)}
+
+
+class OrganizadorConfigRequest(BaseModel):
+    """Patch parcial: solo lo enviado se aplica (exclude_unset)."""
+    estructura: Optional[str] = None
+    niveles_custom: Optional[List[str]] = None
+    renombrar_patron: Optional[str] = None
+    partes_nombre: Optional[List[str]] = None
+    separador: Optional[str] = None
+    copiar: Optional[bool] = None
+
+
+@router.get("/config/organizador")
+def get_organizador_config_endpoint():
+    """Config GLOBAL del organizador: se define una vez y aplica a todas las
+    empresas del usuario (incluye `guardada` para la migración de la UI)."""
+    from ...cli import config_store
+    return config_store.get_organizador_config()
+
+
+@router.put("/config/organizador")
+def set_organizador_config_endpoint(req: OrganizadorConfigRequest):
+    from ...cli import config_store
+    return config_store.set_organizador_config(req.model_dump(exclude_unset=True))
 
 
 # ---------------------------------------------------------------------------

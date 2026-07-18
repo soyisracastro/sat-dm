@@ -6,6 +6,15 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Feature
+
+- **El organizador recuerda tu configuración — una sola vez para todas tus
+  empresas.** La estructura de carpetas, el formato de renombrado y la opción
+  de copiar/mover ahora se guardan como configuración global: la defines una
+  vez y aplica a todas las empresas del despacho, sin re-elegirla en cada RFC
+  ni perderla al reiniciar. Funciona igual en la app de escritorio y en la
+  versión web; lo que ya tenías configurado se migra solo.
+
 ### Fix
 
 - **Organizador: adiós a la carpeta «Otros» que mezclaba facturas de varias

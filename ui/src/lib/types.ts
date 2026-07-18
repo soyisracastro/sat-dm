@@ -100,6 +100,21 @@ export interface OrganizadorRequest {
   rfc?: string;
 }
 
+// GET/PUT /config/organizador — config GLOBAL del organizador: se define una
+// vez y aplica a todas las empresas del usuario (desktop y web).
+export interface OrganizadorConfig {
+  /** Preset del select de estructura, o "custom". */
+  estructura: string;
+  niveles_custom: string[];
+  /** Preset de renombrado, o "custom". */
+  renombrar_patron: string;
+  partes_nombre: string[];
+  separador: string;
+  copiar: boolean;
+  /** true si el usuario ya guardó su config (false → la UI migra localStorage). */
+  guardada: boolean;
+}
+
 export interface OrganizadorResult {
   archivos_procesados: number;
   archivos_movidos: number;
