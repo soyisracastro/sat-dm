@@ -10,6 +10,8 @@ extra `ciec`.
 
 import logging
 
+from sat_descarga.core.errores import ErrorEsperado
+
 logger = logging.getLogger(__name__)
 
 LOGIN_TIMEOUT_MS = 180_000        # 3 min para el login FIEL (e.firma, sin captcha)
@@ -29,11 +31,12 @@ _KW_CREDENCIALES = ("contraseña", "contrasena", "rfc", "usuario", "clave",
                     "incorrect", "válid", "invalid")
 
 
-class CredencialCIECInvalida(RuntimeError):
+class CredencialCIECInvalida(ErrorEsperado):
     """El portal del SAT rechazó el RFC/contraseña CIEC (no es problema del captcha).
 
     Se lanza para abortar de inmediato (sin gastar reintentos de captcha) cuando el
-    portal muestra un error de credenciales."""
+    portal muestra un error de credenciales. Es `ErrorEsperado`: el usuario
+    capturó mal su clave — se le avisa, no se reporta a telemetría."""
 
 
 def _es_error_credenciales(msg: str) -> bool:

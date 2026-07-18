@@ -35,6 +35,9 @@ import os
 import threading
 from typing import Optional
 
+import requests
+
+from ..core.errores import ErrorEsperado
 from ..core.fiel import FIEL
 from ..webservice.auth import obtener_token
 from ..webservice.descarga import descargar_todos
@@ -113,6 +116,11 @@ def _una_pasada() -> None:
         rfc = emp["rfc"]
         try:
             _procesar_empresa(rfc, emp)
+        except (requests.RequestException, ErrorEsperado) as e:
+            # SAT caído/lento (timeouts, SSL, su «Error no controlado»): condición
+            # transitoria esperada — la siguiente pasada reintenta. Warning para
+            # que cada tormenta del SAT no genere eventos de Sentry.
+            logger.warning("[poller] SAT no disponible procesando %s: %s", rfc, e)
         except Exception:  # noqa: BLE001 — una empresa con problemas no frena a las demás
             logger.exception("[poller] Error procesando %s", rfc)
 

@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from ..core.errores import ErrorEsperado
+
 logger = logging.getLogger(__name__)
 
 # Centinela que cierra el stream SSE de un job.
@@ -180,7 +182,13 @@ class JobRegistry:
                     job.estado = "error"
                     job.error = msg
                     self.emitir(job, "error", mensaje=msg)
-                    logger.exception("[job %s] error", job.id)
+                    if isinstance(e, ErrorEsperado):
+                        # CIEC incorrecta, Chromium sin poder bajar, SAT caído:
+                        # el usuario ya recibió el mensaje; no es un bug del
+                        # agente → warning, sin evento en Sentry.
+                        logger.warning("[job %s] falló (esperado): %s", job.id, msg)
+                    else:
+                        logger.exception("[job %s] error", job.id)
             finally:
                 job._eventos.put(_FIN)
 

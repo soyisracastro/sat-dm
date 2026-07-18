@@ -9,13 +9,15 @@ Verificado en vivo (2026-07-12): la misma solicitud falla igual desde
 cualquier red, y minutos u horas después vuelve a funcionar sin cambios.
 """
 
+from sat_descarga.core.errores import ErrorEsperado
+
 # Códigos de estatus del WS que indican fallo interno transitorio del SAT
 # (no un rechazo de la solicitud). Hoy solo el 404; si aparecen otros se
 # agregan aquí.
 CODIGOS_TRANSITORIOS = {"404"}
 
 
-class ErrorTransitorioSAT(RuntimeError):
+class ErrorTransitorioSAT(ErrorEsperado):
     """El SAT respondió con un error interno transitorio (p. ej. CodEstatus=404).
 
     Los routers lo traducen a HTTP 503 («el SAT está fallando, reintenta»),
