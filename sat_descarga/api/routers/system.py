@@ -223,6 +223,9 @@ def auth_init():
     code = lc.generate_device_code()
     try:
         result = lc.init_device_code(code)
+    except lc.ServicioNoDisponible as e:
+        # Sin conexión: transitorio (503 no se reporta a Sentry), no un bug.
+        raise HTTPException(status_code=503, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return {
@@ -245,6 +248,8 @@ def auth_poll(req: AuthPollRequest):
 
     try:
         result, session = lc.poll_device_code(req.device_code)
+    except lc.ServicioNoDisponible as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -279,8 +284,9 @@ def _guardar_sesion(session) -> dict:
 
 
 def _http_de_auth_error(e) -> HTTPException:
-    # 4xx de GoTrue viajan con su mensaje ya en español; 5xx/red como 502.
-    status = e.status if 400 <= e.status < 500 else 502
+    # 4xx de GoTrue viajan con su mensaje ya en español; 5xx/red como 503
+    # (servicio externo no disponible, transitorio — no se reporta a Sentry).
+    status = e.status if 400 <= e.status < 500 else 503
     return HTTPException(status_code=status, detail=e.mensaje)
 
 
@@ -478,8 +484,12 @@ def _accion_con_refresh(fn):
         except PermissionError:
             lc.clear_session()
             raise HTTPException(status_code=401, detail="Sesión expirada, vuelve a iniciar sesión")
+        except lc.ServicioNoDisponible as e:
+            raise HTTPException(status_code=503, detail=str(e))
         except RuntimeError as e:
             raise HTTPException(status_code=502, detail=str(e))
+    except lc.ServicioNoDisponible as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 

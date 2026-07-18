@@ -121,9 +121,11 @@ def _post(path: str, payload: dict, params: Optional[dict] = None) -> dict:
         )
     except requests.RequestException as e:
         logger.warning("[supabase] %s falló: %s", path, e)
+        # 503 (no 502): sin conexión = condición transitoria del lado del
+        # usuario; por convención del agente el 503 no se reporta a Sentry.
         raise SupabaseAuthError(
             "No pudimos conectar con el servicio de cuentas. Revisa tu internet.",
-            status=502,
+            status=503,
             error_code="network",
         )
     if resp.status_code >= 400:
