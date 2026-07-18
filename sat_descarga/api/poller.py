@@ -89,14 +89,17 @@ def _loop() -> None:
             _una_pasada()
         except Exception:  # noqa: BLE001 — el poller nunca debe morir
             logger.exception("[poller] Falló la pasada; se reintenta en la siguiente")
-        # Sync del catálogo de empresas al arrancar y luego cada ~30 min:
-        # converge cambios hechos en la otra instalación (desktop ⇄ online)
-        # aunque el usuario no toque nada. Best-effort, en su propio hilo.
+        # Sync del catálogo de empresas y de las tareas al arrancar y luego
+        # cada ~30 min: converge cambios hechos en la otra instalación
+        # (desktop ⇄ online) aunque el usuario no toque nada. Best-effort,
+        # cada uno en su propio hilo.
         if pasadas % 30 == 0:
             try:
                 from .sync_empresas import sincronizar_async
+                from .sync_tareas import sincronizar_async as sincronizar_tareas
 
                 sincronizar_async("poller")
+                sincronizar_tareas("poller")
             except Exception:  # noqa: BLE001
                 pass
         pasadas += 1
