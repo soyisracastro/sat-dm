@@ -91,7 +91,7 @@ Antes de implementar la Fase 3 (y para confirmar la 1) contra clientes en v19:
 ## Escalabilidad a otros sistemas contables
 
 El mismo patrón (leer BD local + escribir por archivo de importación, SDK como paso profundo)
-aplica a los sistemas del pitch (`docs/presentacion-pitch.md` líneas 218-222):
+aplica a los sistemas del pitch (`docs/negocio/presentacion-pitch.md` líneas 218-222):
 
 - **Aspel COI/SAE** — Firebird local; "interface / archivo de pólizas" → SDK Aspel.
 - **Microsip** — SQL Server local; importación de pólizas.
@@ -102,6 +102,6 @@ rehacer el mapeo CFDI→póliza.
 
 ## Enlace de índice (sugerencia, requiere tocar un archivo existente)
 
-Para descubribilidad, agregar una línea en `docs/mejoras-futuras.md` o en el README del repo
+Para descubribilidad, agregar una línea en `docs/producto/mejoras-futuras.md` o en el README del repo
 apuntando a `docs/integraciones/contpaqi/`. **No se hizo** aquí para respetar la restricción de no
 modificar archivos existentes; queda como acción opcional del mantenedor.

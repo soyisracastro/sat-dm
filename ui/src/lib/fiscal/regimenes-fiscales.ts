@@ -52,7 +52,7 @@ export const CLAVE_RESICO = '626';
  * Regímenes que por DEFAULT no presentan DIOT (la obligación del art. 32
  * fracc. VIII LIVA sigue al IVA, no al régimen de ISR). Mapeo investigado
  * contra RMF 2025/2026 y RFA 2025 — detalle y fundamentos en
- * docs/diot-2025.md («¿Quién presenta la DIOT?»):
+ * docs/producto/diot-2025.md («¿Quién presenta la DIOT?»):
  *
  * - 626 RESICO (PF y PM): relevados por la regla 3.13.19 RMF.
  * - 605, 607, 608, 610, 611, 614, 615, 616, 629: no son sujetos del IVA por

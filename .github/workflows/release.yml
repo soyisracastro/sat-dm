@@ -14,7 +14,7 @@
 #   - GITHUB_TOKEN — provisto automáticamente por Actions (write a Releases).
 #
 # Secrets opcionales — firma de código con SSL.com eSigner (IV Code Signing;
-# decisión 2026-06-11, ver docs/firma-codigo.md):
+# decisión 2026-06-11, ver docs/infra/firma-codigo.md):
 #   Los steps de firma se saltan solos si faltan; al agregarlos se activan.
 #   - ES_USERNAME / ES_PASSWORD — cuenta de SSL.com.
 #   - CREDENTIAL_ID — credencial de firma de eSigner (se ve al enrolar el cert).
@@ -185,7 +185,7 @@ jobs:
           # electron-builder llamando al hook scripts/esigner-sign.js
           # (win.signtoolOptions.sign). El hook usa las env ES_* del job y
           # CODE_SIGN_TOOL_PATH; sin credenciales se salta solo (build sin
-          # firma, como siempre) — ver docs/firma-codigo.md.
+          # firma, como siempre) — ver docs/infra/firma-codigo.md.
         run: pnpm exec electron-builder --publish always
 
       - name: Verificar firmas (agente + instalador)

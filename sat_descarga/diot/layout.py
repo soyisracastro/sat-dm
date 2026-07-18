@@ -2,7 +2,7 @@
 
 Los 54 campos, su orden y sus reglas vienen del "Instructivo para el armado
 del archivo de carga masiva" (SAT, Enero 2025) — la referencia completa, con
-las citas textuales y los ejemplos oficiales, está en docs/diot-2025.md.
+las citas textuales y los ejemplos oficiales, está en docs/producto/diot-2025.md.
 
 El layout es DATO, no código: si la validación contra el SAT obliga a corregir
 algo, se ajusta la tupla `CAMPOS_DIOT` (y el golden file de tests) sin tocar
@@ -34,7 +34,7 @@ def _entero(clave: str, etiqueta: str, seccion: str) -> CampoDiot:
     return CampoDiot(clave, etiqueta, "entero", max_len=14, seccion=seccion)
 
 
-# Los 54 campos EN ORDEN. No reordenar sin actualizar docs/diot-2025.md.
+# Los 54 campos EN ORDEN. No reordenar sin actualizar docs/producto/diot-2025.md.
 CAMPOS_DIOT: tuple[CampoDiot, ...] = (
     # 3.1 Datos del tercero declarado (1–7)
     CampoDiot("tipo_tercero", "Tipo de tercero", "catalogo", 2, "tercero"),

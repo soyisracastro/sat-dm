@@ -6,7 +6,7 @@ Endpoints: /tareas*. Un solo estado global del usuario
 (e.firma por vencer, DIOT del mes) y aquí solo persisten sus descartes.
 
 El modelo ya trae ``gcal_event_id`` reservado para la sincronización
-unidireccional con Google Calendar (plan: docs/tareas-gcal-sync.md).
+unidireccional con Google Calendar (plan: docs/producto/tareas-gcal-sync.md).
 """
 
 import logging

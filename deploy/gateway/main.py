@@ -8,7 +8,7 @@ key que el provisioner), lo enciende si hace falta y le rutea las operaciones.
 Los documentos salen del espacio privado del usuario; la base de datos
 compartida solo conoce hashes de keys y metadata.
 
-Diseño completo: docs/api-publica.md. Emisión de keys: emitir-key.py.
+Diseño completo: docs/infra/api-publica.md. Emisión de keys: emitir-key.py.
 """
 
 from __future__ import annotations
@@ -630,7 +630,7 @@ def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: s
 # directamente: así el proceso del bot no necesita el service key. La key
 # viaja cifrada (AES-256-GCM, ASISTENTE_VINCULOS_KEY); el gateway nunca la ve
 # en claro. DDL: migración 031_asistente_vinculos.sql (todoconta-apps) ·
-# diseño: docs/api-publica.md.
+# diseño: docs/infra/api-publica.md.
 VINCULOS_INTERNAL_TOKEN = os.environ.get("VINCULOS_INTERNAL_TOKEN", "")
 
 

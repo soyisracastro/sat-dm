@@ -6,7 +6,7 @@ asociados**, **sin CONTPAQi local** (funciona en Mac). El catálogo de cuentas e
 cargado** (archivo) o auto-leído por SQL cuando aplica.
 
 Todo esto **espeja el módulo DIOT existente** (`sat_descarga/diot/` + `routers/diot.py` +
-`docs/diot-2025.md`), que ya resuelve el mismo problema (exportar un archivo de formato fijo desde
+`docs/producto/diot-2025.md`), que ya resuelve el mismo problema (exportar un archivo de formato fijo desde
 los CFDIs) y está probado en producción.
 
 ## 0. Decisiones de alcance del MVP

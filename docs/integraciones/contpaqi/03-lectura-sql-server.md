@@ -6,7 +6,7 @@
 > este documento están transcritos de ese diccionario.
 
 Esta es la vía de **solo lectura**: la más realista y cercana según
-`docs/presentacion-pitch.md` (líneas 196-202, "Fase 1 — LEER"). Habilita **conciliación
+`docs/negocio/presentacion-pitch.md` (líneas 196-202, "Fase 1 — LEER"). Habilita **conciliación
 CFDI↔póliza** y lectura del **catálogo de cuentas y saldos** sin recapturar nada. **No requiere
 licencia del SDK.**
 

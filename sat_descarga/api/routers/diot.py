@@ -3,7 +3,7 @@ Router: DIOT 2025 — prellenado, estado editable y export del TXT de carga masi
 
 Endpoints: /diot/*. El estado vive por empresa Y periodo
 (~/.sat-descarga/diot/{RFC}.json); el prellenado lee el buffer del procesador.
-Layout y reglas del archivo: docs/diot-2025.md.
+Layout y reglas del archivo: docs/producto/diot-2025.md.
 
 Como en calculadoras, el gating premium del export vive en el frontend: el
 agente local es del usuario y no re-valida licencia por endpoint.

@@ -1,7 +1,7 @@
 """Catálogos oficiales de la DIOT 2025 (carga masiva).
 
 Fuente: "Instructivo para el armado del archivo de carga masiva" (SAT, Enero
-2025) — ver docs/diot-2025.md. El catálogo de países replica la sección 5 del
+2025) — ver docs/producto/diot-2025.md. El catálogo de países replica la sección 5 del
 instructivo (claves ISO ALPHA-3 + ZZZ) tal como lo usa la plantilla de Excel
 de TodoConta.
 """

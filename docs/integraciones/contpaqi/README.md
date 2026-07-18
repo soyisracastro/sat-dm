@@ -17,7 +17,7 @@ Documentación técnica para integrar TodoConta Desktop con **CONTPAQi Contabili
 
 Cerrar el ciclo **CFDI descargado del SAT → póliza contabilizada → conciliado**, aprovechando que
 TodoConta corre un agente local **en la misma máquina** donde vive CONTPAQi — algo que ninguna app
-web puede hacer (`docs/presentacion-pitch.md`, Bloque 5). Regla firme heredada del pitch (línea
+web puede hacer (`docs/negocio/presentacion-pitch.md`, Bloque 5). Regla firme heredada del pitch (línea
 224): **escribir siempre por la vía que el propio CONTPAQi acepta (archivo o SDK), nunca tocando su
 base de datos por dentro**.
 

@@ -13,7 +13,7 @@ job y no hay estados huérfanos de .ren/.sdg generados sin enviar):
 - POST /csd/recuperar      — baja el .cer de un CSD pendiente.
 
 FIEL-only: estos trámites NO tienen variante CIEC (CertiSAT solo acepta e.firma;
-excepción documentada a la convención dual, ver docs/renovacion-csd-ui-integracion.md).
+excepción documentada a la convención dual, ver docs/producto/renovacion-csd-ui-integracion.md).
 
 El progreso se refleja con eventos SSE `{"event": "fase", "fase": ...}` que la UI
 mapea a la checklist del wizard: generando → firmando → enviando → numero_operacion

@@ -1,6 +1,6 @@
 """Validaciones de renglones DIOT antes de exportar.
 
-Devuelve dos niveles (ver reglas textuales en docs/diot-2025.md):
+Devuelve dos niveles (ver reglas textuales en docs/producto/diot-2025.md):
 - ``errores``: violan el instructivo del SAT → bloquean la exportación.
 - ``advertencias``: no bloquean, pero el usuario debería revisarlas.
 
