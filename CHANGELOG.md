@@ -8,6 +8,13 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Fix
 
+- **Descarga por e.firma: mensaje claro y reintento automático cuando el portal
+  del SAT rechaza la sesión.** Al descargar comprobantes con e.firma, a veces el
+  portal rebota la consulta a su página de error y la app fallaba con el mensaje
+  confuso "No se encontró el botón de búsqueda". Ahora la app detecta el rechazo,
+  vuelve a iniciar sesión una vez de forma automática (el rebote suele ser
+  pasajero) y, si aún así persiste, te lo dice claro: reintenta en unos minutos —
+  no hace falta borrar la empresa y volverla a dar de alta.
 - **Organizador: adiós a la carpeta «Otros» que mezclaba facturas de varias
   empresas.** Al organizar por Emitidos/Recibidos, las facturas que no son de
   la empresa activa ya no se mueven a «Otros»: se quedan en su lugar y el

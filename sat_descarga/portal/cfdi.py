@@ -35,7 +35,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from .login import iniciar_sesion_ciec, iniciar_sesion_fiel
+from .login import iniciar_sesion_ciec, iniciar_sesion_fiel, SesionPortalInvalida
 from ..core import paths
 
 logger = logging.getLogger(__name__)
@@ -120,13 +120,17 @@ class CIECClient:
             )
             page = context.new_page()
 
-            try:
-                # Un solo login para todos los tipos. Si el caller inyectó un
-                # `login` (p. ej. e.firma), úsalo; si no, cae al login CIEC.
+            def _hacer_login():
+                # Si el caller inyectó un `login` (p. ej. e.firma), úsalo; si
+                # no, cae al login CIEC.
                 if login is not None:
                     login(page)
                 else:
                     self._login_ciec(page, pedir_captcha)
+
+            reintento_sesion = False
+            try:
+                _hacer_login()  # un solo login para todos los tipos
                 for tipo in tipos:
                     if len(descargados) >= max_registros:
                         break
@@ -139,10 +143,30 @@ class CIECClient:
                         out_dir = out_dir / paths.etiqueta_rango(fecha_inicio, fecha_fin)
                     out_dir.mkdir(parents=True, exist_ok=True)
                     logger.info("[CIEC] === %s → %s ===", etiqueta, out_dir)
-                    descargados.extend(self._descargar_tipo(
-                        page, tipo, fecha_inicio, fecha_fin, out_dir,
-                        max_registros - len(descargados),
-                    ))
+                    try:
+                        nuevos = self._descargar_tipo(
+                            page, tipo, fecha_inicio, fecha_fin, out_dir,
+                            max_registros - len(descargados),
+                        )
+                    except SesionPortalInvalida:
+                        # El portal a veces rebota a Error.aspx aunque el login
+                        # "terminara bien" (Error.aspx vive en el mismo dominio y
+                        # pasa el predicado `exito`). UN reintento de login por
+                        # corrida absorbe el rebote transitorio; si persiste, el
+                        # error claro sube al usuario (y a Sentry — DESKTOP-1E).
+                        if reintento_sesion:
+                            raise
+                        reintento_sesion = True
+                        logger.warning(
+                            "[Portal] El SAT rechazó la sesión (Error.aspx); "
+                            "reintentando el login una vez…"
+                        )
+                        _hacer_login()
+                        nuevos = self._descargar_tipo(
+                            page, tipo, fecha_inicio, fecha_fin, out_dir,
+                            max_registros - len(descargados),
+                        )
+                    descargados.extend(nuevos)
             finally:
                 browser.close()
 
@@ -261,6 +285,7 @@ class CIECClient:
                 page.wait_for_load_state("networkidle", timeout=20_000)
             except PWTimeout:
                 pass
+        _verificar_sesion_portal(page)
 
         self._seleccionar_radio_fechas(page)
 
@@ -288,6 +313,7 @@ class CIECClient:
             page.wait_for_load_state("networkidle", timeout=20_000)
         except PWTimeout:
             pass
+        _verificar_sesion_portal(page)
 
         # Click nativo en el radio y esperar a que el SELECT DE HORA se habilite
         # (el input de texto de fecha es disabled-por-diseño y nunca se habilita).
@@ -343,6 +369,9 @@ class CIECClient:
 
         btn = page.query_selector("input#ctl00_MainContent_BtnBusqueda")
         if not btn:
+            # Sin botón casi siempre = el portal nos rebotó a Error.aspx
+            # (sesión inválida); dar ese diagnóstico antes que el mensaje genérico.
+            _verificar_sesion_portal(page)
             raise RuntimeError("No se encontró el botón de búsqueda.")
         btn.click()
         page.wait_for_timeout(800)  # dar tiempo a ocultaResultados() + arranque del postback
@@ -427,6 +456,24 @@ class CIECClient:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _verificar_sesion_portal(page):
+    """
+    Detecta el rebote del portal a Error.aspx (sesión inválida).
+
+    Cuando el login —típicamente e.firma vía el lanzador NIDP— no deja una
+    sesión válida, el portal redirige cualquier consulta a
+    Error.aspx?aspxerrorpath=/Consulta*.aspx. Detectarlo aquí produce un error
+    claro y reintenable, en vez del confuso "no se encontró el botón de
+    búsqueda" (TODOCONTA-DESKTOP-1E).
+    """
+    if "Error.aspx" in (page.url or ""):
+        raise SesionPortalInvalida(
+            "El portal del SAT rechazó la sesión (rebotó a Error.aspx al abrir "
+            "la consulta). Suele ser transitorio: vuelve a intentar la descarga "
+            "en unos minutos."
+        )
 
 
 def _normalizar_tipos(tipo: str) -> List[str]:

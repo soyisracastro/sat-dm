@@ -39,6 +39,18 @@ class CredencialCIECInvalida(ErrorEsperado):
     capturó mal su clave — se le avisa, no se reporta a telemetría."""
 
 
+class SesionPortalInvalida(RuntimeError):
+    """El portal CFDI rebotó a Error.aspx: la sesión no quedó válida.
+
+    Ocurre cuando el login (típicamente e.firma vía el lanzador NIDP) "termina"
+    pero el portal rechaza la consulta y redirige a Error.aspx — Error.aspx vive
+    en el mismo dominio, así que el predicado `exito` del login lo deja pasar
+    (TODOCONTA-DESKTOP-1E). A propósito NO hereda de `ErrorEsperado`: mientras
+    una corrida real no confirme el lanzador e.firma del portal CFDI, esto debe
+    seguir llegando a Sentry como señal; los rebotes transitorios los absorbe el
+    reintento único de login en `CIECClient.descargar` (esos no truenan)."""
+
+
 def _es_error_credenciales(msg: str) -> bool:
     """True si `msg` (texto del error del portal) indica RFC/contraseña incorrectos
     (y NO un error de captcha, que sí amerita reintentar)."""
