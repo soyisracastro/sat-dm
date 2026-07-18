@@ -19,17 +19,23 @@ SAMPLE_CFDI = """<?xml version="1.0" encoding="utf-8"?>
     Total="1160.00"
     Moneda="MXN"
     TipoDeComprobante="I">
-    <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Empresa A"/>
-    <cfdi:Receptor Rfc="BBB020202BBB" Nombre="Cliente B"/>
+    <cfdi:Emisor Rfc="{emisor}" Nombre="Empresa emisora"/>
+    <cfdi:Receptor Rfc="{receptor}" Nombre="Empresa receptora"/>
     <cfdi:Complemento>
         <tfd:TimbreFiscalDigital UUID="{uuid}" FechaTimbrado="2025-06-15T10:31:00"/>
     </cfdi:Complemento>
 </cfdi:Comprobante>"""
 
 
-def _create_cfdi(tmp_path, filename, uuid="12345678-AAAA-BBBB-CCCC-DDDDDDDDDDDD"):
+def _create_cfdi(
+    tmp_path,
+    filename,
+    uuid="12345678-AAAA-BBBB-CCCC-DDDDDDDDDDDD",
+    emisor="AAA010101AAA",
+    receptor="BBB020202BBB",
+):
     path = tmp_path / filename
-    path.write_text(SAMPLE_CFDI.format(uuid=uuid))
+    path.write_text(SAMPLE_CFDI.format(uuid=uuid, emisor=emisor, receptor=receptor))
     return path
 
 
@@ -111,15 +117,52 @@ class TestEstructuraCustom:
         # Comparación case-insensitive: el RFC de la empresa es el receptor
         assert (dst / "2025" / "06" / "Recibidos" / "factura.xml").exists()
 
-    def test_flujo_otros(self, tmp_path):
+    def test_ningun_xml_de_la_empresa_no_organiza(self, tmp_path):
+        # La empresa no es emisor ni receptor de NINGÚN XML: no se organiza
+        # nada y se pide activar la empresa correcta (nunca carpeta "Otros").
         src = tmp_path / "src"
         dst = tmp_path / "dst"
         src.mkdir()
         _create_cfdi(src, "factura.xml")
 
-        organizar(str(src), str(dst), "flujo", rfc="ZZZ999999ZZZ")
+        with pytest.raises(ValueError, match="empresa activa"):
+            organizar(str(src), str(dst), "flujo", rfc="ZZZ999999ZZZ")
 
-        assert (dst / "Otros" / "factura.xml").exists()
+        # El origen queda intacto y no se creó nada en el destino
+        assert (src / "factura.xml").exists()
+        assert not (dst / "Otros").exists()
+
+    def test_carpeta_mixta_omite_otros_rfc(self, tmp_path):
+        # Facturas de la empresa + facturas de otro RFC: las suyas se
+        # organizan, las ajenas se quedan en su lugar y se reportan.
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        _create_cfdi(src, "mia.xml", uuid="UUID-0001-AAAA-BBBB-CCCCCCCCCCCC")
+        _create_cfdi(
+            src, "ajena.xml",
+            uuid="UUID-0002-AAAA-BBBB-CCCCCCCCCCCC",
+            emisor="XXX111111XX1", receptor="YYY222222YY2",
+        )
+
+        result = organizar(str(src), str(dst), "anio/mes/flujo", rfc="AAA010101AAA")
+
+        assert result.archivos_movidos == 1
+        assert result.de_otro_rfc == 1
+        assert result.archivos_omitidos == 1
+        assert (dst / "2025" / "06" / "Emitidos" / "mia.xml").exists()
+        assert (src / "ajena.xml").exists()  # no se tocó
+        assert not (dst / "2025" / "06" / "Otros").exists()
+
+    def test_autofactura_cuenta_como_emitida(self, tmp_path):
+        src = tmp_path / "src"
+        dst = tmp_path / "dst"
+        src.mkdir()
+        _create_cfdi(src, "auto.xml", emisor="AAA010101AAA", receptor="AAA010101AAA")
+
+        organizar(str(src), str(dst), "flujo", rfc="AAA010101AAA")
+
+        assert (dst / "Emitidos" / "auto.xml").exists()
 
     def test_rfc_o_flujo_sin_rfc_falla(self, tmp_path):
         with pytest.raises(ValueError, match="RFC de la empresa"):
@@ -150,6 +193,54 @@ class TestEstructuraCustom:
     def test_texto_literal_vacio_falla(self, tmp_path):
         with pytest.raises(ValueError, match="no válida"):
             organizar(str(tmp_path), str(tmp_path), "anio/txt:")
+
+
+class TestDestinoDentroDelOrigen:
+    """El walk no debe releer la salida de corridas previas."""
+
+    def test_segunda_corrida_no_relee_lo_organizado(self, tmp_path):
+        src = tmp_path / "xmls"
+        dst = src / "Ordenado"  # destino DENTRO del origen (caso común en la UI)
+        src.mkdir()
+        _create_cfdi(src, "factura.xml")
+
+        r1 = organizar(str(src), str(dst), "anio/mes", copiar=True)
+        assert r1.archivos_procesados == 1
+        assert (dst / "2025" / "06" / "factura.xml").exists()
+
+        # Segunda corrida: la copia dentro de Ordenado/ NO se vuelve a procesar
+        r2 = organizar(str(src), str(dst), "anio/mes", copiar=True)
+        assert r2.archivos_procesados == 1  # solo el original
+        assert r2.archivos_movidos == 0     # el destino ya existía → omitido
+        assert r2.archivos_omitidos == 1
+
+    def test_flujo_no_rebota_entre_corridas(self, tmp_path):
+        # Escenario del bug reportado: organizar con flujo dejaba salida que la
+        # siguiente corrida (otra empresa) releía y volvía a mover/copiar.
+        src = tmp_path / "xmls"
+        dst = src / "Ordenado"
+        src.mkdir()
+        _create_cfdi(
+            src, "a.xml", uuid="UUID-A-1",
+            emisor="AAA010101AAA", receptor="CCC333333CC3",
+        )
+        _create_cfdi(
+            src, "b.xml", uuid="UUID-B-1",
+            emisor="XXX111111XX1", receptor="BBB020202BBB",
+        )
+
+        r1 = organizar(str(src), str(dst), "anio/mes/flujo", rfc="AAA010101AAA", copiar=True)
+        assert r1.archivos_movidos == 1
+        assert r1.de_otro_rfc == 1
+
+        # Corrida para la otra empresa: procesa solo los 2 originales (no la
+        # salida de la corrida 1) y organiza el que le pertenece.
+        r2 = organizar(str(src), str(dst), "anio/mes/flujo", rfc="BBB020202BBB", copiar=True)
+        assert r2.archivos_procesados == 2
+        assert r2.archivos_movidos == 1
+        assert r2.de_otro_rfc == 1
+        assert (dst / "2025" / "06" / "Emitidos" / "a.xml").exists()
+        assert (dst / "2025" / "06" / "Recibidos" / "b.xml").exists()
 
 
 class TestSanearSegmento:

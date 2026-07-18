@@ -374,6 +374,8 @@ export function OrganizadorForm({
                       <span className="font-mono text-foreground">
                         {rfcActiva}
                       </span>
+                      . Las facturas de otros RFC no se mueven (se reportan al
+                      final).
                     </>
                   ) : (
                     'Necesitas una empresa activa para usar RFC de la empresa o Emitidos/Recibidos.'

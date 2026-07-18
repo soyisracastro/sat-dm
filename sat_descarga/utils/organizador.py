@@ -12,7 +12,6 @@ import logging
 import os
 import re
 import shutil
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -23,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 # Tokens para componer estructuras de carpetas: una estructura es una
 # secuencia de tokens separados por "/" (p. ej. "rfc/anio/mes/flujo/tipo"),
-# donde cada token produce un nivel de carpeta por CFDI.
+# donde cada token produce un nivel de carpeta por CFDI. El segundo argumento
+# es el RFC de la empresa (la activa en la UI, `--rfc` en el CLI).
 TOKENS: dict[str, Callable[[CfdiHeader, Optional[str]], str]] = {
     "anio": lambda h, rfc: h.fecha_emision[:4],
     "mes": lambda h, rfc: h.fecha_emision[5:7],
@@ -35,8 +35,8 @@ TOKENS: dict[str, Callable[[CfdiHeader, Optional[str]], str]] = {
     "flujo": lambda h, rfc: _flujo(h, rfc),
 }
 
-# Tokens que necesitan el RFC de la empresa como contexto
-_TOKENS_CON_RFC = {"rfc", "flujo"}
+# Tokens que clasifican contra el RFC de la empresa
+_TOKENS_POR_EMPRESA = {"rfc", "flujo"}
 
 # Estructuras predefinidas (presets que ofrece la UI); cualquier otra
 # combinación de TOKENS también es válida, más "plano" (sin subcarpetas).
@@ -82,6 +82,10 @@ class OrganizadorResult:
     archivos_movidos: int = 0
     archivos_omitidos: int = 0
     errores: List[str] = field(default_factory=list)
+    # Solo con estructuras que clasifican por empresa ("rfc"/"flujo"): CFDIs
+    # donde la empresa no es emisor ni receptor — se quedan en su lugar y se
+    # reportan (cuentan también en archivos_omitidos). Nunca van a "Otros".
+    de_otro_rfc: int = 0
 
 
 @dataclass
@@ -103,9 +107,18 @@ def organizar(
     """
     Organiza archivos XML en carpetas basándose en su contenido.
 
+    Los tokens "rfc" y "flujo" clasifican cada CFDI contra el RFC de la
+    empresa (`rfc`; en la app, la empresa activa). Los CFDIs donde la empresa
+    no es emisor ni receptor se quedan en su lugar y se reportan en
+    `de_otro_rfc` — nunca se crea una carpeta "Otros". Si NINGÚN XML de la
+    carpeta pertenece a la empresa, no se organiza nada: se lanza ValueError
+    pidiendo activar la empresa correcta.
+
     Args:
         origen: Directorio con XMLs desordenados.
-        destino: Directorio destino para la estructura organizada.
+        destino: Directorio destino para la estructura organizada. Si vive
+            dentro del origen, su subárbol se excluye del recorrido (las
+            corridas previas no se releen).
         estructura: Tokens de carpetas separados por "/" (ver TOKENS),
             o "plano" para no crear subcarpetas. Presets en ESTRUCTURAS.
         copiar: Si True copia en lugar de mover.
@@ -113,51 +126,97 @@ def organizar(
             "rfc" o "flujo" (Emitidos/Recibidos se clasifican contra él).
 
     Returns:
-        OrganizadorResult con estadísticas.
+        OrganizadorResult con estadísticas (incluye `de_otro_rfc`).
     """
-    path_fn = _compilar_estructura(estructura, rfc)
+    tokens = _validar_estructura(estructura)
+    por_empresa = bool(_TOKENS_POR_EMPRESA & set(tokens))
+    if por_empresa and not (rfc or "").strip():
+        raise ValueError(
+            "La estructura usa 'rfc' o 'flujo' (Emitidos/Recibidos) y "
+            "requiere el RFC de la empresa."
+        )
+
     result = OrganizadorResult()
     dest_path = Path(destino)
+    dest_abs = os.path.abspath(destino)
+    path_fn = _compilar_estructura(tokens)
 
-    for root_dir, _dirs, files in os.walk(origen):
-        for filename in files:
-            if not filename.lower().endswith(".xml"):
+    def _caminar():
+        """Recorre el origen saltando el subárbol del destino (salida previa)."""
+        for root_dir, dirs, files in os.walk(origen):
+            dirs[:] = [
+                d for d in dirs
+                if os.path.abspath(os.path.join(root_dir, d)) != dest_abs
+            ]
+            for filename in files:
+                if filename.lower().endswith(".xml"):
+                    yield Path(root_dir) / filename
+
+    def _leer(src: Path) -> Optional[CfdiHeader]:
+        result.archivos_procesados += 1
+        try:
+            return leer_cfdi(str(src))
+        except Exception as e:
+            result.archivos_omitidos += 1
+            result.errores.append(f"{src.name}: {e}")
+            return None
+
+    def _colocar(src: Path, subdir: str):
+        target_dir = dest_path / subdir if subdir else dest_path
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_file = target_dir / src.name
+
+        # Evitar sobrescribir
+        if target_file.exists():
+            result.archivos_omitidos += 1
+            return
+        try:
+            if copiar:
+                shutil.copy2(str(src), str(target_file))
+            else:
+                shutil.move(str(src), str(target_file))
+            result.archivos_movidos += 1
+        except Exception as e:
+            result.errores.append(f"{src.name}: {e}")
+
+    if not por_empresa:
+        for src in _caminar():
+            header = _leer(src)
+            if header is not None:
+                _colocar(src, path_fn(header, None))
+    else:
+        mi_rfc = rfc.strip().upper()
+
+        # Pase 1: leer headers y separar lo que pertenece a la empresa.
+        # Nada se mueve hasta saber que la carpeta sí es de esta empresa.
+        propios: list[tuple[Path, CfdiHeader]] = []
+        ajenos = 0
+        for src in _caminar():
+            header = _leer(src)
+            if header is None:
                 continue
+            if _es_de_la_empresa(header, mi_rfc):
+                propios.append((src, header))
+            else:
+                ajenos += 1
 
-            result.archivos_procesados += 1
-            src = Path(root_dir) / filename
+        if ajenos and not propios:
+            raise ValueError(
+                f"Ninguno de los XML a organizar contiene el RFC {mi_rfc} "
+                "de la empresa activa como emisor o receptor. Selecciona la "
+                "empresa cuyo RFC deseas organizar y vuelve a intentarlo."
+            )
 
-            try:
-                header = leer_cfdi(str(src))
-            except (ValueError, Exception) as e:
-                result.archivos_omitidos += 1
-                result.errores.append(f"{filename}: {e}")
-                continue
+        result.de_otro_rfc = ajenos
+        result.archivos_omitidos += ajenos
 
-            # Construir ruta destino
-            subdir = path_fn(header)
-            target_dir = dest_path / subdir
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target_file = target_dir / filename
-
-            # Evitar sobrescribir
-            if target_file.exists():
-                result.archivos_omitidos += 1
-                continue
-
-            try:
-                if copiar:
-                    shutil.copy2(str(src), str(target_file))
-                else:
-                    shutil.move(str(src), str(target_file))
-                result.archivos_movidos += 1
-            except Exception as e:
-                result.errores.append(f"{filename}: {e}")
+        for src, header in propios:
+            _colocar(src, path_fn(header, mi_rfc))
 
     logger.info(
-        "[Organizador] %d procesados, %d movidos, %d omitidos, %d errores",
+        "[Organizador] %d procesados, %d movidos, %d omitidos (%d de otro RFC), %d errores",
         result.archivos_procesados, result.archivos_movidos,
-        result.archivos_omitidos, len(result.errores),
+        result.archivos_omitidos, result.de_otro_rfc, len(result.errores),
     )
     return result
 
@@ -314,8 +373,14 @@ def agrupar_por_version_tipo(
     """
     result = OrganizadorResult()
     dest_path = Path(destino)
+    dest_abs = os.path.abspath(destino)
 
-    for root_dir, _dirs, files in os.walk(origen):
+    for root_dir, dirs, files in os.walk(origen):
+        # No releer la salida de corridas previas (destino dentro del origen)
+        dirs[:] = [
+            d for d in dirs
+            if os.path.abspath(os.path.join(root_dir, d)) != dest_abs
+        ]
         for filename in files:
             if not filename.lower().endswith(".xml"):
                 continue
@@ -325,7 +390,7 @@ def agrupar_por_version_tipo(
 
             try:
                 header = leer_cfdi(str(src))
-            except (ValueError, Exception) as e:
+            except (ValueError, Exception):
                 result.archivos_omitidos += 1
                 continue
 
@@ -363,14 +428,24 @@ def _tipo_nombre(tipo: str) -> str:
     return tipos.get(tipo.upper(), tipo)
 
 
+def _es_de_la_empresa(header: CfdiHeader, rfc: str) -> bool:
+    """True si la empresa es emisor o receptor del CFDI (`rfc` ya normalizado)."""
+    return rfc in (
+        (header.emisor_rfc or "").strip().upper(),
+        (header.receptor_rfc or "").strip().upper(),
+    )
+
+
 def _flujo(header: CfdiHeader, rfc: Optional[str]) -> str:
-    """Clasifica el CFDI como Emitidos/Recibidos respecto al RFC de la empresa."""
+    """Emitidos/Recibidos respecto al RFC de la empresa.
+
+    El caller garantiza (vía `_es_de_la_empresa`) que la empresa es emisor o
+    receptor del comprobante; auto-facturas cuentan como Emitidos.
+    """
     mi_rfc = (rfc or "").strip().upper()
     if (header.emisor_rfc or "").strip().upper() == mi_rfc:
         return "Emitidos"
-    if (header.receptor_rfc or "").strip().upper() == mi_rfc:
-        return "Recibidos"
-    return "Otros"
+    return "Recibidos"
 
 
 # Caracteres inválidos en nombres de carpeta (Windows es el SO principal)
@@ -387,18 +462,15 @@ def _sanear_segmento(valor: Optional[str]) -> str:
 _PREFIJO_TEXTO = "txt:"
 
 
-def _compilar_estructura(
-    estructura: str,
-    rfc: Optional[str],
-) -> Callable[[CfdiHeader], str]:
+def _validar_estructura(estructura: str) -> List[str]:
     """
-    Valida una estructura tokenizada y regresa la función header → subruta.
+    Valida una estructura tokenizada y regresa su lista de tokens.
 
-    Acepta "plano" (sin subcarpetas) o niveles separados por "/": tokens de
-    TOKENS o literales con prefijo "txt:" (carpeta de nombre fijo).
+    Acepta "plano" (sin subcarpetas → lista vacía) o niveles separados por
+    "/": tokens de TOKENS o literales con prefijo "txt:" (carpeta fija).
     """
     if estructura == "plano":
-        return lambda h: ""
+        return []
 
     tokens = estructura.split("/") if estructura else []
 
@@ -413,19 +485,23 @@ def _compilar_estructura(
             f"por '/' usando: {', '.join(TOKENS)}, texto fijo con "
             f"'txt:NombreCarpeta' — o 'plano' (sin subcarpetas)."
         )
-    if _TOKENS_CON_RFC & set(tokens) and not (rfc or "").strip():
-        raise ValueError(
-            "La estructura usa 'rfc' o 'flujo' (Emitidos/Recibidos) y "
-            "requiere el RFC de la empresa."
-        )
+    return tokens
 
-    def _segmento(t: str, header: CfdiHeader) -> str:
+
+def _compilar_estructura(
+    tokens: List[str],
+) -> Callable[[CfdiHeader, Optional[str]], str]:
+    """Regresa la función (header, dueño) → subruta para tokens ya validados."""
+    if not tokens:
+        return lambda h, rfc: ""
+
+    def _segmento(t: str, header: CfdiHeader, rfc: Optional[str]) -> str:
         if t.startswith(_PREFIJO_TEXTO):
             return _sanear_segmento(t[len(_PREFIJO_TEXTO):])
         return _sanear_segmento(TOKENS[t](header, rfc))
 
-    def path_fn(header: CfdiHeader) -> str:
-        return "/".join(_segmento(t, header) for t in tokens)
+    def path_fn(header: CfdiHeader, rfc: Optional[str]) -> str:
+        return "/".join(_segmento(t, header, rfc) for t in tokens)
 
     return path_fn
 

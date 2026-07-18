@@ -156,7 +156,7 @@ export const NIVELES_CUSTOM: SegmentoCatalogo[] = [
   { value: 'texto', label: 'Texto personalizado', ejemplo: 'CFDI', custom: true },
 ];
 
-/** Tokens de NIVELES_CUSTOM que requieren el RFC de la empresa. */
+/** Tokens de NIVELES_CUSTOM que clasifican contra la empresa activa. */
 export const NIVELES_REQUIEREN_RFC: string[] = ['rfc', 'flujo'];
 
 /**
