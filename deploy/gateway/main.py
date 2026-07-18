@@ -326,13 +326,8 @@ def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str, fallback_ar
     _exigir_scope(user, "documentos:leer")
     rfc = rfc.strip().upper()
     base, headers = _agente_de(user)
-    activacion = _activar_empresa(base, headers, rfc)
 
-    # La generación al momento requiere e.firma; la opinión 32-D NO tiene
-    # fallback a archivo (es una foto de cumplimiento puntual — una vieja engaña).
-    sin_fiel = "fiel" not in (activacion.get("metodos") or []) or not activacion.get("efirma_lista")
-
-    def _entregar_archivada() -> Optional[Response]:
+    def _entregar_archivada(motivo: str) -> Optional[Response]:
         ruta, fecha = _csf_archivada(base, headers, rfc)
         if not ruta:
             return None
@@ -341,13 +336,29 @@ def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str, fallback_ar
         except HTTPException:
             return None  # archivo ilegible/fuera de lista blanca → seguir al error claro
         resp.headers["X-Documento-Origen"] = "archivo"
+        resp.headers["X-Documento-Motivo"] = motivo
         if fecha:
             resp.headers["X-Documento-Fecha"] = fecha
         return resp
 
+    try:
+        activacion = _activar_empresa(base, headers, rfc)
+    except HTTPException as exc:
+        # e.firma cargada pero inutilizable (contraseña/vigencia/cert): con
+        # fallback intenta la copia en archivo; 404 (empresa no existe) sí pasa.
+        if fallback_archivo and exc.status_code == 409:
+            resp = _entregar_archivada("efirma-invalida")
+            if resp is not None:
+                return resp
+        raise
+
+    # La generación al momento requiere e.firma; la opinión 32-D NO tiene
+    # fallback a archivo (es una foto de cumplimiento puntual — una vieja engaña).
+    sin_fiel = "fiel" not in (activacion.get("metodos") or []) or not activacion.get("efirma_lista")
+
     if sin_fiel:
         if fallback_archivo:
-            resp = _entregar_archivada()
+            resp = _entregar_archivada("sin-efirma")
             if resp is not None:
                 return resp
         raise HTTPException(
@@ -362,7 +373,7 @@ def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str, fallback_ar
     r = requests.post(f"{base}/{endpoint}", headers=headers, json={}, timeout=_TIMEOUT_DOCUMENTO)
     if r.status_code != 200:
         if fallback_archivo:
-            resp = _entregar_archivada()
+            resp = _entregar_archivada("sat-fallo")
             if resp is not None:
                 return resp
         raise HTTPException(status_code=502, detail=_detalle(r) or f"No se pudo descargar la {nombre_doc}.")
