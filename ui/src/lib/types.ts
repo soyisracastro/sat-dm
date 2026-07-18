@@ -105,6 +105,8 @@ export interface OrganizadorResult {
   archivos_movidos: number;
   archivos_omitidos: number;
   errores: string[];
+  /** CFDIs de otros RFC: se quedaron en su lugar (nunca hay carpeta "Otros"). */
+  de_otro_rfc?: number;
 }
 
 // POST /renombrar (planned endpoint — models match organizador.py)

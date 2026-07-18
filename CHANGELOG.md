@@ -6,6 +6,17 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+### Fix
+
+- **Organizador: adiós a la carpeta «Otros» que mezclaba facturas de varias
+  empresas.** Al organizar por Emitidos/Recibidos, las facturas que no son de
+  la empresa activa ya no se mueven a «Otros»: se quedan en su lugar y el
+  resumen te dice cuántas son. Si ninguna factura de la carpeta pertenece a la
+  empresa activa, no se organiza nada y la app te pide activar la empresa
+  correcta. Además, volver a organizar la misma carpeta ya no reprocesa la
+  salida de corridas anteriores (los archivos ya no "rebotan" ni se duplican
+  al alternar entre empresas).
+
 ## [2.0.0] - 2026-07-14
 
 Versión mayor: llega **TodoConta en línea**. Tu app de escritorio sigue igual y con

@@ -126,7 +126,8 @@ class OrganizarRequest(BaseModel):
     destino: str
     estructura: str = "rfc_emisor/anio/mes"
     copiar: bool = False
-    # RFC de la empresa; requerido si la estructura usa "rfc" o "flujo"
+    # RFC de la empresa (la activa en la UI); requerido si la estructura usa
+    # "rfc" o "flujo". Lo que no es de la empresa se omite — nunca hay "Otros".
     rfc: Optional[str] = None
 
 
@@ -158,6 +159,7 @@ def organizar_endpoint(req: OrganizarRequest):
             "archivos_movidos": result.archivos_movidos,
             "archivos_omitidos": result.archivos_omitidos,
             "errores": result.errores,
+            "de_otro_rfc": result.de_otro_rfc,
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

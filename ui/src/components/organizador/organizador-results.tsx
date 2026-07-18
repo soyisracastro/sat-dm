@@ -55,6 +55,7 @@ export function OrganizadorResults({ result }: OrganizadorResultsProps) {
   if (!result) return null;
 
   const errores = result.errores ?? [];
+  const deOtroRfc = !isDeduplicarResult(result) ? (result.de_otro_rfc ?? 0) : 0;
 
   return (
     <div className="space-y-4">
@@ -74,6 +75,14 @@ export function OrganizadorResults({ result }: OrganizadorResultsProps) {
           </>
         )}
       </div>
+
+      {deOtroRfc > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {formatNumber(deOtroRfc)} factura{deOtroRfc !== 1 ? 's' : ''} de otros
+          RFC se quedaron en su lugar. Para organizarlas, activa la empresa a la
+          que pertenecen y vuelve a correr el organizador.
+        </p>
+      )}
 
       {/* Errors */}
       {errores.length > 0 && (

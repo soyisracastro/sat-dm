@@ -55,6 +55,10 @@ def organizar_carpetas(origen, destino, estructura, rfc, copiar):
     print_success(f"{'Copiados' if copiar else 'Movidos'}: {result.archivos_movidos}")
     if result.archivos_omitidos:
         print_warning(f"Omitidos: {result.archivos_omitidos}")
+    if result.de_otro_rfc:
+        print_warning(
+            f"De otro RFC (se quedaron en su lugar): {result.de_otro_rfc}"
+        )
     if result.errores:
         print_error(f"Errores: {len(result.errores)}")
         for e in result.errores[:5]:
