@@ -313,17 +313,23 @@ jobs:
         working-directory: desktop
         run: pnpm install --frozen-lockfile
 
-      - name: Build & publish DMG (${{ matrix.arch }})
+      - name: Build & publish DMG + ZIP (${{ matrix.arch }})
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm exec electron-builder --mac dmg --${{ matrix.arch }} --publish always
+        # Sin target explícito en el CLI: usa los del yml (dmg + zip). El zip es
+        # obligatorio para que MacUpdater pueda auto-actualizar (con puro dmg
+        # cada check truena con "ZIP file not provided", TODOCONTA-DESKTOP-Q).
+        run: pnpm exec electron-builder --mac --${{ matrix.arch }} --publish always
 
       - name: Subir artefactos a Actions (backup además del Release)
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: todoconta-desktop-macos-${{ matrix.arch }}
-          path: desktop/dist/*.dmg
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/latest-mac.yml
           if-no-files-found: warn
           retention-days: 14

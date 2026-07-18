@@ -29,11 +29,16 @@ const HOME_RES: Array<[RegExp, string]> = [
   [/(\/Users\/)[^/]+/g, '$1<usuario>'],
   [/(\/home\/)[^/]+/g, '$1<usuario>'],
 ];
+// El agente escucha en un puerto efímero distinto en cada arranque; si el puerto
+// viaja en el mensaje ("Failed to fetch (127.0.0.1:65005)"), Sentry crea un
+// issue NUEVO por puerto y el mismo fallo queda regado en decenas de issues.
+// Normalizarlo hace que agrupen en uno solo.
+const PUERTO_LOCAL_RE = /(127\.0\.0\.1|localhost):\d+/g;
 
 function redactarTexto(s: string): string {
   let out = s.replace(RFC_RE, '<RFC>');
   for (const [re, rep] of HOME_RES) out = out.replace(re, rep);
-  return out;
+  return out.replace(PUERTO_LOCAL_RE, '$1:<puerto>');
 }
 
 function scrub(value: unknown): unknown {

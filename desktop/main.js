@@ -57,10 +57,15 @@ const _HOME_RES = [
   [/(\/home\/)[^/]+/g, '$1<usuario>'],
 ];
 
+// El agente escucha en un puerto efímero distinto por arranque: si el puerto
+// viaja en un mensaje de error, Sentry agrupa el mismo fallo en un issue por
+// puerto. Se normaliza para que agrupen en uno solo.
+const _PUERTO_LOCAL_RE = /(127\.0\.0\.1|localhost):\d+/g;
+
 function _redactarTexto(s) {
   let out = s.replace(_RFC_RE, '<RFC>');
   for (const [re, rep] of _HOME_RES) out = out.replace(re, rep);
-  return out;
+  return out.replace(_PUERTO_LOCAL_RE, '$1:<puerto>');
 }
 
 function _scrub(value) {
