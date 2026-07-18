@@ -9,7 +9,18 @@ from datetime import date
 import pytest
 
 from sat_descarga.portal import cfdi
-from sat_descarga.portal.cfdi import _normalizar_tipos, _es_uuid, _dias
+from sat_descarga.portal.cfdi import (
+    _normalizar_tipos,
+    _es_uuid,
+    _dias,
+    _verificar_sesion_portal,
+)
+from sat_descarga.portal.login import SesionPortalInvalida
+
+URL_ERROR_ASPX = (
+    "https://portalcfdi.facturaelectronica.sat.gob.mx/Error.aspx"
+    "?aspxerrorpath=/ConsultaReceptor.aspx"
+)
 
 
 def test_login_ciec_pasa_pedir_captcha(monkeypatch):
@@ -114,6 +125,112 @@ def test_descargar_bifurca_segun_login_inyectado(monkeypatch):
     cliente.descargar(date(2026, 1, 1), date(2026, 1, 1), tipo_comprobante="R",
                       login=lambda page: llamadas.__setitem__("inyectado", llamadas["inyectado"] + 1))
     assert llamadas["ciec"] == 1 and llamadas["inyectado"] == 1
+
+
+class _PageUrl:
+    """Page mínima: solo la URL (y sin botón de búsqueda)."""
+
+    def __init__(self, url):
+        self.url = url
+
+    def query_selector(self, _sel):
+        return None
+
+
+def test_verificar_sesion_portal_detecta_error_aspx():
+    # Rebote del portal a Error.aspx (sesión e.firma inválida, DESKTOP-1E)
+    # → error claro y reintenable, no el genérico del botón.
+    with pytest.raises(SesionPortalInvalida, match="rechazó la sesión"):
+        _verificar_sesion_portal(_PageUrl(URL_ERROR_ASPX))
+    # Página normal de consulta → no pasa nada.
+    _verificar_sesion_portal(_PageUrl(f"{cfdi.PORTAL_URL}/ConsultaReceptor.aspx"))
+
+
+def test_buscar_distingue_error_aspx_de_boton_ausente():
+    pytest.importorskip("playwright")
+    cliente = cfdi.CIECClient("CAUI890921DAA", "ciec")
+    # Sin botón + parado en Error.aspx → diagnóstico de sesión inválida.
+    with pytest.raises(SesionPortalInvalida):
+        cliente._buscar(_PageUrl(URL_ERROR_ASPX))
+    # Sin botón en una página normal → se conserva el error genérico.
+    with pytest.raises(RuntimeError, match="botón de búsqueda"):
+        cliente._buscar(_PageUrl(f"{cfdi.PORTAL_URL}/ConsultaReceptor.aspx"))
+
+
+def _stub_navegador(monkeypatch):
+    """Stubbea Chromium/Playwright para correr descargar() sin browser real."""
+    pytest.importorskip("playwright")
+    import contextlib
+
+    class PageStub:
+        url = f"{cfdi.PORTAL_URL}/"
+
+    class BrowserStub:
+        def new_context(self, **_k):
+            return self
+
+        def new_page(self):
+            return PageStub()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("sat_descarga.portal.setup.asegurar_chromium", lambda: None)
+    monkeypatch.setattr(
+        "sat_descarga.portal.setup.lanzar_chromium",
+        lambda p, **_k: BrowserStub(),
+    )
+
+    @contextlib.contextmanager
+    def pw_stub():
+        yield object()
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", pw_stub, raising=False)
+
+
+def test_descargar_reintenta_login_ante_sesion_invalida(monkeypatch, tmp_path):
+    # Primer intento rebota (Error.aspx) → un re-login y reintento del mismo
+    # tipo; el rebote transitorio no debe tronar la descarga.
+    _stub_navegador(monkeypatch)
+    logins = {"n": 0}
+    intentos = {"n": 0}
+
+    def tipo_stub(self, *_a, **_k):
+        intentos["n"] += 1
+        if intentos["n"] == 1:
+            raise SesionPortalInvalida("rebote a Error.aspx")
+        return []
+
+    monkeypatch.setattr(cfdi.CIECClient, "_descargar_tipo", tipo_stub)
+
+    res = cfdi.CIECClient("CAUI890921DAA", "ciec").descargar(
+        date(2026, 1, 1), date(2026, 1, 1), tipo_comprobante="R",
+        directorio_salida=str(tmp_path),
+        login=lambda page: logins.__setitem__("n", logins["n"] + 1),
+    )
+    assert res == []
+    assert logins["n"] == 2    # login inicial + reintento
+    assert intentos["n"] == 2  # la búsqueda se reintentó una vez
+
+
+def test_descargar_solo_reintenta_una_vez(monkeypatch, tmp_path):
+    # Si el rebote persiste tras el re-login, el error claro sube al caller.
+    _stub_navegador(monkeypatch)
+    logins = {"n": 0}
+    monkeypatch.setattr(
+        cfdi.CIECClient, "_descargar_tipo",
+        lambda self, *_a, **_k: (_ for _ in ()).throw(
+            SesionPortalInvalida("rebote persistente")
+        ),
+    )
+
+    with pytest.raises(SesionPortalInvalida):
+        cfdi.CIECClient("CAUI890921DAA", "ciec").descargar(
+            date(2026, 1, 1), date(2026, 1, 1), tipo_comprobante="R",
+            directorio_salida=str(tmp_path),
+            login=lambda page: logins.__setitem__("n", logins["n"] + 1),
+        )
+    assert logins["n"] == 2  # inicial + UN reintento, no más
 
 
 def test_normalizar_tipos():
