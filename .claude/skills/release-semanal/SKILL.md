@@ -7,7 +7,7 @@ description: Corta el release semanal de TodoConta Desktop (típicamente el vier
 
 Automatiza el corte de release de la semana. Modelo: durante la semana los branches **no**
 bumpean versión (sus notas van a `## [Unreleased]` del CHANGELOG); este skill consolida todo
-en un solo release. Convención completa en [docs/versionado.md](../../../docs/versionado.md).
+en un solo release. Convención completa en [docs/infra/versionado.md](../../../docs/infra/versionado.md).
 
 El argumento del skill (`$ARGUMENTS`) es opcional:
 - vacío → propones el bump y lo confirmas con el usuario.
@@ -35,7 +35,7 @@ Sigue estos pasos en orden. Si algo falla una precondición, **detente y avisa**
 
 ## 2. Decidir la versión
 
-1. Relee la tabla de decisión de [docs/versionado.md](../../../docs/versionado.md):
+1. Relee la tabla de decisión de [docs/infra/versionado.md](../../../docs/infra/versionado.md):
    - **PATCH** — solo fixes, copy, performance, refactor invisible.
    - **MINOR** — al menos una feature nueva visible (pantalla, trámite, capacidad).
    - **MAJOR** — rompe datos del usuario (`~/.sat-descarga/`), cambia `appId`, etc.

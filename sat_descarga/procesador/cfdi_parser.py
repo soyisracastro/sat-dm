@@ -272,7 +272,7 @@ class _ImpuestosGlobales:
     ieps_trasladado: float = 0.0
     iva_retenido: float = 0.0
     isr_retenido: float = 0.0
-    # Desglose por tasa para la DIOT (ver docs/diot-2025.md):
+    # Desglose por tasa para la DIOT (ver docs/producto/diot-2025.md):
     base_iva_16: float = 0.0
     base_iva_8: float = 0.0
     iva_trasladado_8: float = 0.0

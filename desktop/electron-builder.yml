@@ -6,7 +6,7 @@
 # Comando: `pnpm build` desde desktop/ (encadena: build:agent → build:ui →
 # electron-builder). Salida en desktop/dist/.
 #
-# CLAUDE.md / docs/versionado.md describen el flujo de versiones y release.
+# CLAUDE.md / docs/infra/versionado.md describen el flujo de versiones y release.
 
 # -----------------------------------------------------------------------------
 # Identidad
@@ -89,7 +89,7 @@ win:
   publisherName: Israel Castro Urieta
   # ---------------------------------------------------------------------
   # Firma de código — SSL.com eSigner (IV Code Signing; decisión 2026-06-11,
-  # ver docs/firma-codigo.md). El hook firma cada binario (TodoConta.exe,
+  # ver docs/infra/firma-codigo.md). El hook firma cada binario (TodoConta.exe,
   # uninstaller, instalador NSIS) con CodeSignTool; sin credenciales eSigner
   # en el entorno se salta solo, así que los builds locales/QA no se rompen.
   # Env que espera (la setea release.yml): ES_USERNAME, ES_PASSWORD,
@@ -159,7 +159,7 @@ mac:
   # Application"). Sin identidad de firma en el runner, electron-builder
   # construye el DMG SIN firmar (warning, no error) — útil para QA con
   # clic-derecho → Abrir. Al agregar los secrets (ver release.yml y
-  # docs/firma-codigo.md) se firma y notariza solo.
+  # docs/infra/firma-codigo.md) se firma y notariza solo.
   #
   # hardenedRuntime es requisito de notarización; los entitlements cubren
   # Electron (JIT) y el agente PyInstaller (dylibs propios).

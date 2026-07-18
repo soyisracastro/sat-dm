@@ -1,6 +1,6 @@
 """Generación del archivo .txt de carga masiva de la DIOT.
 
-Formato (docs/diot-2025.md): una línea por tercero, 54 campos unidos por pipe,
+Formato (docs/producto/diot-2025.md): una línea por tercero, 54 campos unidos por pipe,
 UTF-8 **con BOM** y saltos CRLF — igual que la plantilla de Excel de TodoConta
 que ya funciona contra el portal del SAT.
 """

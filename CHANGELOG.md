@@ -1,6 +1,6 @@
 # Changelog
 
-> **Nota sobre versionado**: Las entradas previas v0.1.0–v1.2.0 corresponden al paquete Python pip-installable y a metadatos desincronizados de subproyectos. **v1.0.0 (esta) inicia la numeración del producto distribuible TodoConta Desktop** (Python + Next + Electron empaquetado). Ver [docs/versionado.md](docs/versionado.md) para la convención SemVer aplicada.
+> **Nota sobre versionado**: Las entradas previas v0.1.0–v1.2.0 corresponden al paquete Python pip-installable y a metadatos desincronizados de subproyectos. **v1.0.0 (esta) inicia la numeración del producto distribuible TodoConta Desktop** (Python + Next + Electron empaquetado). Ver [docs/infra/versionado.md](docs/infra/versionado.md) para la convención SemVer aplicada.
 
 ## [Unreleased]
 
@@ -107,7 +107,7 @@ tus datos intactos (`~/.sat-descarga/` no se toca); la versión web es adicional
   buffer (`incluir_diot`, `deducible`) + `PATCH /procesador/cfdi/{uuid}`.
   **La obligación DIOT se deriva del régimen fiscal configurado de la
   empresa** (mapeo investigado contra RMF 2025/2026 y RFA 2025 — ver
-  docs/diot-2025.md «¿Quién presenta la DIOT?»): RESICO (regla 3.13.19),
+  docs/producto/diot-2025.md «¿Quién presenta la DIOT?»): RESICO (regla 3.13.19),
   sueldos, RIF y demás relevados no ven columna, filtro ni contador DIOT, y
   la pantalla DIOT lo avisa. Toggle **«Presenta DIOT»** en la configuración
   de la empresa (`presenta_diot`) para los casos condicionales: PF que
@@ -127,7 +127,7 @@ tus datos intactos (`~/.sat-descarga/` no se toca); la versión web es adicional
   (`~/.sat-descarga/tareas.json`, endpoints `/tareas*`), no en el navegador;
   el modelo ya reserva `gcal_event_id` para la **sincronización
   unidireccional con Google Calendar** planeada en
-  [docs/tareas-gcal-sync.md](docs/tareas-gcal-sync.md). «Tareas» entra al
+  [docs/producto/tareas-gcal-sync.md](docs/producto/tareas-gcal-sync.md). «Tareas» entra al
   sidebar en 2.ª posición: **los atajos ⌘2..⌘9 se recorren un número**
   (decisión de producto; la card de /ayuda se actualiza sola) y desde la
   10.ª página (DIOT) ya no hay dígito — se llega por ⌘K.
@@ -201,7 +201,7 @@ tus datos intactos (`~/.sat-descarga/` no se toca); la versión web es adicional
 - **DIOT 2025 (núcleo): generación del archivo de carga masiva**: nuevo paquete
   `sat_descarga/diot/` que implementa el layout oficial de **54 campos** del
   instructivo del SAT (Enero 2025, documentado en
-  [docs/diot-2025.md](docs/diot-2025.md)): prellenado de renglones por
+  [docs/producto/diot-2025.md](docs/producto/diot-2025.md)): prellenado de renglones por
   proveedor desde el buffer del procesador (CFDIs recibidos del periodo; las
   notas de crédito van a los campos de *devoluciones*, sin negativos), estado
   editable por empresa y periodo en `~/.sat-descarga/diot/{RFC}.json`,
@@ -225,7 +225,7 @@ tus datos intactos (`~/.sat-descarga/` no se toca); la versión web es adicional
   archivo `{RFC}_diot_{YYYY-MM}.txt`. API: `/diot/{estado,prellenar,exportar,
   catalogos}`. CLI: `sat-dm diot --rfc RFC --periodo YYYY-MM [--salida …]
   [--forzar]`. El TXT generado debe verificarse subiéndolo a la aplicación DIOT
-  del SAT (ver "Pendiente de validar" en docs/diot-2025.md).
+  del SAT (ver "Pendiente de validar" en docs/producto/diot-2025.md).
 
 - **Organizador: estructura de carpetas y nombre de archivo personalizados**
   (rediseño Claude Design): junto a las estructuras predefinidas hay una opción
@@ -578,13 +578,13 @@ tus datos intactos (`~/.sat-descarga/` no se toca); la versión web es adicional
   instalador vía el hook `desktop/scripts/esigner-sign.js`. Todo auto-saltable hasta
   que existan los secrets (`ES_USERNAME`, `ES_PASSWORD`, `CREDENTIAL_ID`,
   `ES_TOTP_SECRET`). Decisiones, costos y checklists en
-  [docs/firma-codigo.md](docs/firma-codigo.md): cert IV comprado (validación en
+  [docs/infra/firma-codigo.md](docs/infra/firma-codigo.md): cert IV comprado (validación en
   curso) + Apple Developer Program iniciado.
 
 ### Docs
 
 - Guion de presentación de venta (versión corta + demo en vivo) en
-  [docs/presentacion-pitch.md](docs/presentacion-pitch.md).
+  [docs/negocio/presentacion-pitch.md](docs/negocio/presentacion-pitch.md).
 
 - Bump 1.1.0 → 1.1.1 (3 archivos).
 
@@ -658,11 +658,11 @@ tus datos intactos (`~/.sat-descarga/` no se toca); la versión web es adicional
 
 ### Infra
 
-- **Pipeline de firma de código Windows listo** (certificado pendiente): `release.yml` trae los steps de firma de `sat-agent.exe` (Azure Trusted Signing) y verificación post-build, ambos auto-saltables hasta que existan los secrets; `electron-builder.yml` documenta el bloque `azureSignOptions` + `forceCodeSigning`. ⚠️ Documentado en [docs/firma-codigo.md](docs/firma-codigo.md): la vía `WIN_CSC_LINK` (PFX) ya no aplica a certs OV/EV modernos — decidir entre Azure Trusted Signing (~$10/mes) y EV+firma en nube del CA antes de comprar. Firmar el agente, además de SmartScreen, reduce el escaneo de Defender que causa los 30-60 s del primer arranque.
+- **Pipeline de firma de código Windows listo** (certificado pendiente): `release.yml` trae los steps de firma de `sat-agent.exe` (Azure Trusted Signing) y verificación post-build, ambos auto-saltables hasta que existan los secrets; `electron-builder.yml` documenta el bloque `azureSignOptions` + `forceCodeSigning`. ⚠️ Documentado en [docs/infra/firma-codigo.md](docs/infra/firma-codigo.md): la vía `WIN_CSC_LINK` (PFX) ya no aplica a certs OV/EV modernos — decidir entre Azure Trusted Signing (~$10/mes) y EV+firma en nube del CA antes de comprar. Firmar el agente, además de SmartScreen, reduce el escaneo de Defender que causa los 30-60 s del primer arranque.
 
 ### Infra (macOS)
 
-- **El release ahora construye DMG de macOS por arquitectura** (job `release-macos`: Intel x64 en `macos-13`, Apple Silicon arm64 en `macos-latest` — PyInstaller no cross-compila el agente), con smoke test de `/health` del binario empacado. Sin los secrets de Apple salen sin firmar (QA con clic-derecho → Abrir); la config de hardened runtime + entitlements (Electron JIT + dylibs del agente PyInstaller) ya está lista y la notarización se activa descomentando `notarize` al tener el Developer ID. Checklist en [docs/firma-codigo.md](docs/firma-codigo.md).
+- **El release ahora construye DMG de macOS por arquitectura** (job `release-macos`: Intel x64 en `macos-13`, Apple Silicon arm64 en `macos-latest` — PyInstaller no cross-compila el agente), con smoke test de `/health` del binario empacado. Sin los secrets de Apple salen sin firmar (QA con clic-derecho → Abrir); la config de hardened runtime + entitlements (Electron JIT + dylibs del agente PyInstaller) ya está lista y la notarización se activa descomentando `notarize` al tener el Developer ID. Checklist en [docs/infra/firma-codigo.md](docs/infra/firma-codigo.md).
 
 ### Seguridad
 
@@ -791,7 +791,7 @@ Primer release público del producto **TodoConta Desktop** — instalador Window
 ### Empaquetado y distribución
 
 - Versionado unificado de los 3 subproyectos (`pyproject.toml`, `ui/package.json`, `desktop/package.json`) a `1.0.0`. A partir de aquí, los 3 archivos se sincronizan en cada release.
-- Convención SemVer documentada en `docs/versionado.md`.
+- Convención SemVer documentada en `docs/infra/versionado.md`.
 
 ### Cambios incompatibles
 
@@ -883,7 +883,7 @@ Interfaz web (UI + API), descarga vía CIEC sin e-firma, y madurez del proyecto.
 - `sat_descarga/ciec.py` — descarga vía portal CIEC (Playwright)
 - `sat_descarga/server.py` — servidor FastAPI
 - `ui/` — aplicación web Next.js
-- `docs/protocolo-sat.md` — detalle del protocolo SOAP del Web Service y de la mecánica del portal CIEC
+- `docs/producto/protocolo-sat.md` — detalle del protocolo SOAP del Web Service y de la mecánica del portal CIEC
 
 ---
 

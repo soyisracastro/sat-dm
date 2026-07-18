@@ -1,7 +1,7 @@
 """DIOT 2025 — generación del archivo de carga masiva (carga batch) del SAT.
 
 Prellenado desde el buffer del procesador + estado editable por RFC/periodo +
-exportación del .txt oficial de 54 campos. Layout y reglas: docs/diot-2025.md.
+exportación del .txt oficial de 54 campos. Layout y reglas: docs/producto/diot-2025.md.
 """
 
 from .agregacion import prellenar_desde_procesador, prellenar_y_guardar

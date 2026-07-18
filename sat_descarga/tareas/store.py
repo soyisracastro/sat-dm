@@ -21,7 +21,7 @@ Esquema (versión explícita para migraciones futuras):
           "creado_en": "...", "actualizado_en": "...",
           "completado_en": "..." | null,
           "gcal_event_id": null                  # reservado: sync con Google
-                                                 # Calendar (docs/tareas-gcal-sync.md)
+                                                 # Calendar (docs/producto/tareas-gcal-sync.md)
         }
       ],
       "sugerencias_descartadas": ["diot-2026-06", ...]

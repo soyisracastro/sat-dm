@@ -1698,7 +1698,7 @@ export interface IndicadoresCalculadoras {
 // DIOT 2025 (carga masiva) — /diot/*
 // ---------------------------------------------------------------------------
 //
-// Un renglón lleva las 54 claves del layout oficial (docs/diot-2025.md en el
+// Un renglón lleva las 54 claves del layout oficial (docs/producto/diot-2025.md en el
 // repo raíz) + metadatos de UI que el TXT ignora (nombre, origen, estimado,
 // num_cfdis). Los montos son enteros sin decimales.
 
@@ -1786,7 +1786,7 @@ export interface Tarea {
   creado_en: string;
   actualizado_en: string;
   completado_en: string | null;
-  /** Reservado: evento espejo en Google Calendar (docs/tareas-gcal-sync.md). */
+  /** Reservado: evento espejo en Google Calendar (docs/producto/tareas-gcal-sync.md). */
   gcal_event_id: string | null;
 }
 

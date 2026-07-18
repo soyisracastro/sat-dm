@@ -1,7 +1,7 @@
 """Tests del núcleo DIOT: layout, agregación, store, validaciones y export TXT.
 
 El layout de 54 campos y las reglas vienen del instructivo oficial del SAT
-(Enero 2025) — ver docs/diot-2025.md.
+(Enero 2025) — ver docs/producto/diot-2025.md.
 """
 
 import shutil

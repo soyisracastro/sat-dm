@@ -2,7 +2,7 @@
 
 Prellena desde el buffer del procesador (los XMLs se cargan antes con la app
 o contra el mismo buffer), valida contra el instructivo del SAT y escribe el
-archivo. Layout y reglas: docs/diot-2025.md.
+archivo. Layout y reglas: docs/producto/diot-2025.md.
 """
 
 from pathlib import Path

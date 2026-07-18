@@ -3,7 +3,7 @@
  *
  * Firma cada binario que electron-builder firmaría con signtool (TodoConta.exe,
  * el uninstaller y el instalador NSIS) usando CodeSignTool de SSL.com eSigner
- * (IV Code Signing en cloud HSM — ver docs/firma-codigo.md).
+ * (IV Code Signing en cloud HSM — ver docs/infra/firma-codigo.md).
  *
  * Sin credenciales eSigner en el entorno, se salta solo: los builds locales y
  * de QA salen sin firma, igual que siempre. Por eso `forceCodeSigning` sigue

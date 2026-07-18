@@ -3,7 +3,7 @@ Envío del Requerimiento de Renovación de e.firma (`.ren`) al portal CertiSAT W
 con autenticación por e.firma (FIEL). Reutiliza toda la mecánica del CSD
 (`csd.py`): el login NIDP, el número de operación, el seguimiento y la
 recuperación del `.cer` son idénticos; solo cambian el menú, el input del archivo
-y el nombre del acuse (ver docs/renovacion-efirma-csd.md).
+y el nombre del acuse (ver docs/producto/renovacion-efirma-csd.md).
 
 Flujo (confirmado 2026-07-08 contra el SAT real, docs/path-renovacion-efirma.md):
   login e.firma → `renovacion.do?menu=renovacion` → subir el `.ren` (input

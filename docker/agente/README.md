@@ -3,7 +3,7 @@
 Imagen del agente Python para la **versión online**: en el VPS corre un
 contenedor de esta imagen POR USUARIO, detrás de Traefik. El contexto completo
 (arquitectura, provisioner, Traefik, riesgos) vive en
-[docs/despliegue-web.md](../../docs/despliegue-web.md).
+[docs/infra/despliegue-web.md](../../docs/infra/despliegue-web.md).
 
 ## Build
 

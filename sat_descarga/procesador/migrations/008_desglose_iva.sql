@@ -1,7 +1,7 @@
 -- 008_desglose_iva.sql
 -- Añade el desglose de IVA por tasa (bases 16%, 8%, 0% y exento, más el
 -- importe trasladado al 8%) que necesita el prellenado de la DIOT
--- (docs/diot-2025.md). El parser lo extrae del nodo `Impuestos` global.
+-- (docs/producto/diot-2025.md). El parser lo extrae del nodo `Impuestos` global.
 --
 -- Las filas existentes quedan en NULL a propósito — el raw_json de cargas
 -- anteriores NO trae el desglose, así que no hay backfill posible. NULL

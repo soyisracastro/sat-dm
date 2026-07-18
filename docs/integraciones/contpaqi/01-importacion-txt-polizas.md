@@ -10,8 +10,8 @@
 > Esta es la vía de escritura **que NO requiere licencia del SDK**: genera un archivo de
 > texto que el usuario importa desde CONTPAQi con *Importación → Importar otros sistemas*
 > usando la estructura `CT_EST_Poliza_NG`. Es el análogo de lo que ya hacemos con la DIOT
-> (ver `docs/diot-2025.md` + `sat_descarga/diot/`), y es la **primera fase de escritura**
-> comprometida en `docs/presentacion-pitch.md` (líneas 204-210): *"Pre-armar pólizas … en el
+> (ver `docs/producto/diot-2025.md` + `sat_descarga/diot/`), y es la **primera fase de escritura**
+> comprometida en `docs/negocio/presentacion-pitch.md` (líneas 204-210): *"Pre-armar pólizas … en el
 > formato que CONTPAQi importa (el camino más seguro y el primero que haríamos)"*.
 
 ## 1. Modelo del formato

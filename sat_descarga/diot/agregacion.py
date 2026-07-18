@@ -1,6 +1,6 @@
 """Prellenado de renglones DIOT desde el buffer del procesador.
 
-Criterio v1 (el mismo de la plantilla Excel de TodoConta, ver docs/diot-2025.md):
+Criterio v1 (el mismo de la plantilla Excel de TodoConta, ver docs/producto/diot-2025.md):
 CFDIs **recibidos** (receptor = empresa activa, emisor ≠ empresa activa) de
 tipo I y E, del periodo por **fecha de emisión**, agrupados por RFC del emisor.
 Las notas de crédito (E) no se restan con negativos: van a los campos de
@@ -34,7 +34,7 @@ def _acreditable(iva_neto: float, valor: int, dev: int, tasa: float) -> int:
 
     La aplicación DIOT valida acreditable ≤ round((valor − dev) × tasa) sobre
     los ENTEROS declarados; ver "Validaciones de la aplicación" en
-    docs/diot-2025.md.
+    docs/producto/diot-2025.md.
     """
     tope = _redondear(max(0, valor - dev) * tasa)
     return min(max(0, _redondear(iva_neto)), tope)
@@ -174,7 +174,7 @@ def prellenar_desde_procesador(mi_rfc: str, periodo: str, db=None) -> dict:
             # "IVA pagado" que la aplicación del SAT deriva de los enteros
             # declarados — round((valor − dev) × tasa). Sin el cap, redondear
             # bases e IVA por separado puede quedar 1 peso arriba y el SAT
-            # rechaza la carga (confirmado con un archivo real, docs/diot-2025.md).
+            # rechaza la carga (confirmado con un archivo real, docs/producto/diot-2025.md).
             acred_excl_16=_acreditable(acc.iva16_i - acc.iva16_e, valor_16, dev_16, 0.16),
             acred_excl_rf_norte=_acreditable(
                 acc.iva8_i - acc.iva8_e, valor_rf_norte, dev_rf_norte, 0.08
