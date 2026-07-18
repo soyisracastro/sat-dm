@@ -223,13 +223,31 @@ def _agente_de(user: dict) -> tuple[str, dict]:
     return _asegurar_agente(user["user_id"])
 
 
-def _activar_empresa(base: str, headers: dict, rfc: str) -> None:
+def _activar_empresa(base: str, headers: dict, rfc: str) -> dict:
     r = requests.post(f"{base}/empresas/{rfc}/activar", headers=headers, timeout=60)
     if r.status_code == 404:
         raise HTTPException(status_code=404, detail=f"La empresa {rfc} no existe en el espacio del usuario.")
     if r.status_code != 200:
         detalle = _detalle(r)
         raise HTTPException(status_code=409, detail=detalle or f"No se pudo activar la empresa {rfc}.")
+    try:
+        return r.json()  # {ok, rfc, metodos, efirma_lista}
+    except ValueError:
+        return {}
+
+
+def _csf_archivada(base: str, headers: dict, rfc: str) -> tuple[Optional[str], Optional[str]]:
+    """Última CSF en archivo según el catálogo del agente → (ruta, fecha) o (None, None)."""
+    try:
+        r = requests.get(f"{base}/empresas", headers=headers, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None, None
+        for e in r.json().get("empresas", []):
+            if e.get("rfc") == rfc:
+                return e.get("csf_path") or None, e.get("csf_descargada_en") or None
+    except requests.RequestException:
+        pass
+    return None, None
 
 
 def _detalle(r: requests.Response) -> Optional[str]:
@@ -304,13 +322,60 @@ def v1_empresas(x_api_key: str = Header(None), authorization: str = Header(None)
     return {"empresas": empresas}
 
 
-def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str) -> Response:
+def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str, fallback_archivo: bool = False) -> Response:
     _exigir_scope(user, "documentos:leer")
     rfc = rfc.strip().upper()
     base, headers = _agente_de(user)
-    _activar_empresa(base, headers, rfc)
+
+    def _entregar_archivada(motivo: str) -> Optional[Response]:
+        ruta, fecha = _csf_archivada(base, headers, rfc)
+        if not ruta:
+            return None
+        try:
+            resp = _descargar_de_agente(base, headers, ruta, zip_=False)
+        except HTTPException:
+            return None  # archivo ilegible/fuera de lista blanca → seguir al error claro
+        resp.headers["X-Documento-Origen"] = "archivo"
+        resp.headers["X-Documento-Motivo"] = motivo
+        if fecha:
+            resp.headers["X-Documento-Fecha"] = fecha
+        return resp
+
+    try:
+        activacion = _activar_empresa(base, headers, rfc)
+    except HTTPException as exc:
+        # e.firma cargada pero inutilizable (contraseña/vigencia/cert): con
+        # fallback intenta la copia en archivo; 404 (empresa no existe) sí pasa.
+        if fallback_archivo and exc.status_code == 409:
+            resp = _entregar_archivada("efirma-invalida")
+            if resp is not None:
+                return resp
+        raise
+
+    # La generación al momento requiere e.firma; la opinión 32-D NO tiene
+    # fallback a archivo (es una foto de cumplimiento puntual — una vieja engaña).
+    sin_fiel = "fiel" not in (activacion.get("metodos") or []) or not activacion.get("efirma_lista")
+
+    if sin_fiel:
+        if fallback_archivo:
+            resp = _entregar_archivada("sin-efirma")
+            if resp is not None:
+                return resp
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"La empresa {rfc} no tiene e.firma cargada en TodoConta, así que la {nombre_doc} "
+                "no se puede generar al momento. Carga su e.firma (TodoConta Desktop → Empresas) "
+                "y vuelve a intentarlo."
+            ),
+        )
+
     r = requests.post(f"{base}/{endpoint}", headers=headers, json={}, timeout=_TIMEOUT_DOCUMENTO)
     if r.status_code != 200:
+        if fallback_archivo:
+            resp = _entregar_archivada("sat-fallo")
+            if resp is not None:
+                return resp
         raise HTTPException(status_code=502, detail=_detalle(r) or f"No se pudo descargar la {nombre_doc}.")
     ruta = r.json().get("path") or r.json().get("ruta")
     if not ruta:
@@ -320,8 +385,13 @@ def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str) -> Response
 
 @app.post("/v1/csf")
 def v1_csf(req: RfcRequest, x_api_key: str = Header(None), authorization: str = Header(None)):
-    """Descarga la Constancia de Situación Fiscal (PDF) de la empresa."""
-    return _documento(_auth(x_api_key, authorization), req.rfc, "constancia/fiel", "constancia")
+    """
+    Descarga la Constancia de Situación Fiscal (PDF) de la empresa.
+
+    Sin e.firma cargada (o con el SAT caído) entrega la última CSF en archivo del
+    catálogo, marcada con X-Documento-Origen: archivo + X-Documento-Fecha.
+    """
+    return _documento(_auth(x_api_key, authorization), req.rfc, "constancia/fiel", "constancia", fallback_archivo=True)
 
 
 @app.post("/v1/opinion")
@@ -642,7 +712,14 @@ try:
         user = _mcp_user()
         base, headers = _agente_de(user)
         rfc = rfc.strip().upper()
-        _activar_empresa(base, headers, rfc)
+        activacion = _activar_empresa(base, headers, rfc)
+        if "fiel" not in (activacion.get("metodos") or []) or not activacion.get("efirma_lista"):
+            return (
+                f"La empresa {rfc} no tiene e.firma cargada; no se puede generar una constancia "
+                f"al momento. POST /v1/csf entrega la última EN ARCHIVO si existe (respuesta "
+                f"marcada con X-Documento-Origen: archivo). Para una recién generada, carga la "
+                f"e.firma de la empresa en TodoConta."
+            )
         r = requests.post(f"{base}/constancia/fiel", headers=headers, json={}, timeout=_TIMEOUT_DOCUMENTO)
         if r.status_code != 200:
             return f"No se pudo: {_detalle(r) or 'error del portal del SAT'}"
