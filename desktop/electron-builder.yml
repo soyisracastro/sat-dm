@@ -153,6 +153,12 @@ mac:
       # .github/workflows/release.yml. Para reactivar Intel: agregar x64 aquí + un
       # leg con runner Intel moderno (macos-15-intel/macos-26-intel) en la matriz.
       arch: [arm64]
+    # El ZIP es OBLIGATORIO para el auto-update en macOS: MacUpdater (Squirrel.Mac)
+    # solo instala desde zip; con puro dmg cada check de update truena con
+    # "ZIP file not provided" (TODOCONTA-DESKTOP-Q) y macOS nunca se actualiza
+    # solo. El dmg queda como el instalador que se descarga de la página.
+    - target: zip
+      arch: [arm64]
   icon: icon.png       # En macOS basta .png o .icns
   category: public.app-category.business
   # Firma + notarización (Apple Developer Program, cert "Developer ID

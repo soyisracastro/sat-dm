@@ -73,12 +73,14 @@ class TestLoginPassword:
         assert "incorrectos" in exc.value.mensaje
         assert exc.value.error_code == "invalid_credentials"
 
-    def test_error_de_red_es_502(self):
+    def test_error_de_red_es_503(self):
+        # 503 (transitorio, no se reporta a Sentry), no 502: sin internet no es
+        # un bug del agente ni del backend.
         with patch.object(supabase_auth.requests, "post",
                           side_effect=supabase_auth.requests.ConnectionError("boom")):
             with pytest.raises(SupabaseAuthError) as exc:
                 supabase_auth.login_password("a@b.mx", "x")
-        assert exc.value.status == 502
+        assert exc.value.status == 503
 
 
 class TestOtp:

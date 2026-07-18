@@ -36,6 +36,8 @@ import threading
 from pathlib import Path
 from threading import Lock
 
+from sat_descarga.core.errores import ErrorEsperado
+
 logger = logging.getLogger(__name__)
 
 # Browsers que el portal necesita, con los nombres tal cual aparecen en
@@ -279,7 +281,7 @@ def lanzar_chromium(playwright, **launch_kwargs):
         try:
             return playwright.chromium.launch(**launch_kwargs)
         except Exception as e2:
-            raise RuntimeError(
+            raise ErrorEsperado(
                 "No se pudo iniciar el navegador de descargas aunque se "
                 "reinstaló. Verifica tu conexión a internet y vuelve a "
                 "intentar; si persiste, reinstala TodoConta."
@@ -300,6 +302,12 @@ def warmup_async() -> threading.Thread | None:
     def _warmup() -> None:
         try:
             asegurar_chromium()
+        except ErrorEsperado as e:
+            # Entorno del usuario (red intermitente, carpeta restringida): el
+            # detalle ya quedó en estado_navegador() y el siguiente uso del
+            # portal reintenta. Warning para que Sentry no lo cuente como bug
+            # (TODOCONTA-DESKTOP-5).
+            logger.warning("[portal] Warm-up del navegador falló: %s", e)
         except Exception:
             # El detalle ya quedó en estado_navegador(); el siguiente intento
             # de uso del portal reintenta.
@@ -322,7 +330,7 @@ def _instalar_chromium() -> None:
     """
     cmd = _comando_install_chromium()
     if cmd is None:
-        raise RuntimeError(
+        raise ErrorEsperado(
             "No se pudo localizar el driver de Playwright. Reinstala TodoConta."
         )
 
@@ -352,7 +360,7 @@ def _instalar_chromium() -> None:
                 env=env,
             )
         except subprocess.TimeoutExpired as e:
-            raise RuntimeError(
+            raise ErrorEsperado(
                 "La descarga de Chromium tardó demasiado (>10 min). "
                 "Verifica tu conexión a internet."
             ) from e
@@ -370,7 +378,7 @@ def _instalar_chromium() -> None:
             ultimo_detalle,
         )
 
-    raise RuntimeError(
+    raise ErrorEsperado(
         "La descarga de Chromium falló tras 2 intentos. Suele ser por una "
         "conexión intermitente o por ejecutar la app desde una carpeta "
         "restringida: asegúrate de tener TodoConta en la carpeta Aplicaciones "

@@ -30,8 +30,38 @@ import requests
 
 from ..cli import config_store
 from ..core import secretos
+from ..core.errores import ErrorEsperado
 
 logger = logging.getLogger(__name__)
+
+
+class ServicioNoDisponible(ErrorEsperado):
+    """No hubo conexión con api.todoconta.com (internet del usuario caído o
+    backend inaccesible). Es transitorio: los routers lo traducen a HTTP 503
+    («reintenta»), no a un 500/502 que Sentry cuente como bug."""
+
+
+_SIN_CONEXION = "No pudimos conectar con el servicio de cuentas. Revisa tu internet."
+
+
+def _post_con_red(url: str, **kwargs) -> requests.Response:
+    """`requests.post` que convierte fallos de red (DNS, timeout, TLS) en
+    `ServicioNoDisponible` — sin esto suben como ConnectionError crudo y los
+    handlers que solo atrapan RuntimeError los dejan pasar como 500."""
+    try:
+        return requests.post(url, **kwargs)
+    except requests.RequestException as e:
+        logger.warning("[license] sin conexión con %s: %s", url, e)
+        raise ServicioNoDisponible(_SIN_CONEXION) from e
+
+
+def _get_con_red(url: str, **kwargs) -> requests.Response:
+    """`requests.get` con el mismo trato de red que `_post_con_red`."""
+    try:
+        return requests.get(url, **kwargs)
+    except requests.RequestException as e:
+        logger.warning("[license] sin conexión con %s: %s", url, e)
+        raise ServicioNoDisponible(_SIN_CONEXION) from e
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +158,7 @@ def init_device_code(device_code: str) -> dict:
     Registra el device_code en el backend. Devuelve `{ok, expires_at}` o
     levanta `RuntimeError` con mensaje del API.
     """
-    resp = requests.post(
+    resp = _post_con_red(
         f"{API_BASE_URL}/api/desktop/auth/init",
         json={"device_code": device_code},
         timeout=10,
@@ -151,7 +181,7 @@ def poll_device_code(device_code: str) -> tuple[str, Optional[Session]]:
         ('not_found', None) → device code no existe.
     Cualquier otro error levanta RuntimeError.
     """
-    resp = requests.post(
+    resp = _post_con_red(
         f"{API_BASE_URL}/api/desktop/auth/poll",
         json={"device_code": device_code},
         timeout=10,
@@ -235,7 +265,7 @@ def _mensaje_usuario(resp: "requests.Response") -> str:
 
 def fetch_license_remote(session: Session) -> dict:
     """Hace GET /api/desktop/license con el Bearer del session."""
-    resp = requests.get(
+    resp = _get_con_red(
         f"{API_BASE_URL}/api/desktop/license",
         headers={"Authorization": f"Bearer {session.access_token}"},
         timeout=10,
@@ -405,7 +435,7 @@ def _post_desktop(
     session: Session, path: str, op: str, body: dict | None = None
 ) -> dict:
     """POST a un endpoint `/api/desktop/*` con Bearer (body opcional). 401→PermissionError."""
-    resp = requests.post(
+    resp = _post_con_red(
         f"{API_BASE_URL}{path}",
         headers={
             "Authorization": f"Bearer {session.access_token}",

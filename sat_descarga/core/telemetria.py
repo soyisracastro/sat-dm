@@ -141,8 +141,26 @@ def _scrub(obj):
     return obj
 
 
+def _es_ruido_conexion_cliente(event) -> bool:
+    """ConnectionResetError [WinError 10054] en el proactor de asyncio: el
+    renderer cerró la conexión (SSE, refresh, cierre de la app) y Windows lo
+    reporta como error en el callback de asyncio (TODOCONTA-DESKTOP-1H). Es el
+    ciclo de vida normal de un cliente HTTP local, no un bug del agente."""
+    try:
+        for exc in (event.get("exception", {}) or {}).get("values", []) or []:
+            if exc.get("type") == "ConnectionResetError" and "10054" in str(
+                exc.get("value", "")
+            ):
+                return True
+    except Exception:  # noqa: BLE001 — el filtro jamás debe tirar el evento
+        pass
+    return False
+
+
 def _before_send(event, hint):  # noqa: ARG001 — `hint` lo exige la firma de Sentry
     try:
+        if _es_ruido_conexion_cliente(event):
+            return None
         return _scrub(event)
     except Exception:  # noqa: BLE001 — ante la duda, deja pasar el evento original
         return event
