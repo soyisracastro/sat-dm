@@ -71,7 +71,7 @@ CATEGORIAS_VALIDAS = {
     "ia-tecnologia",
 }
 
-# Backlog de RESPALDO (dolores reales de docs/abacus-oportunidades-producto.md
+# Backlog de RESPALDO (dolores reales de todoconta-apps docs/negocio/abacus-oportunidades-producto.md
 # que el calendario editorial aún no cubre). Solo se usa si el CSV del repo no
 # está disponible o se agotó — la fuente primaria es el calendario. Depurado
 # contra lo ya publicado en el blog (SBC, 69-B, DIOT, descarga masiva, IA en
