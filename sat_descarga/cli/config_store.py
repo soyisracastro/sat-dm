@@ -1284,3 +1284,48 @@ def set_descargas_dir(path: str) -> str:
         data["descargas_dir"] = p
         _save_settings(data)
     return p
+
+
+# ---------------------------------------------------------------------------
+# Config del organizador — GLOBAL por usuario, NO por empresa
+# ---------------------------------------------------------------------------
+#
+# Un despacho define su método de organización UNA vez y aplica a todas sus
+# empresas (pedido de usuario real: despachos con 10-30+ RFCs y una sola forma
+# de trabajar). Vive en settings.json — sobrevive reinstalaciones y opera igual
+# en la versión web (el agente del usuario persiste su propio settings).
+
+ORGANIZADOR_DEFAULTS = {
+    "estructura": "rfc_emisor/anio/mes",          # preset del select, o "custom"
+    "niveles_custom": ["anio", "mes", "flujo"],   # builder de estructura custom
+    "renombrar_patron": "emisor_fecha_total",     # preset de renombrado, o "custom"
+    "partes_nombre": ["fecha", "rfc_emisor", "folio_fiscal"],
+    "separador": "-",
+    "copiar": True,
+}
+
+
+def get_organizador_config() -> dict:
+    """Config global del organizador + `guardada` (si el usuario ya fijó la suya).
+
+    `guardada=False` deja que la UI migre una config previa de localStorage la
+    primera vez, en lugar de pisarla con los defaults."""
+    guardado = _load_settings().get("organizador")
+    cfg = {
+        **ORGANIZADOR_DEFAULTS,
+        **{k: v for k, v in (guardado or {}).items() if k in ORGANIZADOR_DEFAULTS},
+    }
+    cfg["guardada"] = guardado is not None
+    return cfg
+
+
+def set_organizador_config(patch: dict) -> dict:
+    """Aplica un patch parcial (solo claves conocidas) y regresa la config final."""
+    limpio = {k: v for k, v in patch.items() if k in ORGANIZADOR_DEFAULTS}
+    with _catalogo_lock:
+        data = _load_settings()
+        cfg = data.get("organizador") or {}
+        cfg.update(limpio)
+        data["organizador"] = cfg
+        _save_settings(data)
+    return get_organizador_config()

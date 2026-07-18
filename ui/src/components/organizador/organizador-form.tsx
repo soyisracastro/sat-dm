@@ -39,12 +39,15 @@ import {
   type SegmentoCatalogo,
 } from '@/lib/constants';
 import type {
+  OrganizadorConfig,
   OrganizadorRequest,
   RenombrarRequest,
   DeduplicarRequest,
 } from '@/lib/types';
 
-// Claves de localStorage donde se recuerdan los builders personalizados.
+// Claves de localStorage donde versiones previas guardaban los builders. Hoy
+// la config es GLOBAL y vive en el agente (settings.json); estas claves solo
+// se leen UNA vez para migrar lo que el usuario ya tenía.
 const NIVELES_STORAGE_KEY = 'organizador:estructura-custom';
 const NOMBRE_STORAGE_KEY = 'organizador:nombre-custom';
 
@@ -76,13 +79,6 @@ function leerStorage(key: string): Record<string, unknown> | null {
   }
 }
 
-function escribirStorage(key: string, valor: Record<string, unknown>) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(valor));
-  } catch {
-    // localStorage lleno o bloqueado: el builder sigue funcionando en memoria.
-  }
-}
 
 /** Selector de carpeta nativo del SO (solo en Electron); null en navegador. */
 function elegirCarpetaNativo(): Promise<string | null> | null {
@@ -183,32 +179,112 @@ export function OrganizadorForm({
     esCustom && nivelesCustom.some((n) => NIVELES_REQUIEREN_RFC.includes(n));
   const rfcActiva = empresas.find((e) => e.default)?.rfc ?? '';
 
+  // Config GLOBAL del organizador: vive en el agente (settings.json), así el
+  // despacho la define UNA vez y aplica a todas sus empresas — en desktop y en
+  // la versión web por igual. localStorage solo se lee para migrar lo que
+  // guardaban las versiones previas.
   useEffect(() => {
-    const niveles = filtrarSegmentos(
-      leerStorage(NIVELES_STORAGE_KEY)?.niveles,
-      NIVELES_CUSTOM,
-    );
-    if (niveles) setNivelesCustom(niveles);
+    let cancelado = false;
 
-    const nombre = leerStorage(NOMBRE_STORAGE_KEY);
-    const partes = filtrarSegmentos(nombre?.partes, PARTES_NOMBRE);
-    if (partes) setPartesNombre(partes);
-    if (typeof nombre?.separador === 'string') setSeparadorNombre(nombre.separador);
-  }, []);
+    const aplicarLocalStorage = () => {
+      const niveles = filtrarSegmentos(
+        leerStorage(NIVELES_STORAGE_KEY)?.niveles,
+        NIVELES_CUSTOM,
+      );
+      if (niveles) setNivelesCustom(niveles);
+      const nombre = leerStorage(NOMBRE_STORAGE_KEY);
+      const partes = filtrarSegmentos(nombre?.partes, PARTES_NOMBRE);
+      if (partes) setPartesNombre(partes);
+      const separador =
+        typeof nombre?.separador === 'string' ? nombre.separador : null;
+      if (separador !== null) setSeparadorNombre(separador);
+      return { niveles, partes, separador };
+    };
+
+    apiClient
+      .getOrganizadorConfig()
+      .then((cfg) => {
+        if (cancelado) return;
+        if (cfg.guardada) {
+          if (
+            ESTRUCTURAS.some((e) => e.value === cfg.estructura) ||
+            cfg.estructura === ESTRUCTURA_CUSTOM
+          ) {
+            setOrgEstructura(cfg.estructura);
+          }
+          const niveles = filtrarSegmentos(cfg.niveles_custom, NIVELES_CUSTOM);
+          if (niveles) setNivelesCustom(niveles);
+          if (
+            PATRONES_NOMBRE.some((p) => p.value === cfg.renombrar_patron) ||
+            cfg.renombrar_patron === PATRON_CUSTOM
+          ) {
+            setRenPatron(cfg.renombrar_patron);
+          }
+          const partes = filtrarSegmentos(cfg.partes_nombre, PARTES_NOMBRE);
+          if (partes) setPartesNombre(partes);
+          if (cfg.separador) setSeparadorNombre(cfg.separador);
+          setOrgCopiar(cfg.copiar);
+        } else {
+          // Primera vez con esta versión: migrar lo de localStorage al agente
+          // para que quede guardado (y compartido con futuras sesiones).
+          const local = aplicarLocalStorage();
+          const patch: Partial<Omit<OrganizadorConfig, 'guardada'>> = {
+            ...(local.niveles ? { niveles_custom: local.niveles } : {}),
+            ...(local.partes ? { partes_nombre: local.partes } : {}),
+            ...(local.separador !== null ? { separador: local.separador } : {}),
+          };
+          if (Object.keys(patch).length > 0) {
+            apiClient.setOrganizadorConfig(patch).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {
+        // Agente de una versión previa (sin el endpoint): comportamiento anterior.
+        if (!cancelado) aplicarLocalStorage();
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [apiClient]);
+
+  // Cada cambio se guarda en la config global (best-effort: si el agente no
+  // responde, el builder sigue funcionando en memoria).
+  const guardarConfig = useCallback(
+    (patch: Partial<Omit<OrganizadorConfig, 'guardada'>>) => {
+      apiClient.setOrganizadorConfig(patch).catch(() => {});
+    },
+    [apiClient],
+  );
+
+  function cambiarEstructura(v: string) {
+    setOrgEstructura(v);
+    guardarConfig({ estructura: v });
+  }
 
   function cambiarNiveles(niveles: string[]) {
     setNivelesCustom(niveles);
-    escribirStorage(NIVELES_STORAGE_KEY, { niveles });
+    guardarConfig({ niveles_custom: niveles });
   }
 
   function cambiarPartes(partes: string[]) {
     setPartesNombre(partes);
-    escribirStorage(NOMBRE_STORAGE_KEY, { partes, separador: separadorNombre });
+    guardarConfig({ partes_nombre: partes });
   }
 
   function cambiarSeparador(separador: string) {
     setSeparadorNombre(separador);
-    escribirStorage(NOMBRE_STORAGE_KEY, { partes: partesNombre, separador });
+    guardarConfig({ separador });
+  }
+
+  function cambiarPatron(v: string) {
+    setRenPatron(v);
+    guardarConfig({ renombrar_patron: v });
+  }
+
+  function cambiarCopiar(v: boolean) {
+    setOrgCopiar(v);
+    guardarConfig({ copiar: v });
   }
 
   // Renombrar
@@ -333,7 +409,7 @@ export function OrganizadorForm({
 
               <div className="space-y-2">
                 <Label htmlFor="org-estructura">Estructura de carpetas</Label>
-                <Select value={orgEstructura} onValueChange={setOrgEstructura}>
+                <Select value={orgEstructura} onValueChange={cambiarEstructura}>
                   <SelectTrigger id="org-estructura" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -396,7 +472,7 @@ export function OrganizadorForm({
                 <Switch
                   id="org-copiar"
                   checked={orgCopiar}
-                  onCheckedChange={setOrgCopiar}
+                  onCheckedChange={cambiarCopiar}
                 />
                 <Label htmlFor="org-copiar">
                   Copiar archivos (en vez de mover)
@@ -432,7 +508,7 @@ export function OrganizadorForm({
 
               <div className="space-y-2">
                 <Label htmlFor="ren-patron">Nombre del archivo</Label>
-                <Select value={renPatron} onValueChange={setRenPatron}>
+                <Select value={renPatron} onValueChange={cambiarPatron}>
                   <SelectTrigger id="ren-patron" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
