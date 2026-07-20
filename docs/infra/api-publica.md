@@ -1,7 +1,13 @@
 # api.todoconta.com — API pública y servidor MCP (diseño / terreno listo)
 
-> Estado: **diseño aprobado, implementación en sprint futuro.** Este documento
-> fija la arquitectura para que ninguna decisión de hoy la estorbe mañana.
+> Estado (2026-07-20): **gateway construido y en producción** en el VPS
+> (`deploy/gateway/`) — REST v1 + MCP, CSF/Opinión/CFDIs/procesador+Excel/
+> calculadoras/listas negras, vínculos Abacus. Decidida como **prioridad de
+> negocio** (por delante de ContPAQi/Odoo): el objetivo es el primer cliente
+> pagando/comprometido en semanas — MVP de validación, no roadmap completo.
+> Fase 1 (el paso que falta para poder vender): Swagger/OpenAPI y logging de
+> uso básico ✅ (2026-07-20); pendiente onboarding asistido de los primeros
+> 2-3 clientes con `emitir-key.py` (ya funcional, sin self-serve todavía).
 > Contexto general: [despliegue-web.md](despliegue-web.md).
 
 ## La idea de producto
@@ -131,11 +137,29 @@ mismos contratos que la UI (503 transitorio, etc.).
   (dominio propio: si el legacy se muda de Vercel, solo se repunta el DNS).
 - Este documento.
 
-## Sprint futuro (cuando se decida arrancar)
+## Fase 1 (MVP de validación) — estado
 
-1. Migración `api_keys` en todoconta-apps + página de emisión (o alta manual).
-2. Gateway en el VPS (`deploy/gateway/`): REST v1 + validación de keys +
-   rate-limit por key + logs de uso (para facturar después).
+- ✅ Migración `api_keys` en todoconta-apps + `emitir-key.py` (alta manual;
+  self-serve queda para cuando valide el MVP).
+- ✅ Gateway en el VPS (`deploy/gateway/`): REST v1 + MCP + validación de keys
+  + rate-limit por key.
+- ✅ Logs de uso básicos (2026-07-20): middleware `_log_uso` en `main.py`,
+  huella de la key + método + ruta + status + latencia a `docker logs
+  gateway`. Insumo para diagnóstico y para facturar después; NO persiste en
+  Supabase todavía (deliberado — evitar construir de más antes de validar).
+- ✅ OpenAPI/Swagger (2026-07-20): `GET /v1/docs` y `/v1/openapi.json` (antes
+  `docs_url=None`). `/internal/vinculos` (Abacus) queda fuera del schema
+  (`include_in_schema=False`) — no se documenta ni se vende como parte de v1.
+- ⬜ Onboarding manual/asistido de los primeros 2-3 clientes (mismo patrón que
+  `emitir-key.py --whatsapp` de Abacus, sin self-serve completo).
+- ⬜ Rewrite `/v1/*` y `/mcp` en el proyecto legacy de Vercel → confirmar que
+  `api.todoconta.com` ya rutea al gateway (o falta el A record/rewrite).
+
+## Sprint futuro (fase 2+, solo si Fase 1 valida)
+
+1. Self-serve completo de `api_keys` (página en la cuenta del usuario).
+2. Persistir logs de uso en Supabase (tabla de facturación), Redis+redundancia
+   del gateway, status page, Sentry en el gateway.
 3. Rewrite `/v1/*` en el proyecto legacy → gateway.
 4. Servidor MCP sobre el mismo gateway + probar como conector en Claude.
 5. Decidir pricing/cuotas por key (producto).

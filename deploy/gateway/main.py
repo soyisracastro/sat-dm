@@ -277,7 +277,19 @@ def _descargar_de_agente(base: str, headers: dict, ruta: str, zip_: bool) -> Res
 # App REST v1
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="TodoConta — API pública", docs_url=None, redoc_url=None)
+app = FastAPI(
+    title="TodoConta — API pública",
+    description=(
+        "Servicios fiscales del SAT (México) para integradores: Constancia de "
+        "Situación Fiscal, Opinión 32-D, descarga masiva de CFDIs, procesador + "
+        "Excel, calculadoras fiscales/laborales y listas negras 69/69-B. "
+        "Autenticación: header `X-Api-Key` con tu API key (`tc_live_…`)."
+    ),
+    version="1",
+    docs_url="/v1/docs",
+    redoc_url=None,
+    openapi_url="/v1/openapi.json",
+)
 
 
 def _auth(x_api_key: Optional[str], authorization: Optional[str]) -> dict:
@@ -634,7 +646,7 @@ def v1_listas_negras(body: dict, x_api_key: str = Header(None), authorization: s
 VINCULOS_INTERNAL_TOKEN = os.environ.get("VINCULOS_INTERNAL_TOKEN", "")
 
 
-@app.get("/internal/vinculos/{whatsapp}")
+@app.get("/internal/vinculos/{whatsapp}", include_in_schema=False)
 def internal_vinculo(whatsapp: str, x_interno_token: str = Header(None)):
     """Vínculo activo de un número E.164 (solo para el plugin de Abacus)."""
     if not VINCULOS_INTERNAL_TOKEN or not hmac.compare_digest(
@@ -983,3 +995,30 @@ try:
     logger.info("servidor MCP montado en /mcp")
 except ImportError:  # pragma: no cover — sin SDK, la REST sigue funcionando
     logger.warning("SDK de MCP no disponible; /mcp deshabilitado")
+
+
+# ---------------------------------------------------------------------------
+# Logging de uso (básico): diagnóstico + insumo para facturación futura.
+# Vive en los logs del contenedor (`docker logs gateway`), no en Supabase
+# todavía — evita persistir de más antes de validar el MVP. Se registra AL
+# FINAL (fuera del try/except de MCP) para quedar como middleware más externo
+# y así también capturar los 401 tempranos del auth de /mcp.
+# ---------------------------------------------------------------------------
+
+
+@app.middleware("http")
+async def _log_uso(request: Request, call_next):
+    path = request.url.path
+    if not (path.startswith("/v1") or path.startswith("/mcp")):
+        return await call_next(request)
+    inicio = time.monotonic()
+    clave = request.headers.get("x-api-key") or (
+        request.headers.get("authorization") or ""
+    ).removeprefix("Bearer ").strip()
+    huella = hashlib.sha256(clave.encode()).hexdigest()[:12] if clave else "-"
+    response = await call_next(request)
+    dur_ms = int((time.monotonic() - inicio) * 1000)
+    logger.info(
+        "uso key=%s %s %s -> %s (%sms)", huella, request.method, path, response.status_code, dur_ms
+    )
+    return response
