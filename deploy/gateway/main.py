@@ -238,18 +238,54 @@ def _activar_empresa(base: str, headers: dict, rfc: str) -> dict:
         return {}
 
 
-def _csf_archivada(base: str, headers: dict, rfc: str) -> tuple[Optional[str], Optional[str]]:
-    """Última CSF en archivo según el catálogo del agente → (ruta, fecha) o (None, None)."""
+def _doc_archivado(base: str, headers: dict, rfc: str, prefijo: str = "csf") -> tuple[Optional[str], Optional[str]]:
+    """Último documento en archivo según el catálogo del agente → (ruta, fecha) o
+    (None, None). prefijo: csf | opinion (campos {prefijo}_path / {prefijo}_descargada_en)."""
     try:
         r = requests.get(f"{base}/empresas", headers=headers, timeout=_TIMEOUT)
         if r.status_code != 200:
             return None, None
         for e in r.json().get("empresas", []):
             if e.get("rfc") == rfc:
-                return e.get("csf_path") or None, e.get("csf_descargada_en") or None
+                return e.get(f"{prefijo}_path") or None, e.get(f"{prefijo}_descargada_en") or None
     except requests.RequestException:
         pass
     return None, None
+
+
+def _edad_dias(fecha_iso: Optional[str]) -> Optional[int]:
+    """Días transcurridos desde un timestamp ISO del catálogo (None si no se puede leer)."""
+    if not fecha_iso:
+        return None
+    try:
+        from datetime import datetime
+
+        fecha = datetime.fromisoformat(fecha_iso.replace("Z", "+00:00"))
+        if fecha.tzinfo is not None:
+            fecha = fecha.replace(tzinfo=None)
+        return max(0, (datetime.now() - fecha).days)
+    except ValueError:
+        return None
+
+
+def _ruta_zip_solicitud(base: str, headers: dict, rfc: str, id_solicitud: str) -> Optional[str]:
+    """Ruta de descarga de una solicitud WS ya bajada. El registro de la solicitud
+    no la trae (update_solicitud no la persiste); la fuente real es el HISTORIAL,
+    donde el poller y la descarga manual registran la ruta con el id corto en la
+    descripción ("Descarga WS · solicitud 12345678…") — misma lista blanca que
+    valida /descargas/zip."""
+    try:
+        r = requests.get(f"{base}/empresas/{rfc}/solicitudes", headers=headers, timeout=_TIMEOUT)
+        for s in (r.json().get("solicitudes", []) if r.status_code == 200 else []):
+            if s.get("id_solicitud") == id_solicitud and (s.get("ruta_descarga") or s.get("ruta")):
+                return s.get("ruta_descarga") or s.get("ruta")
+        r = requests.get(f"{base}/empresas/{rfc}/historial", headers=headers, timeout=_TIMEOUT)
+        for d in (r.json().get("descargas", []) if r.status_code == 200 else []):
+            if d.get("canal") == "ws" and id_solicitud[:8] in (d.get("descripcion") or "") and d.get("ruta"):
+                return d["ruta"]
+    except requests.RequestException:
+        pass
+    return None
 
 
 def _detalle(r: requests.Response) -> Optional[str]:
@@ -361,7 +397,7 @@ def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str, fallback_ar
     base, headers = _agente_de(user)
 
     def _entregar_archivada(motivo: str) -> Optional[Response]:
-        ruta, fecha = _csf_archivada(base, headers, rfc)
+        ruta, fecha = _doc_archivado(base, headers, rfc)
         if not ruta:
             return None
         try:
@@ -410,7 +446,8 @@ def _documento(user: dict, rfc: str, endpoint: str, nombre_doc: str, fallback_ar
             if resp is not None:
                 return resp
         raise HTTPException(status_code=502, detail=_detalle(r) or f"No se pudo descargar la {nombre_doc}.")
-    ruta = r.json().get("path") or r.json().get("ruta")
+    # El agente responde {"ok": True, "archivo": ruta} (routers/portal.py).
+    ruta = r.json().get("archivo") or r.json().get("path") or r.json().get("ruta")
     if not ruta:
         raise HTTPException(status_code=502, detail=f"El agente no reportó la ruta de la {nombre_doc}.")
     return _descargar_de_agente(base, headers, ruta, zip_=False)
@@ -482,19 +519,11 @@ def v1_zip_solicitud(rfc: str, id_solicitud: str, x_api_key: str = Header(None),
     _exigir_scope(user, "cfdi:solicitar")
     rfc = rfc.strip().upper()
     base, headers = _agente_de(user)
-    r = requests.get(f"{base}/empresas/{rfc}/solicitudes", headers=headers, timeout=_TIMEOUT)
-    ruta = None
-    for s in (r.json().get("solicitudes", []) if r.status_code == 200 else []):
-        if s.get("id_solicitud") == id_solicitud:
-            ruta = s.get("ruta_descarga") or s.get("ruta")
-            estado = s
-            break
-    else:
-        raise HTTPException(status_code=404, detail="Solicitud no encontrada.")
+    ruta = _ruta_zip_solicitud(base, headers, rfc, id_solicitud)
     if not ruta:
         raise HTTPException(
             status_code=409,
-            detail="La solicitud aún no está descargada; consulta su estado y reintenta.",
+            detail="La solicitud no existe o aún no está descargada; consulta su estado y reintenta.",
         )
     return _descargar_de_agente(base, headers, ruta, zip_=True)
 
@@ -748,13 +777,14 @@ try:
         ]
 
     def _mcp_pdf(rfc: str, nombre_doc: str, esquema: str, contenido: bytes, origen: str,
-                 fecha: Optional[str] = None) -> list:
+                 fecha: Optional[str] = None, nota: str = "") -> list:
         """Empaqueta un PDF como contenido embebido (RFC del MCP: EmbeddedResource +
         BlobResourceContents) — el cliente lo recibe adjunto en la misma respuesta,
         sin que el asistente necesite la API key del usuario para un segundo request."""
-        nota = f" (última copia en archivo, generada el {fecha[:10]})" if origen == "archivo" and fecha else (
-            " (última copia en archivo)" if origen == "archivo" else ""
-        )
+        if not nota:
+            nota = f" (última copia en archivo, generada el {fecha[:10]})" if origen == "archivo" and fecha else (
+                " (última copia en archivo)" if origen == "archivo" else ""
+            )
         blob = base64.b64encode(contenido).decode()
         return [
             TextContent(type="text", text=f"{nombre_doc} de {rfc}{nota}. Aquí está el PDF."),
@@ -767,22 +797,44 @@ try:
         ]
 
     def _mcp_documento(rfc: str, endpoint: str, nombre_doc: str, esquema: str,
-                        fallback_archivo: bool = False) -> list:
-        """Genera (o recupera del archivo) un documento y lo entrega embebido —
-        mismo criterio que _documento() (REST) pero sin requerir una segunda
-        llamada con API key: la tool ya trae el PDF en la respuesta."""
+                        fallback_archivo: bool = False, forzar_nueva: bool = False,
+                        frescura_dias: int = 0, prefijo_archivo: str = "csf") -> list:
+        """Entrega un documento embebido — mismo criterio que _documento() (REST)
+        pero sin requerir una segunda llamada con API key.
+
+        Con frescura_dias > 0, una copia en archivo dentro de esa ventana se
+        entrega AL INSTANTE (sin scrapear el portal), declarando su antigüedad y
+        cómo pedir una nueva (forzar_nueva=true) — el asistente puede ofrecer al
+        usuario "tengo una de hace X días, ¿te sirve o genero una nueva?"."""
         user = _mcp_user()
         rfc = rfc.strip().upper()
         base, headers = _agente_de(user)
 
         def _archivada() -> Optional[tuple]:
-            ruta, fecha = _csf_archivada(base, headers, rfc)
+            ruta, fecha = _doc_archivado(base, headers, rfc, prefijo_archivo)
             if not ruta:
                 return None
             try:
                 return _bytes_de_agente(base, headers, ruta), fecha
             except HTTPException:
                 return None
+
+        if frescura_dias and not forzar_nueva:
+            ruta, fecha = _doc_archivado(base, headers, rfc, prefijo_archivo)
+            edad = _edad_dias(fecha)
+            if ruta and edad is not None and edad <= frescura_dias:
+                try:
+                    contenido = _bytes_de_agente(base, headers, ruta)
+                except HTTPException:
+                    contenido = None
+                if contenido:
+                    dias = "hoy" if edad == 0 else (f"hace {edad} día" + ("s" if edad != 1 else ""))
+                    nota = (
+                        f" — copia descargada {dias} (dentro de la vigencia típica de "
+                        f"{frescura_dias} días), entregada al instante; si el usuario necesita "
+                        f"una recién emitida por el SAT, vuelve a llamar con forzar_nueva=true"
+                    )
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "reciente", nota=nota)
 
         try:
             activacion = _activar_empresa(base, headers, rfc)
@@ -815,7 +867,8 @@ try:
                     return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", fecha)
             return [TextContent(type="text", text=f"No se pudo generar {nombre_doc.lower()}: {_detalle(r) or 'error del portal del SAT'}")]
 
-        ruta = r.json().get("path") or r.json().get("ruta")
+        # El agente responde {"ok": True, "archivo": ruta} (routers/portal.py).
+        ruta = r.json().get("archivo") or r.json().get("path") or r.json().get("ruta")
         if not ruta:
             return [TextContent(type="text", text=f"El agente no reportó la ruta de {nombre_doc.lower()}.")]
         contenido = _bytes_de_agente(base, headers, ruta)
@@ -835,18 +888,26 @@ try:
         return "\n".join(filas) or "No hay empresas registradas."
 
     @mcp_srv.tool(structured_output=False)
-    def descargar_csf(rfc: str) -> list:
-        """Descarga la Constancia de Situación Fiscal de la empresa y la adjunta como PDF
-        en esta misma respuesta (sin pasos extra). Sin e.firma cargada (o con el SAT caído)
-        entrega la última CSF en archivo si existe."""
-        return _mcp_documento(rfc, "constancia/fiel", "la Constancia de Situación Fiscal", "csf", fallback_archivo=True)
+    def descargar_csf(rfc: str, forzar_nueva: bool = False) -> list:
+        """Constancia de Situación Fiscal de la empresa, adjunta como PDF en esta misma
+        respuesta. Si hay una copia de hace 90 días o menos la entrega al instante
+        indicando su antigüedad — ofrece al usuario regenerarla con forzar_nueva=true si
+        necesita una recién emitida por el SAT. Sin e.firma cargada (o con el SAT caído)
+        entrega la última copia en archivo si existe."""
+        return _mcp_documento(rfc, "constancia/fiel", "la Constancia de Situación Fiscal", "csf",
+                              fallback_archivo=True, forzar_nueva=forzar_nueva,
+                              frescura_dias=90, prefijo_archivo="csf")
 
     @mcp_srv.tool(structured_output=False)
-    def descargar_opinion(rfc: str) -> list:
-        """Descarga la Opinión de Cumplimiento 32-D de la empresa y la adjunta como PDF en
-        esta misma respuesta (sin pasos extra). Requiere e.firma cargada — a diferencia de la
-        CSF, no hay copia en archivo (es una foto de cumplimiento puntual)."""
-        return _mcp_documento(rfc, "opinion/fiel", "la Opinión de Cumplimiento 32-D", "opinion")
+    def descargar_opinion(rfc: str, forzar_nueva: bool = False) -> list:
+        """Opinión de Cumplimiento 32-D de la empresa, adjunta como PDF en esta misma
+        respuesta. Si hay una copia de hace 30 días o menos (la vigencia típica de la
+        opinión ante terceros) la entrega al instante indicando su antigüedad — ofrece al
+        usuario regenerarla con forzar_nueva=true. Fuera de esa ventana requiere e.firma
+        cargada; no se entregan opiniones viejas (una foto de cumplimiento vencida engaña)."""
+        return _mcp_documento(rfc, "opinion/fiel", "la Opinión de Cumplimiento 32-D", "opinion",
+                              forzar_nueva=forzar_nueva, frescura_dias=30,
+                              prefijo_archivo="opinion")
 
     @mcp_srv.tool()
     def solicitar_cfdis(rfc: str, fecha_inicio: str, fecha_fin: str, tipo: str = "E") -> str:
@@ -889,13 +950,7 @@ try:
         user = _mcp_user()
         rfc = rfc.strip().upper()
         base, headers = _agente_de(user)
-        r = requests.get(f"{base}/empresas/{rfc}/solicitudes", headers=headers, timeout=_TIMEOUT)
-        ruta = None
-        if r.status_code == 200:
-            for s in r.json().get("solicitudes", []):
-                if s.get("id_solicitud") == id_solicitud:
-                    ruta = s.get("ruta_descarga") or s.get("ruta")
-                    break
+        ruta = _ruta_zip_solicitud(base, headers, rfc, id_solicitud)
         if not ruta:
             return [TextContent(type="text", text=(
                 "Esa solicitud no existe o aún no está descargada; confirma con estado_solicitud "
