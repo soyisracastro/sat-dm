@@ -275,6 +275,18 @@ def _descargar_de_agente(base: str, headers: dict, ruta: str, zip_: bool) -> Res
     return StreamingResponse(r.iter_content(chunk_size=65536), media_type=media, headers={"Content-Disposition": disp})
 
 
+def _bytes_de_agente(base: str, headers: dict, ruta: str, zip_: bool = False) -> bytes:
+    """Como _descargar_de_agente pero en memoria — para adjuntar el archivo
+    embebido en la respuesta de una tool MCP en vez de servirlo como link."""
+    endpoint = "zip" if zip_ else "archivo"
+    r = requests.get(
+        f"{base}/descargas/{endpoint}", params={"ruta": ruta}, headers=headers, timeout=_TIMEOUT_DOCUMENTO,
+    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo obtener el archivo.")
+    return r.content
+
+
 # ---------------------------------------------------------------------------
 # App REST v1
 # ---------------------------------------------------------------------------
@@ -691,6 +703,7 @@ def internal_vinculo(whatsapp: str, x_interno_token: str = Header(None)):
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.server.transport_security import TransportSecuritySettings
+    from mcp.types import BlobResourceContents, EmbeddedResource, TextContent
 
     mcp_srv = FastMCP(
         "TodoConta",
@@ -714,6 +727,100 @@ try:
             raise RuntimeError("Sesión MCP sin API key válida.")
         return user
 
+    # Por encima de esto, mejor el link con la API key que atorar el chat con un
+    # blob gigante: un ZIP de meses de CFDIs o un Excel grande sí pueden pesarlo
+    # (a diferencia de un PDF de CSF/Opinión, que nunca se acerca).
+    _LIMITE_ADJUNTO_MCP = 20 * 1024 * 1024  # 20 MB
+
+    def _mcp_adjuntar(uri: str, mime: str, contenido: bytes, mensaje: str, enlace_fallback: str) -> list:
+        """Como _mcp_pdf pero genérico y con tope de tamaño — ZIPs de CFDIs y Excel
+        del procesador."""
+        if len(contenido) > _LIMITE_ADJUNTO_MCP:
+            peso = len(contenido) / 1_048_576
+            return [TextContent(type="text", text=(
+                f"{mensaje} Pesa {peso:.1f} MB — demasiado grande para adjuntar aquí; bájalo con "
+                f"tu API key: {enlace_fallback}"
+            ))]
+        blob = base64.b64encode(contenido).decode()
+        return [
+            TextContent(type="text", text=mensaje),
+            EmbeddedResource(type="resource", resource=BlobResourceContents(uri=uri, mimeType=mime, blob=blob)),
+        ]
+
+    def _mcp_pdf(rfc: str, nombre_doc: str, esquema: str, contenido: bytes, origen: str,
+                 fecha: Optional[str] = None) -> list:
+        """Empaqueta un PDF como contenido embebido (RFC del MCP: EmbeddedResource +
+        BlobResourceContents) — el cliente lo recibe adjunto en la misma respuesta,
+        sin que el asistente necesite la API key del usuario para un segundo request."""
+        nota = f" (última copia en archivo, generada el {fecha[:10]})" if origen == "archivo" and fecha else (
+            " (última copia en archivo)" if origen == "archivo" else ""
+        )
+        blob = base64.b64encode(contenido).decode()
+        return [
+            TextContent(type="text", text=f"{nombre_doc} de {rfc}{nota}. Aquí está el PDF."),
+            EmbeddedResource(
+                type="resource",
+                resource=BlobResourceContents(
+                    uri=f"todoconta://{esquema}/{rfc}.pdf", mimeType="application/pdf", blob=blob
+                ),
+            ),
+        ]
+
+    def _mcp_documento(rfc: str, endpoint: str, nombre_doc: str, esquema: str,
+                        fallback_archivo: bool = False) -> list:
+        """Genera (o recupera del archivo) un documento y lo entrega embebido —
+        mismo criterio que _documento() (REST) pero sin requerir una segunda
+        llamada con API key: la tool ya trae el PDF en la respuesta."""
+        user = _mcp_user()
+        rfc = rfc.strip().upper()
+        base, headers = _agente_de(user)
+
+        def _archivada() -> Optional[tuple]:
+            ruta, fecha = _csf_archivada(base, headers, rfc)
+            if not ruta:
+                return None
+            try:
+                return _bytes_de_agente(base, headers, ruta), fecha
+            except HTTPException:
+                return None
+
+        try:
+            activacion = _activar_empresa(base, headers, rfc)
+        except HTTPException as exc:
+            if fallback_archivo and exc.status_code == 409:
+                archivada = _archivada()
+                if archivada:
+                    contenido, fecha = archivada
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", fecha)
+            return [TextContent(type="text", text=str(exc.detail))]
+
+        sin_fiel = "fiel" not in (activacion.get("metodos") or []) or not activacion.get("efirma_lista")
+        if sin_fiel:
+            if fallback_archivo:
+                archivada = _archivada()
+                if archivada:
+                    contenido, fecha = archivada
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", fecha)
+            return [TextContent(type="text", text=(
+                f"La empresa {rfc} no tiene e.firma cargada, así que {nombre_doc.lower()} no se "
+                "puede generar al momento. Carga su e.firma en TodoConta y vuelve a intentarlo."
+            ))]
+
+        r = requests.post(f"{base}/{endpoint}", headers=headers, json={}, timeout=_TIMEOUT_DOCUMENTO)
+        if r.status_code != 200:
+            if fallback_archivo:
+                archivada = _archivada()
+                if archivada:
+                    contenido, fecha = archivada
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", fecha)
+            return [TextContent(type="text", text=f"No se pudo generar {nombre_doc.lower()}: {_detalle(r) or 'error del portal del SAT'}")]
+
+        ruta = r.json().get("path") or r.json().get("ruta")
+        if not ruta:
+            return [TextContent(type="text", text=f"El agente no reportó la ruta de {nombre_doc.lower()}.")]
+        contenido = _bytes_de_agente(base, headers, ruta)
+        return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "generado")
+
     @mcp_srv.tool()
     def listar_empresas() -> str:
         """Lista las empresas (RFC, nombre, métodos) del espacio del usuario."""
@@ -727,40 +834,19 @@ try:
         ]
         return "\n".join(filas) or "No hay empresas registradas."
 
-    @mcp_srv.tool()
-    def descargar_csf(rfc: str) -> str:
-        """Descarga la Constancia de Situación Fiscal de la empresa al espacio del usuario."""
-        user = _mcp_user()
-        base, headers = _agente_de(user)
-        rfc = rfc.strip().upper()
-        activacion = _activar_empresa(base, headers, rfc)
-        if "fiel" not in (activacion.get("metodos") or []) or not activacion.get("efirma_lista"):
-            return (
-                f"La empresa {rfc} no tiene e.firma cargada; no se puede generar una constancia "
-                f"al momento. POST /v1/csf entrega la última EN ARCHIVO si existe (respuesta "
-                f"marcada con X-Documento-Origen: archivo). Para una recién generada, carga la "
-                f"e.firma de la empresa en TodoConta."
-            )
-        r = requests.post(f"{base}/constancia/fiel", headers=headers, json={}, timeout=_TIMEOUT_DOCUMENTO)
-        if r.status_code != 200:
-            return f"No se pudo: {_detalle(r) or 'error del portal del SAT'}"
-        return (
-            f"Constancia de {rfc} descargada en el espacio del usuario. "
-            f"El PDF se obtiene con: POST {PUBLIC_BASE.replace('agente.', 'api.')}/v1/csf "
-            f'{{"rfc": "{rfc}"}} (misma API key).'
-        )
+    @mcp_srv.tool(structured_output=False)
+    def descargar_csf(rfc: str) -> list:
+        """Descarga la Constancia de Situación Fiscal de la empresa y la adjunta como PDF
+        en esta misma respuesta (sin pasos extra). Sin e.firma cargada (o con el SAT caído)
+        entrega la última CSF en archivo si existe."""
+        return _mcp_documento(rfc, "constancia/fiel", "la Constancia de Situación Fiscal", "csf", fallback_archivo=True)
 
-    @mcp_srv.tool()
-    def descargar_opinion(rfc: str) -> str:
-        """Descarga la Opinión de Cumplimiento 32-D de la empresa al espacio del usuario."""
-        user = _mcp_user()
-        base, headers = _agente_de(user)
-        rfc = rfc.strip().upper()
-        _activar_empresa(base, headers, rfc)
-        r = requests.post(f"{base}/opinion/fiel", headers=headers, json={}, timeout=_TIMEOUT_DOCUMENTO)
-        if r.status_code != 200:
-            return f"No se pudo: {_detalle(r) or 'error del portal del SAT'}"
-        return f"Opinión 32-D de {rfc} descargada. PDF vía POST /v1/opinion (misma API key)."
+    @mcp_srv.tool(structured_output=False)
+    def descargar_opinion(rfc: str) -> list:
+        """Descarga la Opinión de Cumplimiento 32-D de la empresa y la adjunta como PDF en
+        esta misma respuesta (sin pasos extra). Requiere e.firma cargada — a diferencia de la
+        CSF, no hay copia en archivo (es una foto de cumplimiento puntual)."""
+        return _mcp_documento(rfc, "opinion/fiel", "la Opinión de Cumplimiento 32-D", "opinion")
 
     @mcp_srv.tool()
     def solicitar_cfdis(rfc: str, fecha_inicio: str, fecha_fin: str, tipo: str = "E") -> str:
@@ -795,6 +881,33 @@ try:
             if s.get("id_solicitud") == id_solicitud:
                 return str(s)
         return "Solicitud no encontrada."
+
+    @mcp_srv.tool(structured_output=False)
+    def descargar_zip_cfdis(rfc: str, id_solicitud: str) -> list:
+        """Adjunta el ZIP de XMLs de una solicitud de descarga masiva ya lista —
+        llamar después de que estado_solicitud confirme que terminó."""
+        user = _mcp_user()
+        rfc = rfc.strip().upper()
+        base, headers = _agente_de(user)
+        r = requests.get(f"{base}/empresas/{rfc}/solicitudes", headers=headers, timeout=_TIMEOUT)
+        ruta = None
+        if r.status_code == 200:
+            for s in r.json().get("solicitudes", []):
+                if s.get("id_solicitud") == id_solicitud:
+                    ruta = s.get("ruta_descarga") or s.get("ruta")
+                    break
+        if not ruta:
+            return [TextContent(type="text", text=(
+                "Esa solicitud no existe o aún no está descargada; confirma con estado_solicitud "
+                "y reintenta cuando esté lista."
+            ))]
+        contenido = _bytes_de_agente(base, headers, ruta, zip_=True)
+        api = PUBLIC_BASE.replace("agente.", "api.")
+        enlace = f"GET {api}/v1/cfdi/solicitudes/{rfc}/{id_solicitud}/zip (header X-Api-Key)"
+        return _mcp_adjuntar(
+            f"todoconta://cfdi-zip/{rfc}-{id_solicitud}.zip", "application/zip", contenido,
+            f"ZIP de CFDIs de {rfc} (solicitud {id_solicitud}).", enlace,
+        )
 
     @mcp_srv.tool()
     def consultar_listas_negras(rfcs: list[str]) -> str:
@@ -853,17 +966,28 @@ try:
         )
         return str(r.json()) if r.status_code == 200 else f"No se pudo: {_detalle(r) or r.status_code}"
 
-    @mcp_srv.tool()
-    def link_excel_cfdis(rfc: str, desde: str = "", hasta: str = "", direccion: str = "") -> str:
-        """Link de descarga del Excel con el detalle de los CFDIs procesados (el usuario lo baja con su misma API key)."""
-        _mcp_user()
+    @mcp_srv.tool(structured_output=False)
+    def excel_cfdis(rfc: str, desde: str = "", hasta: str = "", direccion: str = "", formato: str = "xlsx") -> list:
+        """Genera y adjunta el Excel/CSV con el detalle de impuestos de los CFDIs ya
+        procesados del período (correr después de procesar_cfdis). formato: xlsx|csv."""
+        user = _mcp_user()
+        base, headers = _agente_de(user)
         from urllib.parse import urlencode
 
         params = _params_filtros(rfc, desde or None, hasta or None, direccion or None)
+        params["formato"] = formato
+        r = requests.get(f"{base}/procesador/cfdi/exportar", headers=headers, params=params, timeout=300)
+        if r.status_code != 200:
+            return [TextContent(type="text", text=f"No se pudo exportar: {_detalle(r) or r.status_code}")]
+        mime = (
+            "text/csv" if formato == "csv"
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         api = PUBLIC_BASE.replace("agente.", "api.")
-        return (
-            f"GET {api}/v1/cfdi/excel?{urlencode(params)} — con el header X-Api-Key de tu key. "
-            "Ejemplo: curl -H 'X-Api-Key: tc_live_…' -o cfdis.xlsx '" + f"{api}/v1/cfdi/excel?{urlencode(params)}'"
+        enlace = f"GET {api}/v1/cfdi/excel?{urlencode(params)} (header X-Api-Key)"
+        return _mcp_adjuntar(
+            f"todoconta://cfdi-excel/{params['rfc']}.{formato}", mime, r.content,
+            f"Excel de CFDIs de {params['rfc']}.", enlace,
         )
 
     def _calc(tipo: str, payload: dict) -> str:
