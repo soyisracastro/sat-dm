@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir \
     "fastapi>=0.104.0" "uvicorn[standard]>=0.24.0" "requests>=2.31.0" \
     "docker>=7.0.0" "mcp>=1.2.0"
 
-COPY main.py .
+COPY main.py oauth.py ./
 
 EXPOSE 8795
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

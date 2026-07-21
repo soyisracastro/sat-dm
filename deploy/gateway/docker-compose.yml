@@ -1,13 +1,16 @@
 # Gateway de la API pública + MCP, detrás del Traefik existente.
 #
-# Rutas públicas: agente.todoconta.com/v1/* y /mcp (y api.todoconta.com/v1/*
-# vía rewrite del legacy). Prerrequisito: .env junto a este archivo con
+# Rutas públicas: agente.todoconta.com/v1/*, /mcp, /oauth/* y /.well-known/*
+# (y api.todoconta.com/v1/* vía rewrite del legacy). Prerrequisito: .env junto
+# a este archivo con
 #   SAT_DM_MASTER_KEY=            # LA MISMA del provisioner (deriva agentes)
 #   TODOCONTA_SUPABASE_URL=
 #   SUPABASE_SERVICE_KEY=         # service role (valida api_keys + RPC listas)
 #   AGENTE_IMAGEN=todoconta/agente:dev
 #   VINCULOS_INTERNAL_TOKEN=      # /internal/vinculos (plugin abacus-todoconta)
 #   ASISTENTE_VINCULOS_KEY=       # AES-256-GCM de emitir-key.py --whatsapp (32 bytes b64)
+# Opcionales del OAuth 2.1 (oauth.py; defaults iguales al provisioner):
+#   LICENCIA_URL= EXIGIR_LICENCIA= ALLOWLIST_EMAILS= TODOCONTA_SUPABASE_ANON_KEY=
 #
 # Despliegue: docker compose up -d --build
 
@@ -25,10 +28,12 @@ services:
       - "127.0.0.1:8795:8795"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # SQLite del OAuth (clients/codes/tokens) — sobrevive los rebuilds.
+      - gateway-datos:/data
     env_file: .env
     labels:
       - traefik.enable=true
-      - traefik.http.routers.gateway.rule=Host(`agente.todoconta.com`) && (PathPrefix(`/v1`) || PathPrefix(`/mcp`))
+      - traefik.http.routers.gateway.rule=Host(`agente.todoconta.com`) && (PathPrefix(`/v1`) || PathPrefix(`/mcp`) || PathPrefix(`/oauth`) || PathPrefix(`/.well-known`))
       - traefik.http.routers.gateway.entrypoints=websecure
       - traefik.http.routers.gateway.tls.certresolver=letsencrypt
       - traefik.http.services.gateway.loadbalancer.server.port=8795
@@ -37,3 +42,6 @@ services:
 networks:
   agentes:
     external: true
+
+volumes:
+  gateway-datos:
