@@ -150,10 +150,22 @@ mismos contratos que la UI (503 transitorio, etc.).
 - ✅ OpenAPI/Swagger (2026-07-20): `GET /v1/docs` y `/v1/openapi.json` (antes
   `docs_url=None`). `/internal/vinculos` (Abacus) queda fuera del schema
   (`include_in_schema=False`) — no se documenta ni se vende como parte de v1.
+  URL pública canónica: **`https://api.todoconta.com/v1/docs`** (no
+  `agente.todoconta.com`) — confirmado que el rewrite `/v1/:path*` del
+  proyecto legacy (PR #212, `next.config.ts`) ya cubre `/docs` y
+  `/openapi.json` sin cambios; el "Try it out" de Swagger funciona ahí porque
+  el OpenAPI generado no fija `servers` (usa el origen de la página).
+- ✅ Landing `todoconta.com/api` (2026-07-20, todoconta-apps): página para
+  integradores con capacidades, ejemplo `curl`, link a `/v1/docs` y formulario
+  "Agenda tu demo" → CRM (`fuente: api-demo`). Sin self-serve de pricing
+  (modelo demo-gated ya decidido); el equipo revisa el CRM a mano.
 - ⬜ Onboarding manual/asistido de los primeros 2-3 clientes (mismo patrón que
   `emitir-key.py --whatsapp` de Abacus, sin self-serve completo).
-- ⬜ Rewrite `/v1/*` y `/mcp` en el proyecto legacy de Vercel → confirmar que
-  `api.todoconta.com` ya rutea al gateway (o falta el A record/rewrite).
+- **`/mcp` NO tiene rewrite en `api.todoconta.com`** (solo `/v1/:path*`) — se
+  conecta directo a `agente.todoconta.com/mcp` (confirmado con 404 al probar
+  vía `api.todoconta.com/mcp`). Correcto tal cual: no es un pendiente, es
+  cómo está diseñado hoy (ver plan B `mcp.todoconta.com` en la sección de
+  arquitectura arriba, si el streaming por Vercel llega a dar lata).
 
 ## Sprint futuro (fase 2+, solo si Fase 1 valida)
 
