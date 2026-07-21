@@ -167,6 +167,69 @@ mismos contratos que la UI (503 transitorio, etc.).
   cómo está diseñado hoy (ver plan B `mcp.todoconta.com` en la sección de
   arquitectura arriba, si el streaming por Vercel llega a dar lata).
 
+## Pricing — referencia de mercado (Syntage, demo privada 2026-07)
+
+Israel solicitó una demo a Syntage (competidor con más músculo, ver plan de decisión) y
+compartió su pricing real + material de ventas — **no es público**, tratarlo como
+inteligencia competitiva interna, no citarlo/republicarlo hacia afuera.
+
+### Sus tiers (PM/PF 2025, MXN/mes, sin IVA)
+
+| | Tier 1 | Tier 2 | Tier 3 | Tier 4 |
+|---|---|---|---|---|
+| Suscripción mensual | $7,500 | $15,000 | $21,250 | $27,500 |
+| Entidades únicas/mes | 25 | 75 | 125 | 200 |
+| Extracciones/mes | 400 | 1,200 | 2,000 | 3,200 |
+| Usuarios | Ilimitado | Ilimitado | Ilimitado | Ilimitado |
+| Entidad adicional | $450 | $300 | $255 | $206 |
+| Extracción adicional | $28 | $18 | $16 | $12 |
+
+"Entidad" = RFC único procesado en el mes; "extracción" = cada jalón de datos (equivalente
+a lo que ya mide nuestro `_log_uso` del gateway — mismo concepto, ya tenemos el gancho
+técnico para facturar así si se decide ese modelo).
+
+### Qué cubren ellos que nosotros NO (hoy ni en roadmap cercano)
+
+- **RPC/SIGER** (Registro Público de Comercio) + verificación de existencia de la sociedad.
+- **RUG** (Registro Único de Garantías — gravámenes).
+- **Buró de Crédito**: integración directa con autorización 100% digital, score BC vía API.
+  Requiere licenciamiento con el buró — barrera regulatoria alta, no está en nuestro plan.
+- **Syndage Score**: score propio de riesgo (664/850 en su reporte ejemplo) que combina
+  SAT + Buró + RPC + RUG. Nuestro equivalente parcial futuro es `cfdi-validator` (Capas
+  1-4), pero acotado a CFDI — no combina buró/registro público.
+- **Estados financieros reconstruidos completos**: balance, estado de resultados, razones
+  financieras (liquidez, actividad, rentabilidad, apalancamiento) multi-año. Nuestro
+  procesador da IVA/ISR, top contrapartes e integridad — más acotado.
+- Concentración/ranking de clientes y proveedores, nómina histórica, monitoreo con
+  alertas de eventos, certificación ISO 27001 + ciberseguro.
+- Antigüedad de datos desde 2014 (nosotros dependemos de lo que el SAT permite consultar
+  por rango de fechas vía WS, sin histórico ilimitado).
+
+### Su vertical real (por su lista de clientes)
+
+Fondeadora, Clara, Kapital Bank, Finsus, FactorExpres, Fairplay, Jeeves, blu, Bancrea,
+munbi, Mifel, Daimler, BNP Paribas, solvento, albo, Klar, cumplo, Exitus Capital, hey
+banco, engen — **fintechs/neobancos haciendo originación y scoring de crédito**, no ERPs
+ni herramientas de compliance en general. Nuestro público objetivo (fintechs, ERPs de
+terceros, compliance) es más amplio pero se traslapa parcialmente con este segmento.
+
+### Ancla sugerida para TodoConta (hipótesis, sujeta a validar con el primer cliente)
+
+Nuestro alcance hoy (CSF, 32-D, CFDI masivo, procesador básico+Excel, calculadoras,
+listas negras 69/69-B) es un subconjunto real del de Syntage — falta Buró/RPC/RUG/score
+propio/estados financieros completos. Cobrar cerca de sus tiers no sería creíble; cobrar
+muy por debajo tira la estrategia de "vender caro, demo-gated" ya decidida. Punto de
+partida razonable para cotizar (NO público, solo ancla interna):
+
+- Entrada (~20-25 empresas/mes): **$2,000–$3,000 MXN/mes**
+- Siguiente escalón (~75 empresas/mes): **$5,000–$6,500 MXN/mes**
+- Entidad adicional: **~$120–180 MXN** · Extracción adicional: **~$8–12 MXN**
+
+Esto es ~30-40% del precio de Syntage para un volumen comparable, coherente con que
+cubrimos una fracción real de su alcance. Validar con el apetito real del primer
+prospecto antes de fijarlo — el objetivo de Fase 1 sigue siendo cerrar ese primer cliente,
+no publicar una tabla de precios perfecta.
+
 ## Sprint futuro (fase 2+, solo si Fase 1 valida)
 
 1. Self-serve completo de `api_keys` (página en la cuenta del usuario).
