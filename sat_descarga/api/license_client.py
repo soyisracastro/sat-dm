@@ -452,6 +452,80 @@ def _post_desktop(
     raise RuntimeError(_mensaje_usuario(resp))
 
 
+# ---------------------------------------------------------------------------
+# Proxy transparente a /api/desktop/* (pantallas que viven en el renderer ui/)
+# ---------------------------------------------------------------------------
+
+
+def _request_desktop(
+    session: Session,
+    method: str,
+    path: str,
+    *,
+    json_body: Optional[dict] = None,
+    params: Optional[dict] = None,
+    timeout: int = 15,
+) -> requests.Response:
+    """Request crudo a un endpoint `/api/desktop/*` con el Bearer del session.
+    Fallos de red (DNS, timeout, TLS) → `ServicioNoDisponible`."""
+    headers = {"Authorization": f"Bearer {session.access_token}"}
+    if json_body is not None:
+        headers["Content-Type"] = "application/json"
+    try:
+        return requests.request(
+            method,
+            f"{API_BASE_URL}{path}",
+            headers=headers,
+            json=json_body,
+            params=params,
+            timeout=timeout,
+        )
+    except requests.RequestException as e:
+        logger.warning("[license] sin conexión con %s: %s", path, e)
+        raise ServicioNoDisponible(_SIN_CONEXION) from e
+
+
+def proxy_desktop(
+    method: str,
+    path: str,
+    *,
+    json_body: Optional[dict] = None,
+    params: Optional[dict] = None,
+) -> tuple[int, Any]:
+    """
+    Proxya TRANSPARENTEMENTE un endpoint `/api/desktop/*`: llama con el Bearer de
+    la sesión guardada y, si el servicio responde 401 (token vencido), refresca
+    la sesión y reintenta UNA vez. Devuelve `(status_code, body)` con `body` = el
+    JSON parseado (o None si la respuesta no trae JSON).
+
+    A diferencia de las acciones de license (`init_checkout`, …) NO colapsa los
+    errores del servicio: preserva el status para que el router lo espeje (un 400
+    «ponle un nombre» sigue siendo 400, no un 502). Sin sesión →
+    `(401, {"error": ...})`. Fallos de red suben como `ServicioNoDisponible`.
+
+    Funciona igual en desktop y en hosted: ambos tienen la sesión de Supabase.
+    """
+    session = load_session()
+    if session is None:
+        return 401, {"error": "No autenticado"}
+
+    resp = _request_desktop(session, method, path, json_body=json_body, params=params)
+    if resp.status_code == 401:
+        nueva = try_refresh_session(session)
+        if nueva is None:
+            clear_session()
+            return 401, {"error": "Sesión expirada, vuelve a iniciar sesión"}
+        resp = _request_desktop(nueva, method, path, json_body=json_body, params=params)
+        if resp.status_code == 401:
+            clear_session()
+            return 401, {"error": "Sesión expirada, vuelve a iniciar sesión"}
+
+    try:
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, None
+
+
 def _expose_for_tests() -> dict[str, Any]:
     """Helper que no se usa en producción — facilita patcheo en tests."""
     return {
