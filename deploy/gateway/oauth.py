@@ -255,7 +255,7 @@ def _autenticar(email: str, password: str, otp: str) -> dict:
             "/token", {"email": email, "password": password}, params={"grant_type": "password"}
         )
     else:
-        raise HTTPException(status_code=400, detail="Escribe tu contraseña o pide un código a tu correo.")
+        raise HTTPException(status_code=400, detail="Pide un código a tu correo y escríbelo aquí (o entra con tu contraseña).")
     user = data.get("user") or {}
     if not user.get("id"):
         raise HTTPException(status_code=401, detail="La sesión no es válida. Intenta de nuevo.")
@@ -463,14 +463,14 @@ _PAGINA = """<!doctype html>
     __CAMPOS__
     <label for="email">Correo</label>
     <input type="email" name="email" id="email" value="__EMAIL__" required autocomplete="email">
-    <div id="zona-password">
+    <div id="zona-password" class="oculto">
       <label for="password">Contraseña</label>
       <input type="password" name="password" id="password" autocomplete="current-password">
     </div>
-    <div id="zona-otp" class="oculto">
+    <div id="zona-otp">
+      <button type="button" class="secundario" id="btn-enviar">Enviar código a mi correo</button>
       <label for="otp">Código (te lo enviamos por correo)</label>
       <input type="text" name="otp" id="otp" inputmode="numeric" autocomplete="one-time-code">
-      <button type="button" class="secundario" id="btn-enviar">Enviar código a mi correo</button>
     </div>
     <button type="submit">Autorizar</button>
     <a class="alterno" id="alternar">Prefiero entrar con un código a mi correo</a>
@@ -516,7 +516,11 @@ _PAGINA = """<!doctype html>
 """
 
 
-def _pagina(params: dict, mensaje: str = "", con_otp: bool = False, email: str = "",
+# OTP-first: el código al correo es el camino default (igual que el login de
+# la app) — sirve tal cual a quien entró con Google (no tiene contraseña,
+# pero el código a su correo le llega igual); la contraseña queda como
+# alternativa detrás del link.
+def _pagina(params: dict, mensaje: str = "", con_otp: bool = True, email: str = "",
             cliente_nombre: str = "", status: int = 200) -> HTMLResponse:
     campos = "".join(
         f'<input type="hidden" name="{html.escape(k, quote=True)}" value="{html.escape(v, quote=True)}">'
@@ -645,11 +649,14 @@ async def oauth_authorize_decision(request: Request):
         "code_challenge_method": "S256",
         "resource": str(form.get("resource") or ""),
     }
+    password = str(form.get("password") or "")
     try:
-        sesion = _autenticar(email, str(form.get("password") or ""), otp)
+        sesion = _autenticar(email, password, otp)
         _validar_licencia(sesion["access_token"], sesion.get("email"))
     except HTTPException as exc:
-        return _pagina(ocultos, mensaje=str(exc.detail), con_otp=bool(otp.strip()),
+        # Re-render en el modo que el usuario estaba usando (password solo si
+        # la escribió; si no, el default OTP).
+        return _pagina(ocultos, mensaje=str(exc.detail), con_otp=not password,
                        email=email, cliente_nombre=ctx["cliente_nombre"],
                        status=exc.status_code if exc.status_code < 500 else 502)
 
