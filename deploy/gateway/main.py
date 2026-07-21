@@ -29,6 +29,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
+import oauth as oauth_srv
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("gateway")
 
@@ -290,6 +292,13 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/v1/openapi.json",
 )
+
+# OAuth 2.1 para los conectores MCP (claude.ai/ChatGPT): descubrimiento,
+# registro dinámico, autorización (login TodoConta + consentimiento) y tokens.
+# Se registra ANTES del mount de /mcp para que /.well-known y /oauth ganen;
+# fuera del Swagger público (el /v1/openapi.json solo documenta la REST).
+app.include_router(oauth_srv.router)
+app.middleware("http")(oauth_srv.middleware_cors)
 
 
 def _auth(x_api_key: Optional[str], authorization: Optional[str]) -> dict:
@@ -975,17 +984,32 @@ try:
     @app.middleware("http")
     async def _mcp_auth(request: Request, call_next):
         # /v1 se autentica por endpoint; /mcp aquí (las tools leen ctx_user).
+        # Dos credenciales sirven: la API key `tc_…` (Claude Code, harnesses,
+        # Abacus) o un access token OAuth (conectores de claude.ai/ChatGPT).
         if request.url.path.startswith("/mcp"):
+            bearer = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+            api_key = request.headers.get("x-api-key") or (bearer if bearer.startswith("tc_") else "")
             try:
-                user = _validar_key(
-                    request.headers.get("x-api-key")
-                    or (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
-                )
-                _exigir_scope(user, "mcp")
+                if api_key:
+                    user = _validar_key(api_key)
+                    _exigir_scope(user, "mcp")
+                else:
+                    user = oauth_srv.validar_access_token(bearer)
             except HTTPException as e:
                 from fastapi.responses import JSONResponse
 
-                return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+                # El WWW-Authenticate del 401 es lo que lleva al conector a
+                # descubrir el authorization server (RFC 9728).
+                headers = (
+                    {
+                        "WWW-Authenticate": (
+                            f'Bearer resource_metadata="{PUBLIC_BASE}/.well-known/oauth-protected-resource"'
+                        )
+                    }
+                    if e.status_code == 401
+                    else {}
+                )
+                return JSONResponse(status_code=e.status_code, content={"detail": e.detail}, headers=headers)
             ctx_user.set(user)
         return await call_next(request)
 

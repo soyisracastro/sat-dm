@@ -8,7 +8,9 @@
 > Fase 1 (el paso que falta para poder vender): Swagger/OpenAPI y logging de
 > uso básico ✅ (2026-07-20); pendiente onboarding asistido de los primeros
 > 2-3 clientes con `emitir-key.py` (ya funcional, sin self-serve todavía).
-> Contexto general: [despliegue-web.md](despliegue-web.md).
+> **OAuth 2.1 para conectores** (claude.ai/ChatGPT) implementado en el gateway
+> (2026-07-20, sección "OAuth 2.1" abajo) — pendiente desplegar y probar el
+> loop real como conector. Contexto general: [despliegue-web.md](despliegue-web.md).
 
 ## La idea de producto
 
@@ -116,9 +118,10 @@ mismos contratos que la UI (503 transitorio, etc.).
 
 - **Transporte**: Streamable HTTP (el estándar actual para MCP remoto — es lo
   que consumen Claude web/work/code como "custom connector").
-- **Auth**: fase 1 con API key en header (Claude soporta headers custom en
-  conectores); fase 2 OAuth 2.1 (el flujo que piden los conectores de claude.ai
-  para distribución amplia) — el authorization server puede ser Supabase.
+- **Auth**: dos credenciales conviven — API key en header (Claude Code,
+  harnesses, Abacus) y **OAuth 2.1** (conectores de claude.ai/ChatGPT, que NO
+  aceptan headers custom). El propio gateway es el authorization server
+  (`deploy/gateway/oauth.py`); ver la sección "OAuth 2.1" abajo.
 - **Tools** (mismo service layer que REST): `descargar_csf(rfc)`,
   `descargar_opinion(rfc)`, `solicitar_cfdis(rfc, desde, hasta)`,
   `estado_solicitud(id)`, `consultar_listas_negras(rfcs[])`,
@@ -166,6 +169,50 @@ mismos contratos que la UI (503 transitorio, etc.).
   vía `api.todoconta.com/mcp`). Correcto tal cual: no es un pendiente, es
   cómo está diseñado hoy (ver plan B `mcp.todoconta.com` en la sección de
   arquitectura arriba, si el streaming por Vercel llega a dar lata).
+
+## OAuth 2.1 — conectores de claude.ai/ChatGPT (2026-07-20)
+
+El paso que abre el MCP a usuarios finales: los conectores de claude.ai
+(web/Work) y ChatGPT no aceptan headers custom; exigen el flujo OAuth del
+estándar MCP. El gateway es el **authorization server** completo
+(`deploy/gateway/oauth.py`), sin dependencias nuevas:
+
+- **Descubrimiento**: `/.well-known/oauth-protected-resource` (RFC 9728) y
+  `/.well-known/oauth-authorization-server` (RFC 8414; también responde
+  `openid-configuration` y las variantes con sufijo `/mcp` — los conectores
+  prueban distintas). El 401 de `/mcp` lleva
+  `WWW-Authenticate: Bearer resource_metadata="…"`, que es lo que dispara el
+  flujo en el conector.
+- **Registro dinámico** (RFC 7591, claude.ai lo exige): `POST /oauth/register`
+  → `client_id` público sin secret; redirect_uris solo https (http únicamente
+  en localhost, para el MCP Inspector).
+- **`GET/POST /oauth/authorize`**: página de login + consentimiento con
+  branding TodoConta (correo+contraseña o código OTP, mismas llamadas GoTrue y
+  mensajes en español del provisioner) + **validación de licencia** (mismo
+  criterio que la versión web: sin plan activo no se abre espacio). PKCE S256
+  obligatorio; `state` y `resource` (RFC 8707) soportados; client_id o
+  redirect_uri desconocidos cortan con página de error, nunca redirigen.
+- **`POST /oauth/token`**: canje del code (one-shot, TTL 5 min; replay revoca
+  la familia completa) → access token opaco `mcp_at_…` (1 h) + refresh
+  `mcp_rt_…` **rotativo** (90 días; reusar uno rotado también revoca la
+  familia). `POST /oauth/revoke` (RFC 7009) para el disconnect del conector.
+- **Storage**: SQLite en el volumen `gateway-datos:/data` (tablas
+  clients/codes/tokens; solo hashes SHA-256 de codes y tokens, nunca en claro).
+  Rate limit por IP en todo `/oauth/*`; los tokens jamás se loguean.
+- **Middleware `/mcp`**: acepta `Authorization: Bearer <token OAuth>` ADEMÁS de
+  la API key `tc_…` de siempre (las keys no cambian). El token resuelve al
+  mismo `ctx_user` con scope `mcp`.
+- **Envs opcionales** (defaults iguales al provisioner): `LICENCIA_URL`,
+  `EXIGIR_LICENCIA`, `ALLOWLIST_EMAILS`, `TODOCONTA_SUPABASE_ANON_KEY`,
+  `OAUTH_DB_PATH`.
+- **Traefik**: el router del gateway ahora también publica `/oauth` y
+  `/.well-known` (docker-compose.yml).
+
+**Loop de prueba** (tras rebuild del gateway en el VPS): claude.ai → Settings →
+Connectors → Add custom connector → `https://agente.todoconta.com/mcp` → debe
+disparar el registro dinámico → login TodoConta → consentimiento → tools
+visibles en el chat. Después ChatGPT (developer mode). Verificar el refresh
+pasada 1 h. Tests locales: `tests/test_gateway_oauth.py`.
 
 ## Pricing — referencia de mercado (Syntage, demo privada 2026-07)
 
@@ -232,9 +279,12 @@ no publicar una tabla de precios perfecta.
 
 ## Sprint futuro (fase 2+, solo si Fase 1 valida)
 
-1. Self-serve completo de `api_keys` (página en la cuenta del usuario).
-2. Persistir logs de uso en Supabase (tabla de facturación), Redis+redundancia
+Ya NO están aquí (se completaron): self-serve de `api_keys` (`/cuenta/api`,
+apps#214), rewrite `/v1/*` del legacy (PR #212), servidor MCP en el gateway y
+OAuth 2.1 para conectores (sección arriba).
+
+1. Persistir logs de uso en Supabase (tabla de facturación), Redis+redundancia
    del gateway, status page, Sentry en el gateway.
-3. Rewrite `/v1/*` en el proyecto legacy → gateway.
-4. Servidor MCP sobre el mismo gateway + probar como conector en Claude.
-5. Decidir pricing/cuotas por key (producto).
+2. Decidir pricing/cuotas por key (producto).
+3. UI de "conexiones autorizadas" en la cuenta (listar/revocar tokens OAuth
+   desde app.todoconta.com; hoy la revocación es el disconnect del conector).
