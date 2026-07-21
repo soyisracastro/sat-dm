@@ -10,6 +10,7 @@ import base64
 import importlib
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -76,20 +77,71 @@ def _blob_pdf(resultado):
     return base64.b64decode(recurso.resource.blob)
 
 
+def _hace_dias(n: int) -> str:
+    return (datetime.now() - timedelta(days=n)).isoformat(timespec="seconds")
+
+
+def _sin_archivada(gw, monkeypatch):
+    monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": (None, None))
+
+
+def _post_prohibido(gw, monkeypatch):
+    """El portal del SAT NO debe tocarse cuando la copia reciente basta."""
+    def _explota(url, **kw):
+        raise AssertionError("no debía generar una nueva (requests.post llamado)")
+    monkeypatch.setattr(gw.requests, "post", _explota)
+
+
 class TestDescargarCsf:
     def test_generada_ahora_se_adjunta(self, gw, monkeypatch):
+        """El agente responde {"ok": True, "archivo": ruta} — la forma REAL de
+        routers/portal.py (el gateway buscaba path/ruta y nunca la encontraba)."""
+        _sin_archivada(gw, monkeypatch)
         monkeypatch.setattr(gw, "_activar_empresa", lambda base, h, rfc: {"metodos": ["fiel"], "efirma_lista": True})
-        monkeypatch.setattr(gw.requests, "post", lambda url, **kw: SimpleNamespace(status_code=200, json=lambda: {"path": "constancia/x.pdf"}))
+        monkeypatch.setattr(gw.requests, "post", lambda url, **kw: SimpleNamespace(status_code=200, json=lambda: {"ok": True, "archivo": "constancia/x.pdf"}))
         monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
 
         resultado = _call(gw, "descargar_csf", {"rfc": RFC})
         assert _blob_pdf(resultado) == PDF_FALSO
-        assert "recién" not in resultado[0].text  # solo lleva nota cuando es del archivo
+        assert "copia" not in resultado[0].text  # sin nota: es recién generada
         assert RFC in resultado[0].text
+
+    def test_copia_reciente_se_entrega_al_instante(self, gw, monkeypatch):
+        """Copia de ≤90 días → se entrega sin scrapear el portal, declarando la
+        antigüedad y cómo pedir una nueva (forzar_nueva)."""
+        monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": ("csf/reciente.pdf", _hace_dias(10)))
+        monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
+        _post_prohibido(gw, monkeypatch)
+
+        resultado = _call(gw, "descargar_csf", {"rfc": RFC})
+        assert _blob_pdf(resultado) == PDF_FALSO
+        assert "hace 10 días" in resultado[0].text
+        assert "forzar_nueva" in resultado[0].text
+
+    def test_forzar_nueva_ignora_la_copia_reciente(self, gw, monkeypatch):
+        monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": ("csf/reciente.pdf", _hace_dias(10)))
+        monkeypatch.setattr(gw, "_activar_empresa", lambda base, h, rfc: {"metodos": ["fiel"], "efirma_lista": True})
+        monkeypatch.setattr(gw.requests, "post", lambda url, **kw: SimpleNamespace(status_code=200, json=lambda: {"ok": True, "archivo": "constancia/nueva.pdf"}))
+        monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
+
+        resultado = _call(gw, "descargar_csf", {"rfc": RFC, "forzar_nueva": True})
+        assert _blob_pdf(resultado) == PDF_FALSO
+        assert "forzar_nueva" not in resultado[0].text  # recién generada, sin nota
+
+    def test_copia_vieja_no_cuenta_como_reciente(self, gw, monkeypatch):
+        """>90 días → se genera una nueva (la copia solo queda como fallback)."""
+        monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": ("csf/vieja.pdf", _hace_dias(197)))
+        monkeypatch.setattr(gw, "_activar_empresa", lambda base, h, rfc: {"metodos": ["fiel"], "efirma_lista": True})
+        monkeypatch.setattr(gw.requests, "post", lambda url, **kw: SimpleNamespace(status_code=200, json=lambda: {"ok": True, "archivo": "constancia/nueva.pdf"}))
+        monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
+
+        resultado = _call(gw, "descargar_csf", {"rfc": RFC})
+        assert _blob_pdf(resultado) == PDF_FALSO
+        assert "copia" not in resultado[0].text
 
     def test_sin_efirma_cae_a_la_copia_archivada(self, gw, monkeypatch):
         monkeypatch.setattr(gw, "_activar_empresa", lambda base, h, rfc: {"metodos": [], "efirma_lista": False})
-        monkeypatch.setattr(gw, "_csf_archivada", lambda base, h, rfc: ("archivo/vieja.pdf", "2026-01-05T00:00:00Z"))
+        monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": ("archivo/vieja.pdf", "2026-01-05T00:00:00"))
         monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
 
         resultado = _call(gw, "descargar_csf", {"rfc": RFC})
@@ -99,7 +151,7 @@ class TestDescargarCsf:
 
     def test_sin_efirma_ni_archivo_solo_texto(self, gw, monkeypatch):
         monkeypatch.setattr(gw, "_activar_empresa", lambda base, h, rfc: {"metodos": [], "efirma_lista": False})
-        monkeypatch.setattr(gw, "_csf_archivada", lambda base, h, rfc: (None, None))
+        _sin_archivada(gw, monkeypatch)
 
         resultado = _call(gw, "descargar_csf", {"rfc": RFC})
         assert len(resultado) == 1
@@ -110,7 +162,7 @@ class TestDescargarCsf:
         def _activar(base, h, rfc):
             raise HTTPException(status_code=409, detail="La e.firma no es válida.")
         monkeypatch.setattr(gw, "_activar_empresa", _activar)
-        monkeypatch.setattr(gw, "_csf_archivada", lambda base, h, rfc: ("archivo/vieja.pdf", None))
+        monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": ("archivo/vieja.pdf", None))
         monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
 
         resultado = _call(gw, "descargar_csf", {"rfc": RFC})
@@ -120,7 +172,7 @@ class TestDescargarCsf:
         def _activar(base, h, rfc):
             raise HTTPException(status_code=404, detail=f"La empresa {rfc} no existe.")
         monkeypatch.setattr(gw, "_activar_empresa", _activar)
-        monkeypatch.setattr(gw, "_csf_archivada", lambda base, h, rfc: (None, None))
+        _sin_archivada(gw, monkeypatch)
 
         resultado = _call(gw, "descargar_csf", {"rfc": RFC})
         assert len(resultado) == 1
@@ -129,28 +181,33 @@ class TestDescargarCsf:
 
 class TestDescargarOpinion:
     def test_generada_se_adjunta(self, gw, monkeypatch):
+        _sin_archivada(gw, monkeypatch)
         monkeypatch.setattr(gw, "_activar_empresa", lambda base, h, rfc: {"metodos": ["fiel"], "efirma_lista": True})
-        monkeypatch.setattr(gw.requests, "post", lambda url, **kw: SimpleNamespace(status_code=200, json=lambda: {"path": "opinion/x.pdf"}))
+        monkeypatch.setattr(gw.requests, "post", lambda url, **kw: SimpleNamespace(status_code=200, json=lambda: {"ok": True, "archivo": "opinion/x.pdf"}))
         monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
 
         resultado = _call(gw, "descargar_opinion", {"rfc": RFC})
         assert _blob_pdf(resultado) == PDF_FALSO
 
-    def test_sin_efirma_NO_cae_a_archivo(self, gw, monkeypatch):
-        """A diferencia de la CSF, la Opinión 32-D nunca usa una copia vieja: es
-        una foto de cumplimiento puntual y una vieja podría engañar."""
+    def test_copia_dentro_de_30_dias_al_instante(self, gw, monkeypatch):
+        monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": ("op/reciente.pdf", _hace_dias(7)))
+        monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: PDF_FALSO)
+        _post_prohibido(gw, monkeypatch)
+
+        resultado = _call(gw, "descargar_opinion", {"rfc": RFC})
+        assert _blob_pdf(resultado) == PDF_FALSO
+        assert "hace 7 días" in resultado[0].text
+
+    def test_copia_fuera_de_30_dias_NO_se_entrega(self, gw, monkeypatch):
+        """Una opinión de >30 días no sirve ni como cache ni como fallback: es una
+        foto de cumplimiento puntual y una vieja podría engañar."""
+        monkeypatch.setattr(gw, "_doc_archivado", lambda base, h, rfc, prefijo="csf": ("op/vieja.pdf", _hace_dias(45)))
         monkeypatch.setattr(gw, "_activar_empresa", lambda base, h, rfc: {"metodos": [], "efirma_lista": False})
-        llamada = {"hecha": False}
 
-        def _archivada_no_deberia_llamarse(base, h, rfc):
-            llamada["hecha"] = True
-            return ("no-debe-usarse.pdf", None)
-
-        monkeypatch.setattr(gw, "_csf_archivada", _archivada_no_deberia_llamarse)
         resultado = _call(gw, "descargar_opinion", {"rfc": RFC})
         assert len(resultado) == 1
         assert isinstance(resultado[0], TextContent)
-        assert not llamada["hecha"]
+        assert "e.firma" in resultado[0].text
 
 
 class TestDescargarZipCfdis:
@@ -168,8 +225,27 @@ class TestDescargarZipCfdis:
         assert recurso.resource.mimeType == "application/zip"
         assert base64.b64decode(recurso.resource.blob) == ZIP_FALSO
 
+    def test_ruta_desde_el_historial(self, gw, monkeypatch):
+        """update_solicitud NUNCA persiste la ruta — la fuente real es el historial
+        (el poller registra "Descarga WS · solicitud {id[:8]}…" con la ruta)."""
+        def _fake_get(url, headers=None, timeout=None):
+            if url.endswith("/historial"):
+                return SimpleNamespace(status_code=200, json=lambda: {"descargas": [
+                    {"canal": "portal", "descripcion": "CSF", "ruta": "no/es.zip"},
+                    {"canal": "ws", "descripcion": "Descarga WS · solicitud abcd1234… (automática)", "ruta": "cfdi/ws.zip"},
+                ]})
+            return SimpleNamespace(status_code=200, json=lambda: {
+                "solicitudes": [{"id_solicitud": "abcd1234-5678", "estado": "descargada"}]  # sin ruta
+            })
+        monkeypatch.setattr(gw.requests, "get", _fake_get)
+        monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: ZIP_FALSO if ruta == "cfdi/ws.zip" and zip_ else b"")
+
+        resultado = _call(gw, "descargar_zip_cfdis", {"rfc": RFC, "id_solicitud": "abcd1234-5678"})
+        assert len(resultado) == 2
+        assert base64.b64decode(resultado[1].resource.blob) == ZIP_FALSO
+
     def test_no_lista_todavia(self, gw, monkeypatch):
-        monkeypatch.setattr(gw.requests, "get", lambda url, headers=None, timeout=None: SimpleNamespace(status_code=200, json=lambda: {"solicitudes": []}))
+        monkeypatch.setattr(gw.requests, "get", lambda url, headers=None, timeout=None: SimpleNamespace(status_code=200, json=lambda: {"solicitudes": [], "descargas": []}))
         resultado = _call(gw, "descargar_zip_cfdis", {"rfc": RFC, "id_solicitud": "sid-nope"})
         assert len(resultado) == 1
         assert "estado_solicitud" in resultado[0].text
