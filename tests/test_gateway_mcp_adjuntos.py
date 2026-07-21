@@ -31,9 +31,10 @@ RFC = "CAMY89051862A"
 
 @pytest.fixture(scope="module")
 def gw(tmp_path_factory):
-    previos = {k: os.environ.get(k) for k in ("OAUTH_DB_PATH", "EXIGIR_LICENCIA")}
+    previos = {k: os.environ.get(k) for k in ("OAUTH_DB_PATH", "EXIGIR_LICENCIA", "SAT_DM_MASTER_KEY")}
     os.environ["OAUTH_DB_PATH"] = str(tmp_path_factory.mktemp("oauth") / "oauth.db")
     os.environ["EXIGIR_LICENCIA"] = "0"
+    os.environ["SAT_DM_MASTER_KEY"] = base64.b64encode(b"0" * 32).decode()  # firma de enlaces
     sys.path.insert(0, str(GATEWAY_DIR))
     for mod in ("main", "oauth"):
         sys.modules.pop(mod, None)
@@ -105,6 +106,8 @@ class TestDescargarCsf:
         assert _blob_pdf(resultado) == PDF_FALSO
         assert "copia" not in resultado[0].text  # sin nota: es recién generada
         assert RFC in resultado[0].text
+        # Enlace firmado en el texto (para clientes que no pintan el PDF embebido).
+        assert "/v1/descargas/firmada?t=" in resultado[0].text
 
     def test_copia_reciente_se_entrega_al_instante(self, gw, monkeypatch):
         """Copia de ≤90 días → se entrega sin scrapear el portal, declarando la
@@ -260,9 +263,10 @@ class TestDescargarZipCfdis:
         monkeypatch.setattr(gw, "_bytes_de_agente", lambda base, h, ruta, zip_=False: gigante)
 
         resultado = _call(gw, "descargar_zip_cfdis", {"rfc": RFC, "id_solicitud": "sid-grande"})
-        assert len(resultado) == 1
+        assert len(resultado) == 1  # sin blob: solo el enlace firmado
         assert "MB" in resultado[0].text
-        assert "X-Api-Key" in resultado[0].text
+        assert "/v1/descargas/firmada?t=" in resultado[0].text
+        assert "X-Api-Key" not in resultado[0].text  # el enlace ya NO necesita API key
 
 
 class TestExcelCfdis:
@@ -273,6 +277,7 @@ class TestExcelCfdis:
         recurso = resultado[1]
         assert "spreadsheet" in recurso.resource.mimeType
         assert base64.b64decode(recurso.resource.blob) == XLSX_FALSO
+        assert "/v1/descargas/firmada?t=" in resultado[0].text  # enlace de export firmado
 
     def test_csv_usa_mime_csv(self, gw, monkeypatch):
         monkeypatch.setattr(gw.requests, "get", lambda url, headers=None, params=None, timeout=None: SimpleNamespace(status_code=200, content=b"a,b,c"))
