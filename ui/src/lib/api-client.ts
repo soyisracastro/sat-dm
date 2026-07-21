@@ -1375,6 +1375,27 @@ export class SatApiClient {
     }
     return await r.blob();
   }
+
+  // -----------------------------------------------------------------------
+  // API keys de la cuenta (gestión + conexión MCP)
+  // -----------------------------------------------------------------------
+  // El agente proxya a la API de servicios con el Bearer de la sesión; el
+  // renderer nunca ve el token. Aplica en desktop y en web por igual.
+
+  /** Lista las API keys del usuario (activas y revocadas, recientes primero). */
+  async listApiKeys(): Promise<ListApiKeysResponse> {
+    return this.request<ListApiKeysResponse>('/cuenta/api-keys');
+  }
+
+  /** Emite una API key nueva. La key completa viaja UNA sola vez en la respuesta. */
+  async createApiKey(nombre: string): Promise<CreateApiKeyResponse> {
+    return this.post<CreateApiKeyResponse>('/cuenta/api-keys', { nombre });
+  }
+
+  /** Revoca una API key por id (los sistemas que la usen dejan de funcionar). */
+  async revokeApiKey(id: string): Promise<{ ok: boolean }> {
+    return this.del<{ ok: boolean }>(`/cuenta/api-keys?id=${encodeURIComponent(id)}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1469,6 +1490,32 @@ export interface TransferIntentResponse {
   promo: boolean;
   banco: DatosBancarios;
   message?: string;
+}
+
+// ---------------------------------------------------------------------------
+// API keys de la cuenta (API pública + MCP)
+// ---------------------------------------------------------------------------
+
+export interface ApiKey {
+  id: string;
+  nombre: string;
+  prefijo: string;
+  scopes: string[];
+  creada_en: string;
+  ultima_vez_usada: string | null;
+  revocada_en: string | null;
+}
+
+export interface ListApiKeysResponse {
+  keys: ApiKey[];
+}
+
+/** Respuesta al emitir una key: `key` es el secreto completo (se ve UNA vez). */
+export interface CreateApiKeyResponse {
+  key: string;
+  prefijo: string;
+  nombre: string;
+  scopes: string[];
 }
 
 

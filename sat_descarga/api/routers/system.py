@@ -573,3 +573,72 @@ def auth_logout():
 
     lc.clear_session()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# API keys de la cuenta (proxy a /api/desktop/api-keys)
+# ---------------------------------------------------------------------------
+#
+# La gestión de API keys + conexión MCP vive en la UI del renderer (ui/), igual
+# en desktop y en la web (antes solo la servía la página legacy /cuenta/api con
+# el diseño viejo, que el desktop ni siquiera veía). El agente proxya a la API
+# de servicios con el Bearer de la sesión (mismo patrón que /auth/license): el
+# renderer nunca ve el token, y funciona en ambos modos porque el agente siempre
+# tiene la sesión.
+
+
+class CrearApiKeyRequest(BaseModel):
+    nombre: str = ""
+
+
+def _espejar_proxy(status: int, body):
+    """Espeja la respuesta cruda del proxy (`license_client.proxy_desktop`): un
+    2xx devuelve el JSON tal cual; los errores levantan HTTPException con el
+    mensaje del servicio (campo `error`), preservando el status para que el
+    renderer lo muestre igual (un 400 sigue siendo 400, no un 502)."""
+    if 200 <= status < 300:
+        return body if body is not None else {}
+    detail = "No se pudo completar la operación."
+    if isinstance(body, dict):
+        detail = body.get("error") or body.get("detail") or detail
+    raise HTTPException(status_code=status, detail=detail)
+
+
+@router.get("/cuenta/api-keys")
+def cuenta_api_keys_listar():
+    """Lista las API keys del usuario (prefijo, último uso, revocación)."""
+    from .. import license_client as lc
+
+    try:
+        status, body = lc.proxy_desktop("GET", "/api/desktop/api-keys")
+    except lc.ServicioNoDisponible as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return _espejar_proxy(status, body)
+
+
+@router.post("/cuenta/api-keys")
+def cuenta_api_keys_crear(req: CrearApiKeyRequest):
+    """Emite una API key nueva. La key completa viaja UNA sola vez en la respuesta."""
+    from .. import license_client as lc
+
+    try:
+        status, body = lc.proxy_desktop(
+            "POST", "/api/desktop/api-keys", json_body={"nombre": req.nombre}
+        )
+    except lc.ServicioNoDisponible as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return _espejar_proxy(status, body)
+
+
+@router.delete("/cuenta/api-keys")
+def cuenta_api_keys_revocar(id: str):
+    """Revoca una API key por id (los sistemas que la usen dejan de funcionar)."""
+    from .. import license_client as lc
+
+    try:
+        status, body = lc.proxy_desktop(
+            "DELETE", "/api/desktop/api-keys", params={"id": id}
+        )
+    except lc.ServicioNoDisponible as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return _espejar_proxy(status, body)

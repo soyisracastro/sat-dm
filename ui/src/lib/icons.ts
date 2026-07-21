@@ -130,6 +130,9 @@ import eyeSlash from '@iconify-icons/ph/eye-slash-light';
 // Atajos de teclado (card en /ayuda).
 import keyboard from '@iconify-icons/ph/keyboard-light';
 
+// API keys + conexión MCP (Ajustes → API y conexiones).
+import plugsConnected from '@iconify-icons/ph/plugs-connected-light';
+
 // Calculadoras (nav + cards del índice + export premium).
 import calculator from '@iconify-icons/ph/calculator-light';
 import factory from '@iconify-icons/ph/factory-light';
@@ -256,6 +259,9 @@ addIcon('ph:eye-slash-light', eyeSlash);
 
 // Atajos de teclado (ver bloque de imports arriba).
 addIcon('ph:keyboard-light', keyboard);
+
+// API keys + conexión MCP (ver bloque de imports arriba).
+addIcon('ph:plugs-connected-light', plugsConnected);
 
 // Calculadoras (ver bloque de imports arriba).
 addIcon('ph:calculator-light', calculator);

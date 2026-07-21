@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTheme } from 'next-themes';
+import Link from 'next/link';
 
 import { cn } from '@/lib/utils';
 import { useServer } from '@/providers/server-provider';
@@ -329,6 +330,20 @@ export default function AjustesPage() {
                 checked={notifPrefs.efirma}
                 onCheckedChange={(v) => actualizarNotif({ efirma: v })}
               />
+            }
+          />
+        </AjCard>
+
+        {/* API y conexiones (MCP): gestión de keys + conector de IA. Aplica en
+            Desktop y Web por igual (el agente tiene la sesión en ambos). */}
+        <AjCard icon="ph:plugs-connected-light" title="API y conexiones (MCP)">
+          <AjRow
+            label="API keys y conexión con IA"
+            sub="Emite y revoca las keys para conectar tus sistemas —o tu asistente de IA vía MCP— a TodoConta."
+            control={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/ajustes/api">Administrar</Link>
+              </Button>
             }
           />
         </AjCard>
