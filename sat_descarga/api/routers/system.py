@@ -642,3 +642,88 @@ def cuenta_api_keys_revocar(id: str):
     except lc.ServicioNoDisponible as e:
         raise HTTPException(status_code=503, detail=str(e))
     return _espejar_proxy(status, body)
+
+
+# ---------------------------------------------------------------------------
+# Equipo (despachos/empresarial) — proxy a /api/desktop/teams/*
+# ---------------------------------------------------------------------------
+#
+# Misma idea que las API keys: la gestión de equipo (miembros, invitaciones,
+# permisos por empresa) vive en el renderer `ui/`, igual en Desktop y Web. El
+# agente proxya a la API de servicios con el Bearer de la sesión. El allow-list
+# por empresa usa los `id` de la tabla `empresas` de Supabase (concepto cloud),
+# que el catálogo local del agente no conoce → se sirve por `/cuenta/teams/empresas`.
+
+
+class InvitarMiembroRequest(BaseModel):
+    email: str
+
+
+class RemoverMiembroRequest(BaseModel):
+    member_id: str
+
+
+class PermisosMiembroRequest(BaseModel):
+    member_id: str
+    access_mode: str  # "all" | "restricted"
+    empresa_ids: List[str] = []
+
+
+def _proxy_cuenta(method: str, path: str, *, json_body=None, params=None):
+    """Proxya a `/api/desktop/*` con el Bearer de la sesión y espeja la respuesta
+    (preserva el status). Red caída → 503 (transitorio, no se reporta a Sentry)."""
+    from .. import license_client as lc
+
+    try:
+        status, body = lc.proxy_desktop(method, path, json_body=json_body, params=params)
+    except lc.ServicioNoDisponible as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return _espejar_proxy(status, body)
+
+
+@router.get("/cuenta/teams")
+def cuenta_teams_listar():
+    """Equipo del usuario + miembros + isAdmin (o `{team: null}` si no tiene equipo)."""
+    return _proxy_cuenta("GET", "/api/desktop/teams")
+
+
+@router.get("/cuenta/teams/empresas")
+def cuenta_teams_empresas():
+    """Empresas del equipo (con id de Supabase) para el allow-list de permisos."""
+    return _proxy_cuenta("GET", "/api/desktop/teams/empresas")
+
+
+@router.post("/cuenta/teams/members")
+def cuenta_teams_invitar(req: InvitarMiembroRequest):
+    """Invita a un miembro por correo (solo admin)."""
+    return _proxy_cuenta(
+        "POST", "/api/desktop/teams/members", json_body={"email": req.email}
+    )
+
+
+@router.delete("/cuenta/teams/members")
+def cuenta_teams_remover(req: RemoverMiembroRequest):
+    """Remueve a un miembro del equipo (solo admin)."""
+    return _proxy_cuenta(
+        "DELETE", "/api/desktop/teams/members", json_body={"member_id": req.member_id}
+    )
+
+
+@router.post("/cuenta/teams/leave")
+def cuenta_teams_salir():
+    """El usuario sale de su equipo (el admin no puede: debe cancelar la suscripción)."""
+    return _proxy_cuenta("POST", "/api/desktop/teams/leave")
+
+
+@router.patch("/cuenta/teams/members/permissions")
+def cuenta_teams_permisos(req: PermisosMiembroRequest):
+    """Ajusta el modo de acceso y el allow-list de empresas de un miembro (solo admin)."""
+    return _proxy_cuenta(
+        "PATCH",
+        "/api/desktop/teams/members/permissions",
+        json_body={
+            "member_id": req.member_id,
+            "access_mode": req.access_mode,
+            "empresa_ids": req.empresa_ids,
+        },
+    )
