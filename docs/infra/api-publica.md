@@ -127,20 +127,35 @@ mismos contratos que la UI (503 transitorio, etc.).
   `estado_solicitud(id)`, `descargar_zip_cfdis(rfc, id_solicitud)`,
   `excel_cfdis(rfc, desde, hasta, direccion, formato)`,
   `consultar_listas_negras(rfcs[])`, `listar_empresas()`, calculadoras.
-- **Archivos: blob embebido, no link** (2026-07-21, corrige el diseño
-  original de "links firmados de descarga"). Un QA real mostró el hueco: el
-  asistente no tiene la API key del usuario, así que un link por sí solo lo
-  dejaba sin poder entregar el archivo en el chat ("Lo ideal sería poder
-  llamarlos en el chat"). Ahora `descargar_csf`/`descargar_opinion`/
-  `descargar_zip_cfdis`/`excel_cfdis` devuelven el archivo embebido
-  (`EmbeddedResource` + `BlobResourceContents` en base64, tipo estándar del
-  SDK MCP) en la misma respuesta de la tool — el cliente lo adjunta directo,
-  sin una segunda llamada. Tope de 20 MB para ZIP/Excel (un PDF de CSF/Opinión
-  nunca se acerca): por encima, cae al link + API key en vez de atorar el
-  chat con un blob gigante. La CSF conserva el fallback a la última copia en
-  archivo si no hay e.firma o el SAT está caído; la Opinión 32-D NO (es una
-  foto de cumplimiento puntual, una vieja engaña). Implementación:
-  `deploy/gateway/main.py` (`_mcp_documento`, `_mcp_pdf`, `_mcp_adjuntar`).
+- **Archivos: blob embebido + enlace firmado** (2026-07-21). Evolución en dos
+  pasos, ambos por QA real:
+  1. Primero se cambió el link por **blob embebido** (`EmbeddedResource` +
+     `BlobResourceContents` base64, tipo estándar del SDK MCP): el asistente no
+     tiene la API key del usuario, así que un link que la pedía lo dejaba sin
+     entregar el archivo.
+  2. Pero **claude.ai web hoy NO renderiza recursos `application/pdf`**
+     embebidos (responde "Resources of type 'application/pdf' are not currently
+     supported"; sí lo pintan Claude Desktop y el connector vía API con
+     `mcpResourceToFile`). Así que ahora TODA respuesta con archivo incluye
+     **además un enlace de descarga firmado** — el camino que funciona en
+     cualquier cliente. El usuario da clic y baja el PDF/ZIP/Excel en su
+     navegador **sin API key ni sesión**.
+- **Enlace firmado** (`GET /v1/descargas/firmada?t=<token>`, fuera del Swagger):
+  token HMAC opaco firmado con una clave derivada de `SAT_DM_MASTER_KEY` (no
+  expone nada nuevo), scope a un `user_id` + qué bajar + expiración de 1 h,
+  imposible de falsificar. Dos modos: `r` (archivo guardado del agente — CSF,
+  Opinión, ZIP; la ruta la revalida la lista blanca del agente) y `x` (export
+  del procesador en vivo — Excel/CSV, no es un archivo guardado). El endpoint
+  valida firma+expiración, deriva el agente y streamea. Helpers:
+  `_firmar_token`/`_verificar_descarga`/`_link_firmado`/`_link_export`.
+- Las 4 tools (`descargar_csf`/`descargar_opinion`/`descargar_zip_cfdis`/
+  `excel_cfdis`) devuelven texto con el enlace firmado + el blob embebido
+  (bonus para clientes que lo pintan). Tope de 20 MB para ZIP/Excel: por encima
+  se manda **solo el enlace** (sin blob, ya sin API key). La CSF conserva el
+  fallback a la última copia en archivo si no hay e.firma o el SAT está caído;
+  la Opinión 32-D NO (foto de cumplimiento puntual, una vieja engaña).
+  Implementación: `deploy/gateway/main.py` (`_mcp_documento`, `_mcp_pdf`,
+  `_mcp_adjuntar`).
 - **Dónde corre**: en el gateway del VPS (Python — FastAPI + SDK MCP oficial),
   junto a la validación de keys y la derivación de agentes. Si el proxy de
   Vercel bufferea el streaming, se publica directo como `mcp.todoconta.com`

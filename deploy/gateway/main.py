@@ -18,6 +18,7 @@ import contextvars
 from contextlib import asynccontextmanager
 import hashlib
 import hmac
+import json
 import logging
 import os
 import threading
@@ -55,6 +56,74 @@ def _master_key() -> bytes:
     if not raw:
         raise RuntimeError("SAT_DM_MASTER_KEY no está configurada")
     return base64.b64decode(raw)
+
+
+# ---------------------------------------------------------------------------
+# Enlaces de descarga firmados (para clientes MCP que no renderizan el PDF
+# embebido — p. ej. claude.ai web hoy: "Resources of type 'application/pdf'
+# are not currently supported"). El token HMAC lleva su propia autorización:
+# el usuario lo abre en su navegador SIN API key ni sesión. Firmado con una
+# clave derivada de la master key (no expone nada nuevo), scope a un user_id +
+# ruta concretos y expiración corta.
+# ---------------------------------------------------------------------------
+
+_LINK_TTL_S = 3600  # 1 h: suficiente para que el usuario dé clic
+
+
+def _clave_firma() -> bytes:
+    return hmac.new(_master_key(), b"descargas-firmadas:v1", hashlib.sha256).digest()
+
+
+def _b64u(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _b64u_dec(txt: str) -> bytes:
+    return base64.urlsafe_b64decode(txt + "=" * (-len(txt) % 4))
+
+
+def _firmar_token(payload_dict: dict, expira: int) -> str:
+    """Token opaco firmado con HMAC. `expira` es epoch (se pasa desde el request; el
+    módulo no llama a time.time en la firma para ser determinista en tests)."""
+    payload = _b64u(json.dumps({**payload_dict, "e": expira}, separators=(",", ":")).encode())
+    firma = _b64u(hmac.new(_clave_firma(), payload.encode(), hashlib.sha256).digest())
+    return f"{payload}.{firma}"
+
+
+def _verificar_descarga(token: str, ahora: int) -> Optional[dict]:
+    """Valida firma + expiración; devuelve el payload (dict) o None. El payload trae
+    `u` (user_id) y o bien `r`/`z` (archivo del agente) o `x` (export del procesador)."""
+    try:
+        payload, firma = token.split(".", 1)
+    except ValueError:
+        return None
+    esperada = _b64u(hmac.new(_clave_firma(), payload.encode(), hashlib.sha256).digest())
+    if not hmac.compare_digest(firma, esperada):
+        return None
+    try:
+        datos = json.loads(_b64u_dec(payload))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if int(datos.get("e", 0)) < ahora:
+        return None
+    return datos
+
+
+def _url_firmada(payload_dict: dict) -> str:
+    token = _firmar_token(payload_dict, int(time.time()) + _LINK_TTL_S)
+    api = PUBLIC_BASE.replace("agente.", "api.")
+    return f"{api}/v1/descargas/firmada?t={token}"
+
+
+def _link_firmado(user_id: str, ruta: str, zip_: bool = False) -> str:
+    """Enlace público (sin API key) que baja un archivo guardado del agente."""
+    return _url_firmada({"u": user_id, "r": ruta, "z": 1 if zip_ else 0})
+
+
+def _link_export(user_id: str, params: dict) -> str:
+    """Enlace público (sin API key) que re-ejecuta un export del procesador (Excel/CSV,
+    que no es un archivo guardado sino una consulta en vivo)."""
+    return _url_firmada({"u": user_id, "x": params})
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +442,33 @@ class RfcRequest(BaseModel):
 @app.get("/v1/health")
 def health():
     return {"status": "ok", "servicio": "gateway"}
+
+
+@app.get("/v1/descargas/firmada", include_in_schema=False)
+def v1_descarga_firmada(t: str = ""):
+    """Baja un archivo con un token firmado — SIN API key ni sesión. Lo emiten
+    las tools MCP para que el usuario abra el PDF/ZIP/Excel en su navegador cuando
+    su cliente no puede renderizar el recurso embebido. El token (HMAC) lleva su
+    propia autorización: user_id + qué bajar + expiración, imposible de falsificar
+    sin la master key; las rutas de archivo las revalida la lista blanca del agente."""
+    datos = _verificar_descarga(t, int(time.time()))
+    if not datos:
+        raise HTTPException(status_code=403, detail="Enlace inválido o expirado. Pide uno nuevo al asistente.")
+    base, headers = _asegurar_agente(datos.get("u", ""))
+    export = datos.get("x")
+    if export is not None:
+        # Export del procesador (Excel/CSV): consulta en vivo, no un archivo guardado.
+        r = requests.get(
+            f"{base}/procesador/cfdi/exportar", headers=headers, params=export, timeout=300, stream=True,
+        )
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=_detalle(r) or "No se pudo exportar.")
+        return StreamingResponse(
+            r.iter_content(chunk_size=65536),
+            media_type=r.headers.get("content-type", "application/octet-stream"),
+            headers={"Content-Disposition": r.headers.get("content-disposition", "attachment")},
+        )
+    return _descargar_de_agente(base, headers, datos.get("r", ""), zip_=bool(datos.get("z")))
 
 
 @app.get("/v1/empresas")
@@ -756,38 +852,46 @@ try:
             raise RuntimeError("Sesión MCP sin API key válida.")
         return user
 
-    # Por encima de esto, mejor el link con la API key que atorar el chat con un
-    # blob gigante: un ZIP de meses de CFDIs o un Excel grande sí pueden pesarlo
-    # (a diferencia de un PDF de CSF/Opinión, que nunca se acerca).
+    # Por encima de esto no se adjunta el blob (un ZIP de meses de CFDIs o un
+    # Excel grande sí pueden pesarlo) — se entrega solo el enlace firmado.
     _LIMITE_ADJUNTO_MCP = 20 * 1024 * 1024  # 20 MB
 
-    def _mcp_adjuntar(uri: str, mime: str, contenido: bytes, mensaje: str, enlace_fallback: str) -> list:
+    # No todos los clientes MCP renderizan un recurso embebido: claude.ai web hoy
+    # responde "Resources of type 'application/pdf' are not currently supported".
+    # Por eso TODA respuesta con archivo incluye además un enlace firmado (sin
+    # API key, expira en 1 h) que el usuario abre en su navegador — es el camino
+    # que sí funciona en cualquier cliente. El blob se conserva para los que sí
+    # lo pintan (Claude Desktop, connector vía API).
+    def _texto_enlace(url: str) -> str:
+        return f" Descárgalo aquí (enlace directo, sin contraseña, válido 1 hora): {url}"
+
+    def _mcp_adjuntar(uri: str, mime: str, contenido: bytes, mensaje: str, enlace_url: str) -> list:
         """Como _mcp_pdf pero genérico y con tope de tamaño — ZIPs de CFDIs y Excel
-        del procesador."""
+        del procesador. Siempre incluye el enlace firmado; adjunta el blob salvo que
+        pese de más. `enlace_url` es la URL firmada ya construida (archivo o export)."""
+        link = _texto_enlace(enlace_url)
         if len(contenido) > _LIMITE_ADJUNTO_MCP:
             peso = len(contenido) / 1_048_576
-            return [TextContent(type="text", text=(
-                f"{mensaje} Pesa {peso:.1f} MB — demasiado grande para adjuntar aquí; bájalo con "
-                f"tu API key: {enlace_fallback}"
-            ))]
+            return [TextContent(type="text", text=f"{mensaje} Pesa {peso:.1f} MB, muy grande para adjuntar aquí.{link}")]
         blob = base64.b64encode(contenido).decode()
         return [
-            TextContent(type="text", text=mensaje),
+            TextContent(type="text", text=f"{mensaje}{link}"),
             EmbeddedResource(type="resource", resource=BlobResourceContents(uri=uri, mimeType=mime, blob=blob)),
         ]
 
     def _mcp_pdf(rfc: str, nombre_doc: str, esquema: str, contenido: bytes, origen: str,
-                 fecha: Optional[str] = None, nota: str = "") -> list:
-        """Empaqueta un PDF como contenido embebido (RFC del MCP: EmbeddedResource +
-        BlobResourceContents) — el cliente lo recibe adjunto en la misma respuesta,
-        sin que el asistente necesite la API key del usuario para un segundo request."""
+                 user_id: str, ruta: str, fecha: Optional[str] = None, nota: str = "") -> list:
+        """Empaqueta un PDF: enlace firmado en el texto (funciona en todo cliente) +
+        el recurso embebido (para los que lo pintan). Así el usuario nunca se queda
+        sin el archivo aunque su cliente no renderice el PDF adjunto."""
         if not nota:
             nota = f" (última copia en archivo, generada el {fecha[:10]})" if origen == "archivo" and fecha else (
                 " (última copia en archivo)" if origen == "archivo" else ""
             )
         blob = base64.b64encode(contenido).decode()
+        texto = f"{nombre_doc} de {rfc}{nota}.{_texto_enlace(_link_firmado(user_id, ruta))}"
         return [
-            TextContent(type="text", text=f"{nombre_doc} de {rfc}{nota}. Aquí está el PDF."),
+            TextContent(type="text", text=texto),
             EmbeddedResource(
                 type="resource",
                 resource=BlobResourceContents(
@@ -807,6 +911,7 @@ try:
         cómo pedir una nueva (forzar_nueva=true) — el asistente puede ofrecer al
         usuario "tengo una de hace X días, ¿te sirve o genero una nueva?"."""
         user = _mcp_user()
+        uid = user["user_id"]
         rfc = rfc.strip().upper()
         base, headers = _agente_de(user)
 
@@ -815,7 +920,7 @@ try:
             if not ruta:
                 return None
             try:
-                return _bytes_de_agente(base, headers, ruta), fecha
+                return _bytes_de_agente(base, headers, ruta), fecha, ruta
             except HTTPException:
                 return None
 
@@ -834,7 +939,7 @@ try:
                         f"{frescura_dias} días), entregada al instante; si el usuario necesita "
                         f"una recién emitida por el SAT, vuelve a llamar con forzar_nueva=true"
                     )
-                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "reciente", nota=nota)
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "reciente", uid, ruta, nota=nota)
 
         try:
             activacion = _activar_empresa(base, headers, rfc)
@@ -842,8 +947,8 @@ try:
             if fallback_archivo and exc.status_code == 409:
                 archivada = _archivada()
                 if archivada:
-                    contenido, fecha = archivada
-                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", fecha)
+                    contenido, fecha, ruta = archivada
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", uid, ruta, fecha=fecha)
             return [TextContent(type="text", text=str(exc.detail))]
 
         sin_fiel = "fiel" not in (activacion.get("metodos") or []) or not activacion.get("efirma_lista")
@@ -851,8 +956,8 @@ try:
             if fallback_archivo:
                 archivada = _archivada()
                 if archivada:
-                    contenido, fecha = archivada
-                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", fecha)
+                    contenido, fecha, ruta = archivada
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", uid, ruta, fecha=fecha)
             return [TextContent(type="text", text=(
                 f"La empresa {rfc} no tiene e.firma cargada, así que {nombre_doc.lower()} no se "
                 "puede generar al momento. Carga su e.firma en TodoConta y vuelve a intentarlo."
@@ -863,8 +968,8 @@ try:
             if fallback_archivo:
                 archivada = _archivada()
                 if archivada:
-                    contenido, fecha = archivada
-                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", fecha)
+                    contenido, fecha, ruta = archivada
+                    return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "archivo", uid, ruta, fecha=fecha)
             return [TextContent(type="text", text=f"No se pudo generar {nombre_doc.lower()}: {_detalle(r) or 'error del portal del SAT'}")]
 
         # El agente responde {"ok": True, "archivo": ruta} (routers/portal.py).
@@ -872,7 +977,7 @@ try:
         if not ruta:
             return [TextContent(type="text", text=f"El agente no reportó la ruta de {nombre_doc.lower()}.")]
         contenido = _bytes_de_agente(base, headers, ruta)
-        return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "generado")
+        return _mcp_pdf(rfc, nombre_doc, esquema, contenido, "generado", uid, ruta)
 
     @mcp_srv.tool()
     def listar_empresas() -> str:
@@ -957,11 +1062,10 @@ try:
                 "y reintenta cuando esté lista."
             ))]
         contenido = _bytes_de_agente(base, headers, ruta, zip_=True)
-        api = PUBLIC_BASE.replace("agente.", "api.")
-        enlace = f"GET {api}/v1/cfdi/solicitudes/{rfc}/{id_solicitud}/zip (header X-Api-Key)"
         return _mcp_adjuntar(
             f"todoconta://cfdi-zip/{rfc}-{id_solicitud}.zip", "application/zip", contenido,
-            f"ZIP de CFDIs de {rfc} (solicitud {id_solicitud}).", enlace,
+            f"ZIP de CFDIs de {rfc} (solicitud {id_solicitud}).",
+            _link_firmado(user["user_id"], ruta, zip_=True),
         )
 
     @mcp_srv.tool()
@@ -1027,8 +1131,6 @@ try:
         procesados del período (correr después de procesar_cfdis). formato: xlsx|csv."""
         user = _mcp_user()
         base, headers = _agente_de(user)
-        from urllib.parse import urlencode
-
         params = _params_filtros(rfc, desde or None, hasta or None, direccion or None)
         params["formato"] = formato
         r = requests.get(f"{base}/procesador/cfdi/exportar", headers=headers, params=params, timeout=300)
@@ -1038,11 +1140,9 @@ try:
             "text/csv" if formato == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        api = PUBLIC_BASE.replace("agente.", "api.")
-        enlace = f"GET {api}/v1/cfdi/excel?{urlencode(params)} (header X-Api-Key)"
         return _mcp_adjuntar(
             f"todoconta://cfdi-excel/{params['rfc']}.{formato}", mime, r.content,
-            f"Excel de CFDIs de {params['rfc']}.", enlace,
+            f"Excel de CFDIs de {params['rfc']}.", _link_export(user["user_id"], params),
         )
 
     def _calc(tipo: str, payload: dict) -> str:
