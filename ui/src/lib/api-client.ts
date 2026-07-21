@@ -1396,6 +1396,52 @@ export class SatApiClient {
   async revokeApiKey(id: string): Promise<{ ok: boolean }> {
     return this.del<{ ok: boolean }>(`/cuenta/api-keys?id=${encodeURIComponent(id)}`);
   }
+
+  // -----------------------------------------------------------------------
+  // Equipo (despachos/empresarial) — proxy a /api/desktop/teams/*
+  // -----------------------------------------------------------------------
+
+  /** Equipo del usuario + miembros + isAdmin (o `{team: null}` si no tiene equipo). */
+  async getTeam(): Promise<TeamResponse> {
+    return this.request<TeamResponse>('/cuenta/teams');
+  }
+
+  /** Empresas del equipo (con id de Supabase) para el allow-list de permisos. */
+  async getTeamEmpresas(): Promise<TeamEmpresasResponse> {
+    return this.request<TeamEmpresasResponse>('/cuenta/teams/empresas');
+  }
+
+  /** Invita a un miembro por correo (solo admin). */
+  async inviteTeamMember(email: string): Promise<InviteMemberResponse> {
+    return this.post<InviteMemberResponse>('/cuenta/teams/members', { email });
+  }
+
+  /** Remueve a un miembro del equipo (solo admin). */
+  async removeTeamMember(memberId: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('/cuenta/teams/members', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member_id: memberId }),
+    });
+  }
+
+  /** El usuario sale de su equipo (el admin no puede: debe cancelar su suscripción). */
+  async leaveTeam(): Promise<{ ok: boolean }> {
+    return this.post<{ ok: boolean }>('/cuenta/teams/leave');
+  }
+
+  /** Ajusta el modo de acceso + allow-list de empresas de un miembro (solo admin). */
+  async setTeamMemberPermissions(
+    memberId: string,
+    accessMode: TeamAccessMode,
+    empresaIds: string[],
+  ): Promise<{ ok: boolean; access_mode: TeamAccessMode; empresa_ids: string[] }> {
+    return this.patch('/cuenta/teams/members/permissions', {
+      member_id: memberId,
+      access_mode: accessMode,
+      empresa_ids: empresaIds,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1516,6 +1562,63 @@ export interface CreateApiKeyResponse {
   prefijo: string;
   nombre: string;
   scopes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Equipo (despachos/empresarial)
+// ---------------------------------------------------------------------------
+
+export type TeamAccessMode = 'all' | 'restricted';
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  role: 'admin' | 'member';
+  status: 'pending' | 'active' | 'removed';
+  invited_at: string;
+  accepted_at: string | null;
+  access_mode: TeamAccessMode;
+  /** IDs (Supabase) de las empresas del equipo a las que tiene acceso restringido. */
+  empresa_ids: string[];
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  max_members: number;
+  admin_user_id: string;
+}
+
+export interface TeamAdmin {
+  email: string | null;
+  full_name: string | null;
+  subscription_plan: string | null;
+  subscription_status: string | null;
+}
+
+export interface TeamResponse {
+  team: Team | null;
+  members: TeamMember[];
+  isAdmin?: boolean;
+  admin?: TeamAdmin | null;
+}
+
+/** Empresa del equipo (del lado Supabase, con su `id` UUID) para el allow-list. */
+export interface TeamEmpresa {
+  id: string;
+  rfc: string;
+  nombre: string | null;
+  archived_at: string | null;
+}
+
+export interface TeamEmpresasResponse {
+  empresas: TeamEmpresa[];
+}
+
+export interface InviteMemberResponse {
+  ok: boolean;
+  /** true si el invitado ya tenía cuenta → quedó activo de inmediato. */
+  autoActivated?: boolean;
 }
 
 

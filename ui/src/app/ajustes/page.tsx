@@ -334,6 +334,20 @@ export default function AjustesPage() {
           />
         </AjCard>
 
+        {/* Equipo (despachos/empresarial): miembros + permisos por empresa.
+            La página se auto-gatea (muestra "Sin equipo" si no aplica). */}
+        <AjCard icon="ph:users-light" title="Equipo">
+          <AjRow
+            label="Miembros y permisos"
+            sub="Invita colaboradores, gestiona sus roles y a qué empresas del equipo tienen acceso."
+            control={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/ajustes/equipo">Administrar</Link>
+              </Button>
+            }
+          />
+        </AjCard>
+
         {/* API y conexiones (MCP): gestión de keys + conector de IA. Aplica en
             Desktop y Web por igual (el agente tiene la sesión en ambos). */}
         <AjCard icon="ph:plugs-connected-light" title="API y conexiones (MCP)">

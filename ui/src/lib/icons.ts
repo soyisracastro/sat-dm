@@ -133,6 +133,12 @@ import keyboard from '@iconify-icons/ph/keyboard-light';
 // API keys + conexión MCP (Ajustes → API y conexiones).
 import plugsConnected from '@iconify-icons/ph/plugs-connected-light';
 
+// Equipo (Ajustes → Equipo: miembros, invitar, roles).
+import users from '@iconify-icons/ph/users-light';
+import userPlus from '@iconify-icons/ph/user-plus-light';
+import shield from '@iconify-icons/ph/shield-light';
+import envelope from '@iconify-icons/ph/envelope-light';
+
 // Calculadoras (nav + cards del índice + export premium).
 import calculator from '@iconify-icons/ph/calculator-light';
 import factory from '@iconify-icons/ph/factory-light';
@@ -262,6 +268,12 @@ addIcon('ph:keyboard-light', keyboard);
 
 // API keys + conexión MCP (ver bloque de imports arriba).
 addIcon('ph:plugs-connected-light', plugsConnected);
+
+// Equipo (ver bloque de imports arriba).
+addIcon('ph:users-light', users);
+addIcon('ph:user-plus-light', userPlus);
+addIcon('ph:shield-light', shield);
+addIcon('ph:envelope-light', envelope);
 
 // Calculadoras (ver bloque de imports arriba).
 addIcon('ph:calculator-light', calculator);
