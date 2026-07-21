@@ -124,9 +124,23 @@ mismos contratos que la UI (503 transitorio, etc.).
   (`deploy/gateway/oauth.py`); ver la sección "OAuth 2.1" abajo.
 - **Tools** (mismo service layer que REST): `descargar_csf(rfc)`,
   `descargar_opinion(rfc)`, `solicitar_cfdis(rfc, desde, hasta)`,
-  `estado_solicitud(id)`, `consultar_listas_negras(rfcs[])`,
-  `listar_empresas()`. Los PDFs/ZIPs se devuelven como **links firmados de
-  descarga** (no blobs por MCP).
+  `estado_solicitud(id)`, `descargar_zip_cfdis(rfc, id_solicitud)`,
+  `excel_cfdis(rfc, desde, hasta, direccion, formato)`,
+  `consultar_listas_negras(rfcs[])`, `listar_empresas()`, calculadoras.
+- **Archivos: blob embebido, no link** (2026-07-21, corrige el diseño
+  original de "links firmados de descarga"). Un QA real mostró el hueco: el
+  asistente no tiene la API key del usuario, así que un link por sí solo lo
+  dejaba sin poder entregar el archivo en el chat ("Lo ideal sería poder
+  llamarlos en el chat"). Ahora `descargar_csf`/`descargar_opinion`/
+  `descargar_zip_cfdis`/`excel_cfdis` devuelven el archivo embebido
+  (`EmbeddedResource` + `BlobResourceContents` en base64, tipo estándar del
+  SDK MCP) en la misma respuesta de la tool — el cliente lo adjunta directo,
+  sin una segunda llamada. Tope de 20 MB para ZIP/Excel (un PDF de CSF/Opinión
+  nunca se acerca): por encima, cae al link + API key en vez de atorar el
+  chat con un blob gigante. La CSF conserva el fallback a la última copia en
+  archivo si no hay e.firma o el SAT está caído; la Opinión 32-D NO (es una
+  foto de cumplimiento puntual, una vieja engaña). Implementación:
+  `deploy/gateway/main.py` (`_mcp_documento`, `_mcp_pdf`, `_mcp_adjuntar`).
 - **Dónde corre**: en el gateway del VPS (Python — FastAPI + SDK MCP oficial),
   junto a la validación de keys y la derivación de agentes. Si el proxy de
   Vercel bufferea el streaming, se publica directo como `mcp.todoconta.com`
