@@ -100,6 +100,8 @@ def _autorizar(client, client_id: str) -> str:
     r = client.get("/oauth/authorize", params=params)
     assert r.status_code == 200
     assert "Claude" in r.text and "Autorizar" in r.text
+    # OTP-first: el código al correo es el modo default; la contraseña, la alterna.
+    assert "var conOtp = true" in r.text
 
     r = client.post(
         "/oauth/authorize",
