@@ -12,3 +12,7 @@
 
 # Soporte: clasifica soporte@ y deja borradores para aprobar. Cada hora al :45.
 45 * * * * python /app/agents/soporte.py
+
+# Waitlist de Abacus (Notion) → crm_leads. Diario 08:10 CDMX, antes de que el
+# SDR abra su ventana (09:15) para que trabaje leads ya registrados.
+10 14 * * * python /app/agents/sync_abacus_waitlist.py
