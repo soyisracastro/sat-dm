@@ -8,7 +8,7 @@ de "departamentos" automatizados del plan de ventas jul–dic 2026:
 |---|---|---|
 | `agents/reporte_semanal.py` | ✅ | Lunes 07:00 CDMX: métricas de Supabase (usuarios/planes/CRM 034) + Stripe (suscripciones/ARR) + Sendy (listas) → deltas vs semana pasada → narrativa con Claude → correo SES a Israel. |
 | `agents/contenido_semanal.py` | ✅ | Lunes 06:30 CDMX: genera con Claude (Sonnet) el paquete semanal — post de blog con frontmatter listo, guion de video, 3 posts sociales, 1 email — y abre PR `drafts/semana-NN` en todoconta-apps. Los archivos viven en `drafts/`: **mergear tampoco publica**; Israel mueve el post al blog cuando lo aprueba. Fuente de temas: **el calendario editorial del repo** (`apps/landing/editorial/calendario-editorial-2026.csv`, leído en runtime — editarlo NO requiere redeploy; toma la fila más próxima con `publicado=no` y usa su brief/fuentes); backlog embebido solo como respaldo. |
-| `agents/sdr_inbound.py` | ✅ | Cada hora (9:15–17:15 CDMX): lee `crm_leads` etapa=lead con fuente en `SDR_FUENTES` (SOLO gente que llenó un formulario — opt-in estricto; hoy solo `abacus`), puntúa y redacta con Claude **respondiendo a la intención real de la fuente** (abacus → ayudar a activar su prueba de WhatsApp; diagnostico → entregar el plan prometido), manda UN correo por SES como Israel (BCC a Israel), etapa→`mql` + evento `email_enviado` (candado anti-duplicado). Sin follow-ups: Israel cierra. |
+| `agents/sdr_inbound.py` | ✅ | Cada hora (9:15–17:15 CDMX): lee `crm_leads` etapa=lead con fuente en `SDR_FUENTES` (SOLO gente que llenó un formulario — opt-in estricto; hoy solo `abacus`), puntúa y redacta con Claude **respondiendo a la intención real de la fuente** (abacus → ayudar a activar su prueba de WhatsApp; diagnostico → entregar el plan prometido), manda el correo por SES como Israel (BCC al buzón del CRM), etapa→`mql` + evento `email_enviado` con el **cuerpo completo**. Secuencia de 3 toques (día 0, 3 y 7) que se corta sola si el lead responde, crea cuenta o sale de `mql`. |
 | `agents/soporte.py` | ✅ | Cada hora: busca correos dirigidos a soporte@todoconta.com (que es un ALIAS dentro de la cuenta real de Israel — el agente entra por IMAP a esa cuenta pero SOLO procesa lo dirigido al alias, INBOX en readonly, banderas intactas), descarta auto-correos, clasifica y redacta BORRADOR con Claude, lo deja hilado en Borradores (sale como el alias) y avisa a Israel. Dedupe por Message-ID en `/data`. **No auto-responde a nadie** (v1). |
 
 ## Despliegue (patrón de deploy/{gateway,provisioner,sendy})
@@ -81,9 +81,14 @@ TINYPNG_API_KEY=
 
 # SDR inbound
 SDR_FROM="Israel Castro <israel@todoconta.com>"
-SDR_BCC=israel.castro@gmail.com
-OPS_SDR_MAX_DIA=5        # tope de correos por día
+SDR_BCC=israel+crm@todoconta.com   # buzón del CRM, separado del correo directo
+OPS_SDR_MAX_DIA=5        # tope de correos por día (primeros toques + seguimientos)
 SDR_MAX_EDAD_DIAS=14     # no contactar leads más viejos que esto
+# Secuencia: días DESDE EL PRIMER correo para el 2º y 3er toque. Vacío = solo
+# un toque. La secuencia se corta sola si el lead responde (IMAP, mismas
+# credenciales de soporte), si crea cuenta o si sale de la etapa mql.
+SDR_SEGUIMIENTOS_DIAS=3,7
+SDR_SEGUIMIENTO_VENTANA_DIAS=30    # secuencias más viejas no reviven por un redeploy
 # Fuentes de crm_leads que el SDR puede contactar (coma-separadas). Solo
 # abacus por ahora (qualifier = campaña saldo a favor pausada, fuera del ICP;
 # se retomaría en sicastro.com). Al lanzar /diagnostico: "abacus,diagnostico".
@@ -109,7 +114,8 @@ OPS_SOPORTE_MAX=10       # mensajes por corrida
   Israel, no del agente (soporte). Stripe con restricted key RO, Sendy con
   usuario MySQL `SELECT`-only. Nada de docker.sock, nada de Traefik (sin inbound).
 - **Nadie recibe correo sin humano o sin opt-in**: el SDR solo escribe a quien
-  llenó un formulario (una sola vez, con BCC a Israel); soporte solo deja
+  llenó un formulario (máximo 3 correos y para en cuanto haya respuesta, con
+  BCC al buzón del CRM); soporte solo deja
   borradores. Los envíos masivos siguen siendo territorio de Sendy.
 - **Sin daemons**: supercronic dispara procesos que terminan. `mem_limit: 256m`.
 - **Cada agente con kill switch por env** (SDR/soporte/contenido nacen apagados)
