@@ -22,6 +22,9 @@ La secuencia se DETIENE en cuanto pasa cualquiera de estas cosas:
 
   - el lead respondió (se revisa el buzón por IMAP, ver lib/buzon.py) — se
     registra el evento `respuesta_sdr` y ya nadie le vuelve a escribir;
+  - un humano tomó la conversación: un evento `nota` con
+    `payload.detener_secuencia = true` (lo que se registra cuando Israel le
+    escribe a mano; el robot no manda su seguimiento encima);
   - creó su cuenta en la app (existe en `profiles`): ahí lo toma el lifecycle;
   - alguien movió su etapa fuera de `mql` (Israel cerrando a mano);
   - el primer toque quedó fuera de SDR_SEGUIMIENTO_VENTANA_DIAS (default 30):
@@ -145,8 +148,35 @@ def _fecha(iso: str) -> datetime:
 def _eventos_sdr(lead_id: str) -> list[dict]:
     return crm.sb_get(
         f"crm_events?select=tipo,payload,created_at&lead_id=eq.{lead_id}"
-        "&tipo=in.(email_enviado,respuesta_sdr)&order=created_at.asc"
+        "&tipo=in.(email_enviado,respuesta_sdr,nota)&order=created_at.asc"
     )
+
+
+def _detenido(eventos: list[dict]) -> bool:
+    """¿Ya cerró esta conversación alguien más?
+
+    Dos formas: el lead respondió (`respuesta_sdr`), o un humano tomó la
+    conversación y lo dejó por escrito — un evento `nota` con
+    `payload.detener_secuencia = true`. Ese segundo caso es el normal: Israel le
+    escribe a mano a un lead y el robot NO debe mandarle su seguimiento encima.
+    Pasó con el primer lead del diagnóstico el 2026-07-26.
+
+    Se exige la bandera explícita: una `nota` cualquiera no mata la secuencia en
+    silencio.
+    """
+    for e in eventos:
+        if e.get("tipo") == "respuesta_sdr":
+            return True
+        if e.get("tipo") == "nota" and (e.get("payload") or {}).get("detener_secuencia"):
+            return True
+    return False
+
+
+def _hay_contacto_previo(eventos: list[dict]) -> bool:
+    """Cualquier correo ya enviado (por el SDR o por otro flujo) o un cierre."""
+    return any(
+        e.get("tipo") in ("email_enviado", "respuesta_sdr") for e in eventos
+    ) or _detenido(eventos)
 
 
 def _toques_del_sdr(eventos: list[dict]) -> list[dict]:
@@ -261,8 +291,13 @@ def _candidatos_primer_contacto(fuentes: list[str], max_edad: int) -> list[tuple
         f"&etapa=eq.lead&consent_marketing=eq.true&fuente=in.({','.join(fuentes)})"
         f"&created_at=gte.{corte}&order=created_at.asc&limit=20"
     )
-    # Candado: cualquier toque previo (o respuesta) descarta el "primer" correo.
-    return [(lead, "primer_contacto") for lead in leads if not _eventos_sdr(lead["id"])]
+    # Candado: cualquier toque previo, respuesta o cierre manual descarta el
+    # "primer" correo.
+    return [
+        (lead, "primer_contacto")
+        for lead in leads
+        if not _hay_contacto_previo(_eventos_sdr(lead["id"]))
+    ]
 
 
 def _candidatos_seguimiento(
@@ -281,7 +316,7 @@ def _candidatos_seguimiento(
     salida: list[tuple[dict, str]] = []
     for lead in leads:
         eventos = _eventos_sdr(lead["id"])
-        if any(e.get("tipo") == "respuesta_sdr" for e in eventos):
+        if _detenido(eventos):
             continue
         toques = _toques_del_sdr(eventos)
         if not toques or len(toques) > len(dias):
