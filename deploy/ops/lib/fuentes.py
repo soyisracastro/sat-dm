@@ -141,15 +141,21 @@ def metricas_stripe() -> dict[str, Any]:
 # Sendy (MariaDB, usuario read-only)
 # ---------------------------------------------------------------------------
 
+# Listas que Israel quiere ver SIEMPRE, existan o no movimientos esa semana.
 LISTAS_CLAVE = [
-    "columna-13",
+    "Newsletter Blog (contadores)",  # lead magnet del blog (la más grande)
     "substack",
     "Usuarios App",
     "abacus",
     "Founders",
     "todoconta_proyecto",
     "cfdi",
+    "clients-airtable",
 ]
+
+# Además de las clave, las N listas más grandes: así el desglose no se queda
+# ciego cuando nace una lista nueva y nadie actualiza LISTAS_CLAVE.
+TOP_LISTAS = 10
 
 
 def metricas_sendy() -> dict[str, Any]:
@@ -186,9 +192,24 @@ def metricas_sendy() -> dict[str, Any]:
 
         listas = {nombre: int(activos or 0) for nombre, _subs, activos in filas}
         total_activos = sum(listas.values())
-        return {
+
+        # Clave que SIGUEN existiendo + las más grandes, ordenadas por tamaño.
+        # Una lista clave borrada en Sendy se OMITE (no se reporta como 0): si la
+        # dejamos en 0 el delta la lee como caída masiva y dispara una falsa
+        # alarma — pasó con "columna-13" (−2,960) el 2026-07-20.
+        top = sorted(listas, key=lambda n: listas[n], reverse=True)[:TOP_LISTAS]
+        mostrar = [n for n in LISTAS_CLAVE if n in listas]
+        mostrar += [n for n in top if n not in mostrar and listas[n] > 0]
+        ausentes = [n for n in LISTAS_CLAVE if n not in listas]
+
+        salida: dict[str, Any] = {
             "total_activos_todas_listas": total_activos,
-            "listas": {n: listas.get(n, 0) for n in LISTAS_CLAVE},
+            "listas": {
+                n: listas[n] for n in sorted(mostrar, key=lambda n: listas[n], reverse=True)
+            },
         }
+        if ausentes:
+            salida["listas_clave_ausentes"] = ", ".join(ausentes)
+        return salida
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}

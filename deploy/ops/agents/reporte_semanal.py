@@ -7,7 +7,8 @@ SES. Cada fuente se degrada sola: el reporte SIEMPRE sale.
 
 Uso:
     python agents/reporte_semanal.py            # manda el correo
-    python agents/reporte_semanal.py --dry-run  # imprime a stdout, no manda
+    python agents/reporte_semanal.py --dry-run  # imprime el texto, no manda
+    python agents/reporte_semanal.py --html     # imprime el HTML (revisar render)
 
 Kill switch: OPS_REPORTE_ENABLED != "1" → no hace nada.
 """
@@ -21,7 +22,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lib import correo, fuentes, llm
+from lib import correo, fuentes, llm, markdown_html
 
 SNAPSHOT = Path("/data/ultimo_reporte.json")
 
@@ -60,9 +61,31 @@ def _tabla_html(datos: dict, deltas: dict[str, str], prefijo: str = "") -> str:
     return "".join(filas)
 
 
+def construir_html(hoy: str, narrativa: str | None, datos: dict, deltas: dict[str, str]) -> str:
+    """Cuerpo HTML del correo. La narrativa viene en markdown desde el modelo y
+    se renderiza: los clientes de correo no lo interpretan (llegaba "## Resumen"
+    y "**negritas**" en crudo)."""
+    return f"""
+    <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;max-width:640px;margin:0 auto;color:#0b0b0b">
+      <h2 style="letter-spacing:-0.02em">Reporte semanal — {hoy}</h2>
+      {markdown_html.render(narrativa)}
+      <table style="border-collapse:collapse;width:100%;font-size:14px">
+        <tr><th align="left" style="padding:3px 8px;color:#898781;font-weight:600">Métrica</th>
+            <th align="right" style="padding:3px 8px;color:#898781;font-weight:600">Valor</th>
+            <th align="right" style="padding:3px 8px;color:#898781;font-weight:600">Δ 7d</th></tr>
+        {_tabla_html(datos, deltas)}
+      </table>
+      <p style="color:#898781;font-size:12px;margin-top:18px">
+        Generado por el agente de operaciones (deploy/ops) en el VPS.
+      </p>
+    </div>
+    """
+
+
 def main() -> int:
     dry_run = "--dry-run" in sys.argv
-    if os.environ.get("OPS_REPORTE_ENABLED", "1") != "1" and not dry_run:
+    solo_html = "--html" in sys.argv
+    if os.environ.get("OPS_REPORTE_ENABLED", "1") != "1" and not (dry_run or solo_html):
         print("[reporte] apagado por OPS_REPORTE_ENABLED — no se hace nada")
         return 0
 
@@ -88,6 +111,14 @@ def main() -> int:
         "escribe en español: (1) un resumen ejecutivo de 3-4 oraciones, (2) la señal más "
         "importante de la semana, y (3) tres acciones concretas sugeridas para la próxima "
         "semana. Sé directo, sin relleno, sin inventar números que no estén en el JSON.\n\n"
+        "FORMATO: markdown simple — '## ' para el encabezado de cada sección, "
+        "**negritas** para lo clave, lista numerada en las acciones. NO pongas un "
+        "título general: el correo ya lo trae.\n"
+        "Si aparece 'listas_clave_ausentes', esas listas ya no existen en Sendy "
+        "(borradas o renombradas): NO las trates como caída de suscriptores.\n"
+        "OJO con dos cosas que se llaman parecido y NO son lo mismo: las listas de "
+        "Sendy (audiencia de correo, en 'sendy.listas') y las fuentes de leads del "
+        "CRM ('crm_nuevos_7d_*'). No mezcles sus nombres ni sus números.\n\n"
         f"MÉTRICAS: {json.dumps(datos, ensure_ascii=False)}\n\n"
         f"DELTAS 7d: {json.dumps(deltas, ensure_ascii=False)}"
     )
@@ -97,27 +128,11 @@ def main() -> int:
         + (narrativa + "\n\n" if narrativa else "")
         + json.dumps(datos, indent=2, ensure_ascii=False)
     )
-    narrativa_html = (
-        f'<div style="white-space:pre-wrap;margin:0 0 18px">{html.escape(narrativa)}</div>'
-        if narrativa
-        else ""
-    )
-    cuerpo_html = f"""
-    <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;max-width:640px;margin:0 auto;color:#0b0b0b">
-      <h2 style="letter-spacing:-0.02em">Reporte semanal — {hoy}</h2>
-      {narrativa_html}
-      <table style="border-collapse:collapse;width:100%;font-size:14px">
-        <tr><th align="left" style="padding:3px 8px;color:#898781;font-weight:600">Métrica</th>
-            <th align="right" style="padding:3px 8px;color:#898781;font-weight:600">Valor</th>
-            <th align="right" style="padding:3px 8px;color:#898781;font-weight:600">Δ 7d</th></tr>
-        {_tabla_html(datos, deltas)}
-      </table>
-      <p style="color:#898781;font-size:12px;margin-top:18px">
-        Generado por el agente de operaciones (deploy/ops) en el VPS.
-      </p>
-    </div>
-    """
+    cuerpo_html = construir_html(hoy, narrativa, datos, deltas)
 
+    if solo_html:
+        print(cuerpo_html)
+        return 0
     if dry_run:
         print(texto)
         return 0
