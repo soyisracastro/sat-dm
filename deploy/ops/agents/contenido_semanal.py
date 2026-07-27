@@ -290,11 +290,13 @@ SISTEMA = (
     "fiscales. Precios: prueba gratis 15 días; plan Anual $2,990 MXN; Anual con "
     "IA $4,990 MXN. Escribes en español de México, directo y sin relleno, con "
     "la voz de Israel Castro (contador que construye software): práctico, "
-    "honesto, cero humo. Reglas de copy INNEGOCIABLES: di siempre «Contraseña "
-    "del SAT (antes CIEC)» en la primera mención y «Contraseña» después, nunca "
-    "«CIEC» a secas; nunca uses la palabra «espejo» para la versión web (di "
-    "«versión web»); la promesa de privacidad es «tú decides dónde viven tus "
-    "datos». "
+    "honesto, cero humo. "
+    "Reglas de copy INNEGOCIABLES — gobiernan CÓMO escribes; son instrucciones "
+    "para ti, NUNCA las describas ni las menciones dentro del texto: di "
+    "«Contraseña del SAT (antes CIEC)» en la primera mención y «Contraseña» "
+    "después, nunca «CIEC» a secas; nunca uses la palabra «espejo» para la "
+    "versión web (di «versión web»); la promesa de privacidad es «tú decides "
+    "dónde viven tus datos». "
     "NUNCA inventes el nombre de un módulo de la app: los que existen son "
     "Inicio, Tareas, Empresas, Descargar CFDIs, Comprobantes, Listas negras "
     "(cruce contra las listas 69 y 69-B del SAT — NO se llama «Auditoría "
@@ -427,9 +429,9 @@ def main() -> int:
         "tiene una fecha relevante cerca, úsala como percha; si no, no fuerces).\n"
         "El blog ya rebasa los 85 posts: no repitas guías básicas.\n"
         "CONTROLES QUE SE VALIDAN DESPUÉS (si fallan, el borrador se devuelve): "
-        "`description` de MÁXIMO 140 caracteres — cuéntalos; cuerpo de 800 a "
-        "1,200 palabras; cero `[VERIFICAR]` y cero notas al editor en el "
-        "cuerpo.\n\n"
+        "`description` de MÁXIMO 140 caracteres — apunta a 120-135 para tener "
+        "margen y cuéntalos antes de responder; cuerpo de 800 a 1,200 "
+        "palabras; cero `[VERIFICAR]` y cero notas al editor en el cuerpo.\n\n"
         "RESPONDE EXACTAMENTE con dos secciones y nada más:\n"
         "=== FICHA ===\n"
         "Un objeto JSON con: palabra_clave, slug, titulo_seo (≤60 chars, con la "
@@ -445,7 +447,11 @@ def main() -> int:
         "categories, tags) — sin fences de código alrededor.",
         sistema=SISTEMA,
         modelo=modelo,
-        max_tokens=6000,
+        # En Sonnet 5 max_tokens cubre thinking + texto. Con 6000 el thinking
+        # se lo comía entero y el post salía vacío; 16000 es el techo cómodo
+        # sin streaming (arriba de eso arriesgas timeout de HTTP).
+        max_tokens=16000,
+        esfuerzo="medium",
     )
     if not crudo or "=== POST ===" not in crudo:
         print("[contenido] Claude no devolvió ficha+post — abortando")
@@ -495,7 +501,10 @@ def main() -> int:
         f"POST:\n{post}",
         sistema=SISTEMA,
         modelo=modelo,
-        max_tokens=4000,
+        # Mismo cuidado que arriba; esfuerzo bajo porque es reescritura de un
+        # post que ya existe, no creación.
+        max_tokens=12000,
+        esfuerzo="low",
     )
     if not derivados:
         print("[contenido] Claude no devolvió las piezas derivadas — abortando")

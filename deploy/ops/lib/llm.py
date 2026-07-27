@@ -13,8 +13,21 @@ def generar(
     sistema: str | None = None,
     modelo: str | None = None,
     max_tokens: int = 1200,
+    esfuerzo: str | None = None,
+    pensar: bool | None = None,
 ) -> str | None:
-    """Una llamada de texto a Claude. None si no hay key o si falla."""
+    """Una llamada de texto a Claude. None si no hay key o si falla.
+
+    `esfuerzo` (low|medium|high|xhigh|max) y `pensar` son OPT-IN a propósito:
+    los modelos viejos (Haiku 4.5, que usan casi todos los agentes) rechazan
+    ambos parámetros. Solo los manda quien los pide.
+
+    OJO con los modelos nuevos (Sonnet 5, Opus 5): el thinking adaptativo viene
+    ENCENDIDO por default y `max_tokens` limita thinking + texto JUNTOS. Si el
+    presupuesto es corto, el modelo puede gastarlo todo pensando y devolver
+    CERO texto — pasó con este agente en la semana 2026-31. Por eso el aviso
+    explícito de abajo en vez de un None mudo.
+    """
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return None
     try:
@@ -28,8 +41,21 @@ def generar(
         }
         if sistema:
             kwargs["system"] = sistema
+        if esfuerzo:
+            kwargs["output_config"] = {"effort": esfuerzo}
+        if pensar is not None:
+            kwargs["thinking"] = {"type": "adaptive" if pensar else "disabled"}
         respuesta = cliente.messages.create(**kwargs)
-        return "".join(b.text for b in respuesta.content if b.type == "text").strip()
+        texto = "".join(b.text for b in respuesta.content if b.type == "text").strip()
+        if not texto:
+            print(
+                f"[llm] respuesta SIN texto (stop_reason={respuesta.stop_reason}, "
+                f"salida={respuesta.usage.output_tokens}/{max_tokens} tokens). "
+                "Si es max_tokens, el thinking se comió el presupuesto: sube "
+                "max_tokens o baja el esfuerzo."
+            )
+            return None
+        return texto
     except Exception as e:  # noqa: BLE001
         print(f"[llm] generación no disponible: {e}")
         return None
