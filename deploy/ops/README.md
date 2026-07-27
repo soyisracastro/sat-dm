@@ -7,7 +7,7 @@ de "departamentos" automatizados del plan de ventas jul–dic 2026:
 | Agente | Estado | Qué hace |
 |---|---|---|
 | `agents/reporte_semanal.py` | ✅ | Lunes 07:00 CDMX: métricas de Supabase (usuarios/planes/CRM 034) + Stripe (suscripciones/ARR) + Sendy (listas) → deltas vs semana pasada → narrativa con Claude → correo SES a Israel. |
-| `agents/contenido_semanal.py` | ✅ | Lunes 06:30 CDMX: genera con Claude (Sonnet) el paquete semanal — post de blog con frontmatter listo, guion de video, 3 posts sociales, 1 email — y abre PR `drafts/semana-NN` en todoconta-apps. Los archivos viven en `drafts/`: **mergear tampoco publica**; Israel mueve el post al blog cuando lo aprueba. Fuente de temas: **el calendario editorial del repo** (`apps/landing/editorial/calendario-editorial-2026.csv`, leído en runtime — editarlo NO requiere redeploy; toma la fila más próxima con `publicado=no` y usa su brief/fuentes); backlog embebido solo como respaldo. |
+| `agents/contenido_semanal.py` | ✅ | Lunes 06:30 CDMX: genera con Claude (Sonnet) el paquete semanal — post de blog con frontmatter listo, ficha SEO + heroImage y guion de video — y abre PR `drafts/semana-NN` en todoconta-apps. Los 3 posts sociales NO van en el PR: se crean como filas en la base de Notion **Contenido social — TodoConta** (`NOTION_DB_SOCIALES`), en `Borrador`. El correo tampoco: la newsletter se arma con la skill `/partida-doble` usando este post como hero. Los archivos viven en `drafts/`: **mergear tampoco publica**; Israel mueve el post al blog cuando lo aprueba. Fuente de temas: **el calendario editorial del repo** (`apps/landing/editorial/calendario-editorial-2026.csv`, leído en runtime — editarlo NO requiere redeploy; toma la fila más próxima con `publicado=no` y usa su brief/fuentes); backlog embebido solo como respaldo. Lee además el listado del blog para interlinkear con slugs reales y no repetir temas ya publicados. |
 | `agents/sdr_inbound.py` | ✅ | Cada hora (9:15–17:15 CDMX): lee `crm_leads` etapa=lead con fuente en `SDR_FUENTES` (SOLO gente que llenó un formulario — opt-in estricto; hoy solo `abacus`), puntúa y redacta con Claude **respondiendo a la intención real de la fuente** (abacus → ayudar a activar su prueba de WhatsApp; diagnostico → entregar el plan prometido), manda el correo por SES como Israel (BCC al buzón del CRM), etapa→`mql` + evento `email_enviado` con el **cuerpo completo**. Secuencia de 3 toques (día 0, 3 y 7) que se corta sola si el lead responde, crea cuenta o sale de `mql`. |
 | `agents/soporte.py` | ✅ | Cada hora: busca correos dirigidos a soporte@todoconta.com (que es un ALIAS dentro de la cuenta real de Israel — el agente entra por IMAP a esa cuenta pero SOLO procesa lo dirigido al alias, INBOX en readonly, banderas intactas), descarta auto-correos, clasifica y redacta BORRADOR con Claude, lo deja hilado en Borradores (sale como el alias) y avisa a Israel. Dedupe por Message-ID en `/data`. **No auto-responde a nadie** (v1). |
 | `agents/sync_abacus_waitlist.py` | ⚪ | Diario 08:10 CDMX: lee la waitlist de Abacus en Notion y la registra en `crm_leads` (`fuente=abacus`, nombre, teléfono en E.164, etapa según el Estado de Notion sin retroceder). Cierra el hueco por el que 114 personas en Sendy nunca llegaron al CRM. Solo lee Notion y escribe `crm_*`: la allowlist de OpenClaw NO se toca. |
@@ -100,6 +100,13 @@ SDR_FUENTES=abacus
 OPS_WAITLIST_ENABLED=0
 NOTION_API_KEY=
 # NOTION_ABACUS_DB_ID=   # solo si cambia la base (default en el agente)
+
+# Base "Contenido social — TodoConta": ahí caen los 3 posts sociales de la
+# semana (una fila por red, en Borrador) en vez de un .md dentro del PR.
+# La integración de NOTION_API_KEY debe tener acceso a la base: ábrela en
+# Notion → ••• → Connections → agrega la integración. Sin esta env el agente
+# sigue dejando drafts/semana-NN/posts-sociales.md como antes.
+NOTION_DB_SOCIALES=35ecb37ed5544c88b965ed82bcf297c2
 
 # Soporte (Google Workspace). soporte@todoconta.com es un ALIAS que entrega en
 # la cuenta real (@sicastro.com): el login IMAP va con la CUENTA REAL y su app
