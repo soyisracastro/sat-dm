@@ -103,9 +103,12 @@ NOTION_API_KEY=
 
 # Base "Contenido social — TodoConta": ahí caen los 3 posts sociales de la
 # semana (una fila por red, en Borrador) en vez de un .md dentro del PR.
-# La integración de NOTION_API_KEY debe tener acceso a la base: ábrela en
-# Notion → ••• → Connections → agrega la integración. Sin esta env el agente
-# sigue dejando drafts/semana-NN/posts-sociales.md como antes.
+# OJO: la integración detrás de NOTION_API_KEY se llama "Ada" (la misma del
+# script de OpenClaw), NO "Newsletter Automation". Toda base nueva hay que
+# compartirla con ELLA: abrirla en Notion → ••• → Connections → Ada. Para
+# confirmar de quién es un token: GET https://api.notion.com/v1/users/me
+# devuelve el nombre de la integración. Sin esta env (o sin el Connection)
+# el agente sigue dejando drafts/semana-NN/posts-sociales.md como antes.
 NOTION_DB_SOCIALES=35ecb37ed5544c88b965ed82bcf297c2
 
 # Soporte (Google Workspace). soporte@todoconta.com es un ALIAS que entrega en
