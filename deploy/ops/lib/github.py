@@ -42,6 +42,29 @@ def leer_archivo(repo: str, ruta: str, ref: str = "main") -> str | None:
         return None
 
 
+def listar_directorio(repo: str, ruta: str, ref: str = "main") -> list[str]:
+    """Nombres de archivo de un directorio del repo (o [] si no existe / sin PAT).
+
+    Lo usa el agente de contenido para conocer los posts ya publicados: sirve
+    para interlinkear con slugs REALES y para no repetir un tema ya cubierto.
+    """
+    if not os.environ.get("GITHUB_PAT"):
+        return []
+    try:
+        resp = requests.get(
+            f"{API}/repos/{repo}/contents/{ruta}",
+            headers=_headers(),
+            params={"ref": ref},
+            timeout=TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return []
+        return [e["name"] for e in resp.json() if e.get("type") == "file"]
+    except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+        print(f"[github] no pude listar {ruta}: {e}")
+        return []
+
+
 def crear_pr_con_archivos(
     repo: str,
     rama: str,

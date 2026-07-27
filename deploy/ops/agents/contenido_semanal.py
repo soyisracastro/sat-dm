@@ -5,8 +5,16 @@ Cada lunes genera con Claude (Sonnet) el paquete de contenido de la semana:
   drafts/semana-NN/YYYY-MM-DD-slug.md  post listo para mover al blog (spec de Israel)
   drafts/semana-NN/ficha-seo.md        palabra clave, título SEO, alt, prompt de imagen
   drafts/semana-NN/guion-video.md      guion de 5-8 min para el video de Israel
-  drafts/semana-NN/posts-sociales.md   3 posts (LinkedIn, X/Threads, Facebook)
-  drafts/semana-NN/email-sendy.md      1 correo para campaña en Sendy
+
+Los 3 posts sociales (LinkedIn, X/Threads, Facebook) NO viajan en el PR: se
+crean como filas en la base de Notion "Contenido social — TodoConta"
+(NOTION_DB_SOCIALES), una por red, en estado Borrador y con el copy completo en
+el cuerpo de la página. Si Notion no está configurado o falla, caen como
+`drafts/semana-NN/posts-sociales.md` para no perderse.
+
+El boletín NO se genera aquí: la newsletter "Partida Doble" se arma con la
+skill `/partida-doble` de todoconta-apps, que combina el post de la semana
+(hero) con noticias, el anuncio y el offtopic. Este agente solo entrega el hero.
 
 Gobernado por DOS archivos del repo de contenido, leídos en runtime vía la
 GitHub API (editarlos NO requiere redeploy):
@@ -15,6 +23,8 @@ GitHub API (editarlos NO requiere redeploy):
   - apps/landing/editorial/instrucciones-blog.md — SPEC del post (SEO, quotes,
     encabezados, linking, mobile-first, serialización, Estilo 06, taxonomía).
 Si alguno falta, cae a respaldos embebidos (backlog de temas / reglas mínimas).
+Además lee el listado de apps/landing/src/content/blog para interlinkear con
+slugs REALES y no reexplicar un tema que ya tiene post.
 
 Abre un PR en el repo de contenido (env CONTENIDO_REPO). NUNCA publica
 directo: los archivos viven en drafts/ — mergear el PR tampoco publica nada;
@@ -34,17 +44,21 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from lib import github, imagen, llm
+from lib import github, imagen, llm, notion
+
+REDES = ("LinkedIn", "X/Threads", "Facebook")
 
 ESTADO = Path("/data/contenido_estado.json")
 
 REPO_DEFAULT = "soyisracastro/todoconta-apps"
 CALENDARIO_RUTA_DEFAULT = "apps/landing/editorial/calendario-editorial-2026.csv"
 INSTRUCCIONES_RUTA_DEFAULT = "apps/landing/editorial/instrucciones-blog.md"
+BLOG_RUTA_DEFAULT = "apps/landing/src/content/blog"
 
 # Resumen mínimo por si instrucciones-blog.md no está disponible (la versión
 # completa y canónica vive en el repo de contenido y manda sobre esto).
@@ -165,6 +179,109 @@ def _temas_del_calendario(hoy: datetime) -> list[dict]:
         return []
     return sorted(temas, key=lambda t: t["fecha_pub"])
 
+def _posts_publicados() -> list[str]:
+    """Slugs REALES del blog, del más nuevo al más viejo.
+
+    El slug de un post es su nombre de archivo sin la fecha (`getPostSlug` en
+    apps/landing/src/lib/utils.ts hace `replace(/^\\d{4}-\\d{2}-\\d{2}-/, "")`),
+    así que `2026-07-02-listas-negras-sat-efos.md` vive en
+    /blog/listas-negras-sat-efos.
+    """
+    archivos = github.listar_directorio(
+        os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
+        os.environ.get("CONTENIDO_BLOG_RUTA", BLOG_RUTA_DEFAULT),
+    )
+    posts = sorted((a for a in archivos if a.endswith((".md", ".mdx"))), reverse=True)
+    return [re.sub(r"^\d{4}-\d{2}-\d{2}-", "", a).rsplit(".", 1)[0] for a in posts]
+
+
+def _parsear_sociales(crudo: str) -> list[dict]:
+    """Separa el bloque de sociales por sus marcadores `--- Red ---`.
+
+    Marcadores y no JSON a propósito: el copy es multilínea (el hilo de X son
+    varios tuits) y un salto de línea sin escapar rompe cualquier json.loads.
+    """
+    patron = re.compile(
+        r"^[-*\s]*(?:\*\*)?\s*(" + "|".join(re.escape(r) for r in REDES) + r")"
+        r"\s*(?:\*\*)?[-*\s]*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    marcas = list(patron.finditer(crudo))
+    sociales: list[dict] = []
+    for i, marca in enumerate(marcas):
+        fin = marcas[i + 1].start() if i + 1 < len(marcas) else len(crudo)
+        copy = crudo[marca.end() : fin].strip()
+        red = next(r for r in REDES if r.lower() == marca.group(1).lower())
+        if copy and not any(s["red"] == red for s in sociales):
+            sociales.append({"red": red, "copy": copy})
+    return sociales
+
+
+def _publicar_sociales(
+    sociales: list[dict], *, semana: str, tema: str, url_post: str, url_pr: str
+) -> int:
+    """Una fila por red en la base de Notion. Devuelve cuántas se crearon.
+
+    Best-effort: sin NOTION_API_KEY/NOTION_DB_SOCIALES (o si la API falla) el
+    llamador conserva el .md dentro del PR como respaldo.
+    """
+    db_id = os.environ.get("NOTION_DB_SOCIALES")
+    if not (db_id and os.environ.get("NOTION_API_KEY")):
+        print("[contenido] sin NOTION_DB_SOCIALES/NOTION_API_KEY — sociales al .md")
+        return 0
+    creadas = 0
+    for social in sociales:
+        url = notion.crear_pagina(
+            db_id,
+            {
+                "Post": notion.titulo(f"{semana} · {social['red']} · {tema[:60]}"),
+                "Red": {"select": {"name": social["red"]}},
+                "Semana": notion.texto(semana),
+                "Estado": {"select": {"name": "Borrador"}},
+                "Caracteres": {"number": len(social["copy"])},
+                "Post del blog": {"url": url_post},
+                "Tema": notion.texto(tema),
+                "Origen": {"url": url_pr} if url_pr else {"url": None},
+            },
+            cuerpo=social["copy"],
+        )
+        if url:
+            creadas += 1
+            print(f"[contenido] Notion ← {social['red']}: {url}")
+    return creadas
+
+
+def _avisos(post: str, slug: str) -> list[str]:
+    """Defectos mecánicos del post que Israel tiene que revisar a mano.
+
+    No abortan la corrida (el borrador igual sirve): se listan en el cuerpo del
+    PR para que salten a la vista en vez de colarse a producción — como pasó en
+    la semana 2026-30 con un `[VERIFICAR]` publicado como prosa.
+    """
+    avisos: list[str] = []
+    if "[VERIFICAR]" in post:
+        avisos.append(
+            "El post trae `[VERIFICAR]` en el texto: resuelve el dato o borra la "
+            "nota — **nunca debe publicarse así**."
+        )
+    if "INTERLINK:" in post:
+        avisos.append(
+            "Quedaron interlinks con placeholder `INTERLINK:`: cámbialos por un "
+            "slug real de `/blog/` o quita el enlace."
+        )
+    desc = re.search(r"^description:\s*\"(.*)\"\s*$", post, re.MULTILINE)
+    if desc and len(desc.group(1)) > 140:
+        avisos.append(
+            f"`description` de {len(desc.group(1))} caracteres (máx 140): recórtala."
+        )
+    palabras = len(post.split("---", 2)[-1].split())
+    if palabras < 800:
+        avisos.append(f"El cuerpo trae ~{palabras} palabras (mínimo 800): amplíalo.")
+    if f"/assets/blog/{slug}.jpg" not in post:
+        avisos.append(f"El `heroImage` del frontmatter no apunta a `{slug}.jpg`.")
+    return avisos
+
+
 SISTEMA = (
     "Eres el redactor de contenido de TodoConta (todoconta.com), una app de "
     "escritorio para contadores en México que automatiza la descarga masiva de "
@@ -177,8 +294,17 @@ SISTEMA = (
     "del SAT (antes CIEC)» en la primera mención y «Contraseña» después, nunca "
     "«CIEC» a secas; nunca uses la palabra «espejo» para la versión web (di "
     "«versión web»); la promesa de privacidad es «tú decides dónde viven tus "
-    "datos». No inventes cifras, artículos de ley ni fechas límite: si no estás "
-    "seguro de un dato normativo, márcalo como [VERIFICAR]."
+    "datos». "
+    "NUNCA inventes el nombre de un módulo de la app: los que existen son "
+    "Inicio, Tareas, Empresas, Descargar CFDIs, Comprobantes, Listas negras "
+    "(cruce contra las listas 69 y 69-B del SAT — NO se llama «Auditoría "
+    "EFOS»), Organizador, Historial, Calculadoras, DIOT, Ayuda y Ajustes. Si el "
+    "brief te sugiere otro nombre, usa el de esta lista que le corresponda. "
+    "No inventes cifras, artículos de ley ni fechas límite. Si no puedes "
+    "confirmar un dato normativo NO lo escribas en el cuerpo del post: omítelo "
+    "y repórtalo en el campo `pendientes_verificar` de la ficha. El cuerpo del "
+    "post es texto publicable — jamás debe contener la marca [VERIFICAR] ni "
+    "notas dirigidas al editor."
 )
 
 
@@ -263,10 +389,31 @@ def main() -> int:
         print("[contenido] instrucciones-blog.md no disponible — reglas embebidas")
         reglas = REGLAS_RESPALDO
 
+    # Slugs reales del blog: sin esto el modelo inventa interlinks (semana
+    # 2026-30 enlazó a /blog/requerimientos-sat-cfdi, que nunca existió) y
+    # reexplica desde cero temas que ya tienen post.
+    publicados = _posts_publicados()
+    if publicados:
+        catalogo = (
+            "POSTS YA PUBLICADOS (slug real de cada uno — la URL es "
+            "https://todoconta.com/blog/<slug>):\n"
+            + "\n".join(f"- {s}" for s in publicados)
+            + "\n\nÚSALOS ASÍ: (a) NO reexpliques desde cero un tema que ya "
+            "tiene post — dalo por leído, enlázalo en una línea y dedica el "
+            "cuerpo a lo que este post aporta de nuevo; (b) los 1-3 interlinks "
+            "internos deben apuntar a un slug DE ESTA LISTA, escrito completo "
+            "como /blog/<slug>. Solo si ninguno aplica usa el placeholder "
+            "/blog/INTERLINK:tema.\n\n"
+        )
+    else:
+        print("[contenido] no pude listar el blog — interlinks con placeholder")
+        catalogo = ""
+
     crudo = llm.generar(
         f"{reglas}\n\n"
         "════════\n"
-        "Genera el post de esta semana siguiendo esas instrucciones.\n"
+        + catalogo
+        + "Genera el post de esta semana siguiendo esas instrucciones.\n"
         f"TEMA: {tema['tema']}\n"
         + brief
         + f"CATEGORÍA SUGERIDA POR EL CALENDARIO: {json.dumps(tema['categorias'])} "
@@ -278,14 +425,19 @@ def main() -> int:
         f"pubDate: {pub_date}\n"
         f"MES ACTUAL: {hoy.strftime('%Y-%m')} (si el calendario fiscal mexicano "
         "tiene una fecha relevante cerca, úsala como percha; si no, no fuerces).\n"
-        "El blog ya tiene 86+ posts publicados: no repitas guías básicas; usa "
-        "interlinks con placeholder INTERLINK: al referir temas hermanos.\n\n"
+        "El blog ya rebasa los 85 posts: no repitas guías básicas.\n"
+        "CONTROLES QUE SE VALIDAN DESPUÉS (si fallan, el borrador se devuelve): "
+        "`description` de MÁXIMO 140 caracteres — cuéntalos; cuerpo de 800 a "
+        "1,200 palabras; cero `[VERIFICAR]` y cero notas al editor en el "
+        "cuerpo.\n\n"
         "RESPONDE EXACTAMENTE con dos secciones y nada más:\n"
         "=== FICHA ===\n"
         "Un objeto JSON con: palabra_clave, slug, titulo_seo (≤60 chars, con la "
         "palabra clave), alt (descripción de la heroImage, con la palabra "
         "clave), prompt_imagen (el prompt Estilo 06 completo, con [SUBJECT] ya "
-        "resuelto para este post), plan_serie (null; o, si el material rebasa "
+        "resuelto para este post), pendientes_verificar (lista de strings: los "
+        "datos normativos que NO pudiste confirmar y por eso dejaste fuera del "
+        "cuerpo; [] si no hay), plan_serie (null; o, si el material rebasa "
         "1,800 palabras, {\"articulos\": [\"título 1\", …], \"razon\": \"…\"}).\n"
         "=== POST ===\n"
         "El archivo Markdown completo, empezando por el frontmatter YAML "
@@ -318,24 +470,28 @@ def main() -> int:
     ]
     slug = "-".join([p for p in palabras if p][:4]) or "post-semanal"
 
+    # El correo NO sale de aquí: la newsletter (Partida Doble) se arma con la
+    # skill `/partida-doble` de todoconta-apps, que mezcla el post con noticias,
+    # el anuncio y el offtopic de la semana. Este agente solo entrega el post
+    # que esa skill usa como hero.
+    url_post = f"https://todoconta.com/blog/{slug}"
     derivados = llm.generar(
         "A partir de este post de blog, genera las piezas derivadas de la "
-        "semana. Responde EXACTAMENTE con tres secciones separadas por líneas "
-        "'=== GUION ===', '=== SOCIALES ===' y '=== EMAIL ==='.\n\n"
+        "semana. Responde EXACTAMENTE con dos secciones separadas por líneas "
+        "'=== GUION ===' y '=== SOCIALES ==='.\n\n"
         "1) GUION: guion de video de 5-8 minutos para YouTube (Israel a "
         "cámara): hook de 15 segundos, desarrollo en 3 bloques con las ideas "
         "del post (indicaciones de pantalla entre corchetes cuando ayude), y "
         "cierre con CTA a descargar TodoConta Desktop. Tono conversacional, "
         "frases cortas para teleprompter.\n"
-        "2) SOCIALES: 3 posts listos para pegar — uno para LinkedIn (150-220 "
-        "palabras, gancho fuerte en la primera línea, sin hashtags spam, máx "
-        "3), uno para X/Threads (hilo corto de 3-4 tuits numerados), uno para "
-        "Facebook (100-150 palabras, tono cercano). Cada uno con enlace "
-        "https://todoconta.com/blog/ [slug pendiente].\n"
-        "3) EMAIL: un correo para la lista de contadores en Sendy: 3 opciones "
-        "de asunto (máx 45 caracteres), cuerpo de 150-250 palabras en texto "
-        "con UN solo enlace al post, despedida de Israel. Placeholder de "
-        "nombre: [Name].\n\n"
+        "2) SOCIALES: 3 posts listos para pegar, cada uno precedido por su "
+        "marcador EN UNA LÍNEA SOLA y en este orden exacto:\n"
+        "--- LinkedIn ---\n(150-220 palabras, gancho fuerte en la primera "
+        "línea, sin hashtags spam, máx 3)\n"
+        "--- X/Threads ---\n(hilo corto de 3-4 tuits numerados)\n"
+        "--- Facebook ---\n(100-150 palabras, tono cercano)\n"
+        "Sin encabezados ni comentarios extra entre ellos. Cada uno cierra con "
+        f"el enlace {url_post} — escríbelo TAL CUAL, sin placeholders.\n\n"
         f"POST:\n{post}",
         sistema=SISTEMA,
         modelo=modelo,
@@ -346,33 +502,42 @@ def main() -> int:
         return 1
 
     partes: dict[str, str] = {}
-    resto = derivados
-    for marca, clave in (
-        ("=== GUION ===", "guion"),
-        ("=== SOCIALES ===", "sociales"),
-        ("=== EMAIL ===", "email"),
-    ):
-        if marca not in resto:
+    for marca in ("=== GUION ===", "=== SOCIALES ==="):
+        if marca not in derivados:
             print(f"[contenido] falta la sección {marca} — abortando")
             return 1
     _, tras_guion = derivados.split("=== GUION ===", 1)
-    partes["guion"], tras_sociales = tras_guion.split("=== SOCIALES ===", 1)
-    partes["sociales"], partes["email"] = tras_sociales.split("=== EMAIL ===", 1)
+    partes["guion"], partes["sociales"] = tras_guion.split("=== SOCIALES ===", 1)
+
+    sociales = _parsear_sociales(partes["sociales"])
+    if not sociales:
+        print("[contenido] sociales ilegibles — van como .md en el PR")
 
     plan_serie = ficha.get("plan_serie")
+    pendientes = [str(p) for p in (ficha.get("pendientes_verificar") or []) if p]
+    modelo_img = os.environ.get("GEMINI_IMAGE_MODEL", imagen.MODELO_DEFAULT)
     ficha_md = (
         f"# Ficha SEO e imagen — semana {semana}\n\n"
         f"- **Tema:** {tema['tema']}\n"
         f"- **Palabra clave:** {ficha.get('palabra_clave', '[PENDIENTE]')}\n"
         f"- **Slug:** `{slug}`\n"
+        f"- **URL del post:** {url_post}\n"
         f"- **Título SEO (≤60):** {ficha.get('titulo_seo', '[PENDIENTE]')}\n"
         f"- **Alt de la heroImage:** {ficha.get('alt', '[PENDIENTE]')}\n"
         f"- **heroImage:** `/assets/blog/{slug}.jpg` (16:9, fondo #FAFAF7)\n\n"
         "## Prompt de imagen (Estilo 06 — isométrico minimalista)\n\n"
         f"```\n{ficha.get('prompt_imagen', '[PENDIENTE — usar el prompt base de instrucciones-blog.md §7]')}\n```\n\n"
-        "Generar con Gemini (gemini-3-pro-image, 16:9) → comprimir "
+        f"Generar con Gemini (`{modelo_img}`, 16:9) → comprimir "
         "(scripts/convert-images.py con TinyPNG) → guardar como "
         f"`apps/landing/public/assets/blog/{slug}.jpg`.\n"
+        + (
+            "\n## ⚠️ Datos normativos por verificar\n\n"
+            "Se dejaron FUERA del post a propósito. Si los confirmas, valen un "
+            "párrafo extra:\n\n"
+            + "".join(f"- {p}\n" for p in pendientes)
+            if pendientes
+            else ""
+        )
         + (
             "\n## ⚠️ Plan de serie sugerido (el material rebasa 1,800 palabras)\n\n"
             f"{json.dumps(plan_serie, ensure_ascii=False, indent=2)}\n"
@@ -382,6 +547,17 @@ def main() -> int:
     )
 
     carpeta = f"drafts/semana-{semana}"
+    sociales_md = f"{carpeta}/posts-sociales.md"
+    respaldo_sociales = (
+        f"# Posts sociales — semana {semana}\n\n"
+        + (
+            "\n\n---\n\n".join(
+                f"**{s['red'].upper()}**\n\n{s['copy']}" for s in sociales
+            )
+            or partes["sociales"].strip()
+        )
+        + "\n"
+    )
     archivos = {
         f"{carpeta}/{pub_date}-{slug}.md": post.strip() + "\n",
         f"{carpeta}/ficha-seo.md": ficha_md,
@@ -390,13 +566,16 @@ def main() -> int:
             + partes["guion"].strip()
             + "\n"
         ),
-        f"{carpeta}/posts-sociales.md": (
-            f"# Posts sociales — semana {semana}\n\n" + partes["sociales"].strip() + "\n"
-        ),
-        f"{carpeta}/email-sendy.md": (
-            f"# Email para Sendy — semana {semana}\n\n" + partes["email"].strip() + "\n"
-        ),
     }
+    # Los sociales viven en Notion; el .md solo entra si Notion no está en juego
+    # (sin envs, o sociales ilegibles) para no perder el copy.
+    notion_listo = bool(
+        sociales
+        and os.environ.get("NOTION_DB_SOCIALES")
+        and os.environ.get("NOTION_API_KEY")
+    )
+    if not notion_listo:
+        archivos[sociales_md] = respaldo_sociales
 
     if dry_run:
         for ruta, contenido in archivos.items():
@@ -426,6 +605,15 @@ def main() -> int:
         f"(Gemini → tinypng → `public/assets/blog/{slug}.jpg`)\n"
     )
 
+    avisos = _avisos(post, slug)
+    bloque_avisos = (
+        "\n> [!WARNING]\n> **Revisar antes de publicar:**\n"
+        + "".join(f"> - {a}\n" for a in avisos)
+        + "\n"
+        if avisos
+        else ""
+    )
+
     url = github.crear_pr_con_archivos(
         repo=os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
         rama=f"drafts/semana-{semana}",
@@ -434,21 +622,48 @@ def main() -> int:
             f"Paquete de contenido de la semana {semana}, generado por el agente "
             "`contenido_semanal` (deploy/ops). **Nada de esto se publica al "
             "mergear** — los archivos viven en `drafts/`.\n\n"
-            f"**Tema:** {tema['tema']}\n\n"
-            "Checklist de Israel:\n"
+            f"**Tema:** {tema['tema']}\n"
+            f"**URL final:** {url_post}\n"
+            + bloque_avisos
+            + "\nChecklist de Israel:\n"
             f"- [ ] Revisar/editar `{pub_date}-{slug}.md` y moverlo tal cual a "
             "`apps/landing/src/content/blog/`\n"
             + linea_hero
             + "- [ ] Marcar la fila como `publicado=si` en "
             "`apps/landing/editorial/calendario-editorial-2026.csv`\n"
             "- [ ] Grabar el video con `guion-video.md` (miércoles)\n"
-            "- [ ] Programar `posts-sociales.md`\n"
-            "- [ ] Cargar `email-sendy.md` como campaña en Sendy\n\n"
-            "Verificar todo dato normativo marcado como [VERIFICAR].\n\n"
+            + (
+                "- [ ] Programar los 3 posts de la base **Contenido social** "
+                "en Notion (llegan en `Borrador`)\n"
+                if notion_listo
+                else "- [ ] Programar `posts-sociales.md`\n"
+            )
+            + "- [ ] Armar el boletín con `/partida-doble` usando este post como "
+            "hero (el correo NO sale de este PR)\n\n"
             "🤖 Generado por deploy/ops/agents/contenido_semanal.py"
         ),
         archivos=archivos,
     )
+
+    # Los sociales van a Notion (una fila por red). Si no se creó ninguna, el
+    # copy se sube como .md a la misma rama para no perderlo.
+    if notion_listo:
+        creadas = _publicar_sociales(
+            sociales,
+            semana=semana,
+            tema=tema["tema"],
+            url_post=url_post,
+            url_pr=url,
+        )
+        if creadas < len(sociales):
+            print(f"[contenido] Notion creó {creadas}/{len(sociales)} — subo el .md")
+            github.crear_pr_con_archivos(
+                repo=os.environ.get("CONTENIDO_REPO", REPO_DEFAULT),
+                rama=f"drafts/semana-{semana}",
+                titulo=f"drafts: semana {semana} — {tema['tema'][:60]}",
+                cuerpo="",
+                archivos={sociales_md: respaldo_sociales},
+            )
 
     estado.setdefault("temas_usados", []).append(tema["id"])
     estado["ultima_semana"] = semana
