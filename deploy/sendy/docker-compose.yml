@@ -52,9 +52,12 @@ services:
       - traefik.http.services.sendy.loadbalancer.server.port=80
       - traefik.docker.network=agentes
 
-  # Cron de Sendy: scheduled.php debe correr cada minuto (envíos programados,
-  # autoresponders, bounces/complaints de SES). Sidecar autocontenido: reusa la
-  # imagen y hace el loop, así no ensuciamos el crontab del host.
+  # Cron de Sendy: DOS scripts distintos deben correr cada minuto:
+  #   - scheduled.php       -> campañas programadas + bounces/complaints de SES
+  #   - autoresponders.php  -> autoresponders (bienvenidas y secuencias +N días)
+  # OJO: scheduled.php NO procesa autoresponders; son scripts separados. Correr
+  # solo scheduled.php (bug hasta 2026-07-28) deja los autoresponders sin enviar.
+  # Sidecar autocontenido: reusa la imagen y hace el loop, sin tocar el crontab del host.
   sendy-cron:
     build: .
     container_name: sendy-cron
@@ -66,7 +69,7 @@ services:
       - sendy-internal
     volumes:
       - ./app:/var/www/html
-    entrypoint: ["sh", "-c", "while true; do php /var/www/html/scheduled.php >/dev/null 2>&1; sleep 60; done"]
+    entrypoint: ["sh", "-c", "while true; do php /var/www/html/scheduled.php >/dev/null 2>&1; php /var/www/html/autoresponders.php >/dev/null 2>&1; sleep 60; done"]
 
 networks:
   sendy-internal:
