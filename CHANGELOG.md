@@ -8,6 +8,16 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Feature
 
+- **`sat-dm diot presentar`: la DIOT se presenta sola.** Nuevo subcomando que
+  sube el TXT de carga masiva a la plataforma DIOT del SAT con e.firma (sin
+  captcha), coteja los Totales del portal contra el archivo y —solo con
+  `--enviar` y confirmación— firma la declaración y descarga el acuse PDF.
+  Por seguridad el default solo valida; con discrepancias de totales nunca
+  envía. Limitante: solo contribuyentes sin estímulos fiscales (responde «No»
+  automáticamente). El comando `sat-dm diot` existente sigue funcionando y
+  ahora también existe como `sat-dm diot generar`.
+
+
 - **Tus tareas te siguen: se sincronizan entre la app de escritorio y la
   versión web.** Las tareas del centro de mando ahora viajan entre tus
   instalaciones igual que el catálogo de empresas: lo que crees, edites,
