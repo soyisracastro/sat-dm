@@ -215,9 +215,88 @@ def load_empresas() -> dict:
         # lleno de NUL), se aísla y se reinicia el catálogo en vez de reventar
         # /empresas en cada llamada. Con el fsync de _write_json_atomico esto
         # deja de pasar hacia adelante.
-        return _load_json_resiliente(
+        data = _load_json_resiliente(
             path, lambda: {"empresas": {}, "default_rfc": None},
         )
+        # Migración one-shot e idempotente: normaliza rutas relativas de la
+        # e.firma. Barata cuando no hay nada que hacer (solo mira is_absolute).
+        if _migrar_rutas_efirma(data):
+            _write_json_atomico(path, data)
+        return data
+
+
+def _migrar_rutas_efirma(catalogo: dict) -> bool:
+    """Normaliza a ABSOLUTAS las rutas de `.cer`/`.key` guardadas como relativas.
+
+    Los catálogos creados por versiones viejas guardaban `efirma/{RFC}/fiel.cer`
+    — una ruta relativa, que el sistema resuelve contra el directorio de trabajo
+    del proceso. En dev el agente arranca en la raíz del repo, que casualmente
+    tiene una carpeta `efirma/`, así que "funcionaba"; en la app empacada el cwd
+    es la carpeta del binario (de solo lectura en Windows) y la carga truena con
+    `[Errno 2] No such file or directory: 'efirma/<RFC>/fiel.cer'`. En el modo
+    hosted no existe ninguna de las dos rutas.
+
+    La forma guardada es exactamente la ruta relativa a `CONFIG_DIR`, que es
+    donde `add_empresa` copia la e.firma hoy. Orden de resolución:
+
+    1. `CONFIG_DIR/<relativa>` — el caso normal, solo se reescribe a absoluta.
+    2. `cwd/<relativa>` — la resolución legacy. Si el archivo aparece ahí, se
+       **copia** a `~/.sat-descarga/efirma/{RFC}/` para que deje de depender de
+       dónde arranque el proceso.
+    3. Si no está en ninguna, se reescribe igual a la forma absoluta bajo
+       `CONFIG_DIR`: así el error que ve el usuario nombra una ruta real en vez
+       de una relativa, y la migración no vuelve a intentarlo en cada lectura.
+
+    NO estampa `updated_at`: es una normalización local, no un cambio del
+    usuario, y `cer_path` no viaja en el sync de catálogo.
+
+    Devuelve True si cambió algo (el caller persiste).
+    """
+    cambios = False
+    for rfc, info in (catalogo.get("empresas") or {}).items():
+        if not isinstance(info, dict):
+            continue
+        for campo, nombre_canonico in (("cer_path", "fiel.cer"), ("key_path", "fiel.key")):
+            valor = info.get(campo)
+            if not valor:
+                continue
+            rel = Path(valor)
+            if rel.is_absolute():
+                continue
+
+            destino = CONFIG_DIR / rel
+            if destino.is_file():
+                info[campo] = str(destino)
+                cambios = True
+                continue
+
+            legacy = Path.cwd() / rel
+            if legacy.is_file():
+                canonico = EFIRMA_DIR / rfc / nombre_canonico
+                try:
+                    canonico.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(legacy, canonico)
+                    info[campo] = str(canonico)
+                    cambios = True
+                    logger.info(
+                        "[catalogo] %s: %s se copió de %s a %s (ruta relativa legacy)",
+                        rfc, campo, legacy, canonico,
+                    )
+                except OSError as e:  # disco lleno / permisos: no romper la carga
+                    logger.warning(
+                        "[catalogo] %s: no se pudo copiar %s a %s: %s",
+                        rfc, legacy, canonico, e,
+                    )
+                continue
+
+            info[campo] = str(destino)
+            cambios = True
+            logger.warning(
+                "[catalogo] %s: %s apuntaba a la ruta relativa %r y el archivo no "
+                "se encontró; queda como %s. Vuelve a cargar la e.firma de esta "
+                "empresa.", rfc, campo, valor, destino,
+            )
+    return cambios
 
 
 def save_empresas(data: dict):
