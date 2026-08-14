@@ -89,6 +89,69 @@ def _valores_oid_en_der(der: bytes, oid_der: bytes) -> list[bytes]:
     return out
 
 
+# Caracteres que X.680 permite en un PrintableString. Cualquier byte fuera de
+# este conjunto hace que el parser ASN.1 de `cryptography` (Rust, estricto)
+# rechace el certificado completo con ParseError.
+_PRINTABLE_VALIDOS = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 '()+,-./:=?"
+)
+_TAG_PRINTABLE_STRING = 0x13
+_TAG_UTF8_STRING = 0x0C
+_TAG_OID = 0x06
+
+
+def _reparar_printablestring_en_der(der: bytes) -> bytes | None:
+    """Retipa a UTF8String los PrintableString del DN que traen bytes ilegales.
+
+    Los certs emitidos por la CA vieja del SAT ("A.C. del Servicio de
+    Administración Tributaria") declaran atributos del emisor como
+    PrintableString pero les meten UTF-8 con acentos — p. ej.
+    `unstructuredName = "responsable: Administración Central de Servicios
+    Tributarios al Contribuyente"`. OpenSSL lo tolera; `cryptography` no, y
+    truena con `ParseError { ... "AttributeValue::PrintableString" }` ANTES de
+    que el fallback de `_valores_oid_en_der` pueda entrar.
+
+    UTF8String (0x0C) sí admite esos bytes y el TLV conserva la longitud, así
+    que basta cambiar el byte del tag: ningún desplazamiento, el resto del DER
+    queda intacto. Solo se retipan valores que siguen inmediatamente a un OID
+    (la forma de un `AttributeTypeValue`), para no tocar datos opacos.
+
+    Devuelve el DER corregido, o None si no había nada que corregir. El cert
+    reparado se usa SOLO para leer metadatos: lo que se manda al SAT sigue
+    siendo el DER original (ver `_load_certificate`).
+    """
+    buf = bytearray(der)
+    cambios = 0
+    i = buf.find(_TAG_OID)
+    while i != -1:
+        len_oid = buf[i + 1] if i + 1 < len(buf) else 0x80
+        j = i + 2 + len_oid  # inicio del TLV que sigue al OID
+        if len_oid < 0x80 and j + 1 < len(buf) and buf[j] == _TAG_PRINTABLE_STRING:
+            largo, inicio = buf[j + 1], j + 2
+            if largo == 0x81 and j + 2 < len(buf):  # forma larga de 1 byte
+                largo, inicio = buf[j + 2], j + 3
+            if largo < 0x80 and inicio + largo <= len(buf):
+                valor = buf[inicio : inicio + largo]
+                if any(b not in _PRINTABLE_VALIDOS for b in valor):
+                    buf[j] = _TAG_UTF8_STRING
+                    cambios += 1
+        i = buf.find(_TAG_OID, i + 1)
+    return bytes(buf) if cambios else None
+
+
+def _der_desde_pem(data: bytes) -> bytes | None:
+    """DER del primer bloque CERTIFICATE de un PEM, o None si no es PEM."""
+    m = re.search(
+        rb"-----BEGIN CERTIFICATE-----(.+?)-----END CERTIFICATE-----", data, re.S
+    )
+    if not m:
+        return None
+    try:
+        return base64.b64decode(re.sub(rb"\s+", b"", m.group(1)))
+    except Exception:  # noqa: BLE001 - base64 corrupto
+        return None
+
+
 class FIEL:
     """Encapsula la e-firma: certificado + llave privada."""
 
@@ -110,15 +173,51 @@ class FIEL:
     # ------------------------------------------------------------------
 
     def _load_certificate(self, path: str):
+        """Carga el .cer probando DER (nativo del SAT) → PEM → DER reparado.
+
+        El tercer intento cubre los certs de la CA vieja del SAT, que traen
+        acentos dentro de un PrintableString y hacen fallar al parser estricto
+        de `cryptography` (ver `_reparar_printablestring_en_der`). Si los tres
+        fallan, el error es en español y menciona el .cer — antes se filtraba
+        crudo el "Unable to load PEM file … MalformedFraming" del último
+        intento, que apuntaba al archivo equivocado.
+        """
         data = Path(path).read_bytes()
+        errores: list[str] = []
+
         try:
-            # Intentar DER primero (formato nativo del SAT)
             cert = x509.load_der_x509_certificate(data)
             self._cert_der = data
-        except Exception:
+            return cert
+        except Exception as e:  # noqa: BLE001
+            errores.append(f"DER: {e}")
+
+        try:
             cert = x509.load_pem_x509_certificate(data)
             self._cert_der = cert.public_bytes(serialization.Encoding.DER)
-        return cert
+            return cert
+        except Exception as e:  # noqa: BLE001
+            errores.append(f"PEM: {e}")
+
+        # Último recurso: retipar los PrintableString ilegales del DN. El cert
+        # resultante se usa solo para LEER (RFC, vigencia, serie, llave
+        # pública); `_cert_der` conserva los bytes originales, que son los que
+        # el SAT reconoce en la firma WS-Security.
+        original = data if data[:1] == b"\x30" else _der_desde_pem(data)
+        reparado = _reparar_printablestring_en_der(original) if original else None
+        if reparado is not None:
+            try:
+                cert = x509.load_der_x509_certificate(reparado)
+                self._cert_der = original
+                return cert
+            except Exception as e:  # noqa: BLE001
+                errores.append(f"DER reparado: {e}")
+
+        raise ValueError(
+            "No se pudo leer el certificado (.cer): formato no reconocido. "
+            "Verifica que sea el archivo .cer que te entregó el SAT. "
+            f"Detalle: {' | '.join(errores)}"
+        )
 
     def _load_private_key(self, path: str, password: str):
         data = Path(path).read_bytes()
@@ -281,8 +380,17 @@ class FIEL:
 
     @property
     def certificate_b64(self) -> str:
-        """Certificado en Base64 (DER) para incluir en el XML SOAP."""
-        der = self._cert.public_bytes(serialization.Encoding.DER)
+        """Certificado en Base64 (DER) para incluir en el XML SOAP.
+
+        Usa SIEMPRE los bytes originales del .cer (`_cert_der`), no una
+        re-serialización del objeto parseado: cuando el cert se cargó con el DN
+        reparado (ver `_load_certificate`), re-serializar emitiría el tag
+        corregido y el SAT rechazaría la firma, porque la CA firmó el
+        tbsCertificate tal cual venía. Mismo patrón que `certifica/generador.py`.
+        """
+        der = getattr(self, "_cert_der", None)
+        if der is None:
+            der = self._cert.public_bytes(serialization.Encoding.DER)
         return base64.b64encode(der).decode()
 
     # ------------------------------------------------------------------
