@@ -23,7 +23,7 @@ from lxml import etree
 from ..core.config import ENDPOINTS, SOAP_ACTIONS, TIPO_CFDI, TIPO_EMITIDO
 from ..core.fiel import FIEL
 from ..core.http_client import make_request
-from .errores import CODIGOS_TRANSITORIOS, ErrorTransitorioSAT
+from .errores import CODIGOS_TRANSITORIOS, ErrorTransitorioSAT, mensaje_rechazo
 from ..core.xml_seguro import fromstring_seguro
 
 logger = logging.getLogger(__name__)
@@ -414,8 +414,6 @@ def _parse_request_id(resp_xml: bytes, result_tag: str) -> str:
         )
 
     if not id_solicitud or cod not in ("5000", ""):
-        raise RuntimeError(
-            f"SAT rechazó la solicitud. CodEstatus={cod}, Mensaje={msg}"
-        )
+        raise RuntimeError(mensaje_rechazo(cod, msg))
 
     return id_solicitud
