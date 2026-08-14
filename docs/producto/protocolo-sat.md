@@ -31,6 +31,64 @@ SSL inestable (~25% de fallos): se fuerza TLS 1.2 con `check_hostname=False` y
 | 4 | Error del SAT |
 | 5 | Rechazada |
 
+### Códigos de estatus (`CodEstatus`) — tabla oficial del SAT
+
+Los `3xx` son comunes a las tres operaciones (Solicita / Verifica / Descarga); los `5xxx`
+son propios de cada una. Transcritos de la documentación del SAT (fuentes al final).
+
+**Comunes (3xx) — validación de la petición y del certificado**
+
+| Código | Mensaje | Observaciones del SAT |
+|---|---|---|
+| 300 | Usuario No Válido | |
+| 301 | XML Mal Formado | "cuando el request posee información invalida, ejemplo: un RFC de receptor no valido" |
+| 302 | Sello Mal Formado | |
+| 303 | Sello no corresponde con RfcSolicitante | |
+| 304 | Certificado Revocado o Caduco | "El certificado fue revocado o bien la fecha de vigencia expiró" |
+| 305 | Certificado Inválido | "El certificado puede ser invalido por múltiples razones como son el tipo, **codificación incorrecta**, etc." |
+| 404 | Error no Controlado | Genérico y **transitorio** del SAT; reintentar (ver `webservice/errores.py`) |
+
+**SolicitaDescarga (5xxx)**
+
+| Código | Mensaje | Observaciones del SAT |
+|---|---|---|
+| 5000 | Solicitud de descarga recibida con éxito | |
+| 5001 | Tercero no autorizado | "El solicitante no tiene autorización de descarga de xml de los contribuyentes" |
+| 5002 | Se han agotado las solicitudes de por vida | "Se ha alcanzado el límite de solicitudes, con el mismo criterio" |
+| 5005 | Ya se tiene una solicitud registrada | "Ya existe una solicitud activa con los mismos criterios" |
+| 5006 | Error interno en el proceso | |
+
+**Descargar (5xxx)**
+
+| Código | Mensaje | Observaciones del SAT |
+|---|---|---|
+| 5000 | Solicitud de descarga recibida con éxito | |
+| 5004 | No se encontró la información | |
+| 5007 | No existe el paquete solicitado | "Los paquetes solo tienen un periodo de vida de 72hrs" |
+| 5008 | Máximo de descargas permitidas | "Un paquete solo puede descargarse un total de 2 veces" |
+
+**Orden de validación (importante al depurar):** el SAT valida **parámetros antes que
+certificado**. Una petición con parámetros inválidos devuelve `301` y **nunca llega a
+evaluar el certificado** — es fácil concluir "el certificado pasó" cuando ni se revisó.
+Hay que llegar a una petición con parámetros válidos para que aparezca un `304`/`305`.
+
+**Sobre el `305`:** la observación "codificación incorrecta" es literal y aplica a un caso
+real — los certificados de la CA del SAT de mayo 2023 traen un `PrintableString` con bytes
+UTF-8 y **el WS de descarga masiva los rechaza con 305**, aunque el portal (login por
+e.firma, CSF, 32-D, descarga de CFDIs) y `Autenticacion.svc` los aceptan. Detalle completo:
+[certificados-sat-printablestring-mayo-2023.md](certificados-sat-printablestring-mayo-2023.md).
+Ojo con la discrepancia de la propia documentación del SAT: en el doc de Solicitud, el `304`
+repite palabra por palabra la observación del `305`; la redacción buena (la que distingue
+revocado/caduco de codificación) está en el doc de Descarga.
+
+**Fuentes** (PDFs del portal del SAT, sección Factura Electrónica → Consulta y Recuperación
+de Comprobantes):
+- *Documentación del Servicio de Solicitud de Descarga Masiva de CFDI y CFDI de Retenciones*,
+  11 de mayo de 2022, versión 1.2 — tabla de Solicita.
+- *Documentación para la implementación del Servicio Web de Descarga Masiva de CFDI y
+  retenciones — Servicio de Descarga de Solicitudes Exitosas*, agosto 2018, versión 1.1 —
+  tabla de Descargar (es la que trae "codificación incorrecta" en el 305).
+
 ### Endpoints (ver `sat_descarga/config.py`)
 
 ```
