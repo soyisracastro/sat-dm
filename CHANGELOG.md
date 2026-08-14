@@ -33,6 +33,16 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
 
 ### Fix
 
+- **Las e.firmas emitidas por la autoridad certificadora vieja del SAT ya se
+  pueden dar de alta.** Los certificados firmados por «A.C. del Servicio de
+  Administración Tributaria» traen acentos en un campo del emisor que su propio
+  formato no permite, y la app los rechazaba con un mensaje críptico ("Unable to
+  load PEM file… MalformedFraming") que además apuntaba al archivo equivocado:
+  parecía un problema de la clave privada cuando era del certificado. Ahora la
+  app tolera ese defecto —el certificado se manda al SAT tal cual, sin
+  alterarlo— y, si de plano un .cer no se puede leer, el aviso lo dice en
+  español y nombra el archivo correcto. Ninguna e.firma estaba dañada: solo no
+  se podían registrar.
 - **Descarga por e.firma: mensaje claro y reintento automático cuando el portal
   del SAT rechaza la sesión.** Al descargar comprobantes con e.firma, a veces el
   portal rebota la consulta a su página de error y la app fallaba con el mensaje
