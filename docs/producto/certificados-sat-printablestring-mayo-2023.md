@@ -1,24 +1,40 @@
-# Certificados del SAT rechazados por parsers ASN.1 estrictos (mayo 2023)
+# Certificados del SAT de mayo 2023: parseo estricto y rechazo en descarga masiva
 
 **Nota técnica — 14 de agosto de 2026.** Para equipos que integran e.firma / CSD del SAT.
 Se comparte abiertamente: aplícala si te sirve.
+
+Todo lo que sigue está verificado contra el SAT en vivo con un certificado real de la
+ventana afectada, no inferido.
 
 ---
 
 ## Resumen
 
-Un subconjunto de certificados de e.firma emitidos por la autoridad certificadora
-`A.C. del Servicio de Administración Tributaria` **es rechazado por librerías de
-criptografía con validación ASN.1 estricta**, mientras que OpenSSL y el propio SAT
-los aceptan sin problema.
+Los certificados de e.firma emitidos por la autoridad certificadora
+`A.C. del Servicio de Administración Tributaria` (ventana de mayo de 2023) tienen
+**dos problemas independientes**, y conviene no confundirlos porque tienen remedios
+distintos:
 
-La causa es un **único campo mal tipado en el DN del emisor**: un atributo declarado
-como `PrintableString` que contiene bytes UTF-8. No hay nada malo con el certificado
-del contribuyente, ni con su llave privada, ni con su vigencia.
+| # | Problema | Dónde vive | ¿Se puede arreglar del lado del cliente? |
+|---|---|---|---|
+| 1 | El certificado **no se puede parsear** con librerías ASN.1 estrictas | En tu código | **Sí** — este documento explica cómo |
+| 2 | El **Web Service de descarga masiva del SAT lo rechaza** con `CodEstatus=305` | En el SAT | **No** |
 
-**Consecuencia práctica:** varios sistemas contables muestran a estos certificados
-como inválidos y le piden al contribuyente tramitar una e.firma nueva ante el SAT.
-**No es necesario.** El trámite es evitable con un cambio acotado del lado del cliente.
+El problema 1 lo causa un **único campo mal tipado en el DN del emisor**: un atributo
+declarado como `PrintableString` que contiene bytes UTF-8. No tiene nada que ver con
+los datos del contribuyente ni con su llave privada.
+
+**Por qué vale la pena arreglar el 1 aunque el 2 no tenga remedio:** el certificado
+**sí funciona** en los demás canales del SAT — login del portal por e.firma,
+Constancia de Situación Fiscal, Opinión de Cumplimiento 32-D, descarga de CFDIs por
+el portal, y el servicio de autenticación del propio Web Service. Todos verificados
+en vivo (ver más abajo). Si tu producto solo consume descarga masiva, el problema 2
+te bloquea igual; si tocas cualquier otro trámite, el arreglo de parseo desbloquea a
+ese contribuyente sin mandarlo al SAT.
+
+**Sobre el mensaje "tramita una e.firma nueva":** es correcto **solo** si el usuario
+necesita descarga masiva por Web Service. Como diagnóstico general es engañoso — el
+certificado sigue siendo válido y vigente para todo lo demás.
 
 ---
 
@@ -101,20 +117,44 @@ cambió, cambió la tolerancia del parser.
 
 ---
 
-## El certificado es válido: verificación contra el SAT
+## Qué acepta y qué rechaza el SAT (verificado en vivo)
 
-Antes de pedirle a un contribuyente que renueve su e.firma, conviene comprobar contra la
-fuente. Con el certificado del ejemplo:
+El certificado del ejemplo se probó contra cada canal del SAT. El resultado **no es
+uniforme**, y esa es la parte que suele malinterpretarse:
 
-1. **Acuse de CERTISAT WEB** (operación `230500502463`): el SAT certifica la entrega del
-   certificado serie `00001000000600353820`, con vigencia del **23-05-2023 al 23-05-2027**,
-   revocando el anterior. Emisión normal, sin observaciones.
-2. **Autenticación contra el Web Service de descarga masiva** (`autenticacion/autenticacion.svc`),
-   firmando el `Timestamp` con esa llave y adjuntando ese certificado en el `BinarySecurityToken`:
-   **el SAT emitió token**.
+| Canal del SAT | Resultado |
+|---|---|
+| Acuse de CERTISAT WEB (operación `230500502463`) | Emisión normal, vigencia 2023-05-23 → 2027-05-27, sin observaciones |
+| Login del portal por e.firma (NIDP) | ✅ acepta |
+| Constancia de Situación Fiscal · Opinión 32-D | ✅ descarga |
+| Descarga de CFDIs por el portal (e.firma, sin captcha) | ✅ descarga XMLs |
+| `autenticacion/autenticacion.svc` (token del WS) | ✅ emite token |
+| **`SolicitaDescarga` (WS de descarga masiva)** | ❌ **`CodEstatus=305, Certificado Inválido`** |
 
-Es decir: el SAT acepta el certificado en su propio canal autenticado. El rechazo ocurre
-íntegramente del lado del cliente.
+Es decir: el certificado **está vivo y es válido** en la infraestructura del SAT, pero el
+servicio de descarga masiva lo rechaza específicamente. No es revocación ni caducidad —
+esos son códigos distintos (`304 Certificado Revocado o Caduco`).
+
+### Cómo se descartó que fuera el cliente
+
+El rechazo del `305` es fácil de atribuir por error al propio código. Se aisló así:
+
+1. **Mismo certificado, `X509IssuerName` normalizado.** El DN del emisor de esta CA
+   además trae UTF-8 doblemente codificado en sus `UTF8String` (`CuauhtÃ©moc`,
+   `AdministraciÃ³n`), así que era sospechoso natural. Se reenvió la solicitud con ese
+   campo corregido → **mismo `305`**. No es el `IssuerName`.
+2. **Control con un certificado sano, mismo código y mismo flujo.** Una e.firma de otra
+   CA, por la misma ruta de firma y el mismo envelope → **`SolicitaDescarga` aceptada,
+   `IdSolicitud` emitido**. El cliente firma bien.
+3. **Orden de validación del SAT.** Ojo al depurar: el SAT valida **parámetros antes que
+   certificado**. Una solicitud con parámetros inválidos devuelve `301` y nunca llega a
+   revisar el certificado — es fácil concluir "el certificado pasó" cuando en realidad
+   ni se evaluó. Hay que llegar a una solicitud con parámetros válidos para que el `305`
+   aparezca.
+
+Conclusión: el `305` es del lado del SAT y no tiene remedio del lado del cliente. El
+único camino para descarga masiva por WS con estos certificados es renovar la e.firma.
+Todo lo demás sigue funcionando con el certificado actual.
 
 ---
 
@@ -218,19 +258,33 @@ Un certificado afectado cumple las tres:
 3. `openssl asn1parse -inform DER -in cert.cer | grep PRINTABLESTRING` muestra un valor
    con bytes no ASCII.
 
-Vale la pena diferenciarlo en la UI de un "archivo corrupto" o "contraseña incorrecta":
-el usuario que ve *"tu certificado es inválido, tramita otro"* pierde una vuelta al SAT
-por un problema que no es suyo.
+Vale la pena diferenciarlo en la UI tanto de un "archivo corrupto" o "contraseña
+incorrecta" como del rechazo del SAT. Son tres mensajes distintos:
+
+- **No se puede leer el archivo** → problema de parseo, se arregla con este documento.
+- **`CodEstatus=305` en descarga masiva** → el SAT rechaza el certificado *para ese
+  servicio*. Aquí sí aplica sugerir la renovación de la e.firma, pero conviene decir
+  para qué: el certificado sigue sirviendo para el resto de los trámites.
+- **`CodEstatus=304`** → ese sí es revocado o caduco, y es otra conversación.
+
+La diferencia importa: un contribuyente al que se le dice "tu certificado es inválido,
+tramita otro" cuando lo único que no le funciona es un canal, pierde una vuelta al SAT
+que quizá no necesitaba.
 
 ---
 
 ## Estado en TodoConta
 
-Implementado en `sat_descarga/core/fiel.py` (PR #190). `_load_certificate` intenta
-DER → PEM → DER reparado, `certificate_b64` sale siempre de los bytes originales, y si
-los tres intentos fallan el error es en español y nombra el `.cer` en vez de filtrar el
-mensaje de PEM. Cubierto por tests, incluyendo uno de integración que inyecta el defecto
-en un certificado de prueba sin alterarle la longitud.
+**Parseo (problema 1):** resuelto en `sat_descarga/core/fiel.py` (PR #190).
+`_load_certificate` intenta DER → PEM → DER reparado, `certificate_b64` sale siempre de
+los bytes originales, y si los tres intentos fallan el error es en español y nombra el
+`.cer` en vez de filtrar el mensaje de PEM. Cubierto por tests, incluyendo uno de
+integración que inyecta el defecto en un certificado de prueba sin alterarle la longitud.
+
+**Rechazo del SAT (problema 2):** no tiene arreglo del lado del cliente. En TodoConta el
+canal primario para e.firma es el portal (scraping sin captcha), no el Web Service, así
+que estos contribuyentes operan con normalidad: descarga de CFDIs, CSF, 32-D. La descarga
+masiva por WS queda como la única función que exige renovar la e.firma.
 
 ## Referencias
 
