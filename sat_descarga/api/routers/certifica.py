@@ -21,6 +21,7 @@ mapea a la checklist del wizard: generando → firmando → enviando → numero_
 """
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -69,6 +70,51 @@ class CsdRecuperarRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+# Extensiones que produce el trámite de renovación y que el usuario debe
+# resguardar. La .key NUEVA es la crítica: el .cer se puede volver a bajar del
+# SAT, la llave privada no.
+_EXT_RENOVACION = (".key", ".ren", ".cer", ".pdf")
+
+_LEEME_RESPALDO_RENOVACION = """\
+Respaldo de la renovación de tu e.firma — {rfc}
+
+GUARDA ESTA CARPETA EN UN LUGAR SEGURO. Contiene la LLAVE PRIVADA NUEVA de tu
+e.firma (el archivo .key).
+
+• El certificado (.cer) siempre lo puedes volver a descargar del SAT, en
+  «Recuperación de certificados» de CertiSAT Web.
+• La LLAVE PRIVADA NUEVA (.key) NO. Si la pierdes, el certificado que te emitió
+  el SAT queda inservible y hay que tramitar una e.firma nueva de forma
+  PRESENCIAL, con cita.
+• Tu contraseña NO está en este ZIP. Es la misma que usabas en tu e.firma
+  anterior. Si la pierdes tampoco se puede recuperar: el .key está cifrado con
+  ella.
+
+Contenido:
+  .key  — llave privada NUEVA (la crítica)
+  .ren  — solicitud de renovación que se envió al SAT
+  .cer  — certificado nuevo emitido por el SAT (si el trámite ya concluyó)
+  .pdf  — acuse del trámite (si el SAT ya lo entregó)
+"""
+
+
+def _archivos_renovacion(rfc: str) -> list[Path]:
+    """Archivos del trámite de renovación de `rfc` que existen hoy en disco.
+
+    La ruta se deriva del RFC (nunca del cliente) y se limita a las extensiones
+    del trámite, para que este endpoint no pueda servir nada más.
+    """
+    carpeta = paths.dir_documento(
+        paths.TIPO_RENOVACION, rfc, salida_base=_descargas_base(),
+    )
+    if not carpeta.is_dir():
+        return []
+    return sorted(
+        f for f in carpeta.iterdir()
+        if f.is_file() and f.suffix.lower() in _EXT_RENOVACION
+    )
 
 
 def _empresa_con_fiel(rfc: str) -> dict:
@@ -363,6 +409,99 @@ def renovar_efirma(req: RenovarRequest):
             )
 
     return _lanzar_job_certifica(factory, al_completar=al_completar)
+
+
+@router.get("/renovar/estado")
+def renovar_estado(rfc: str):
+    """Estado del trámite de renovación de un RFC. → dict, siempre 200.
+
+    Existe para que la UI **nunca** muestre una pantalla muda: si la app se
+    cerró a media renovación (o el usuario cambió de máquina), aquí ve en qué
+    etapa quedó, si el SAT ya recibió el trámite y si puede bajarse el respaldo.
+
+    Etapas (las persiste `POST /renovar`):
+      - `generada` — la .key nueva y el .ren ya existen en disco; el SAT AÚN NO
+        recibe nada. Reintentar es seguro.
+      - `enviada`  — el SAT ya tiene el trámite (hay número de operación). NO
+        se debe regenerar: se completa con `POST /renovar/recuperar`.
+    """
+    rfc = rfc.strip().upper()
+    try:
+        config_store.get_empresa(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+
+    pendiente = config_store.get_renovacion_pendiente(rfc) or {}
+    archivos = _archivos_renovacion(rfc)
+    etapa = pendiente.get("etapa")
+    return {
+        "rfc": rfc,
+        "pendiente": bool(pendiente),
+        "etapa": etapa,
+        "numero_operacion": pendiente.get("numero_operacion"),
+        "solicitado_en": pendiente.get("solicitado_en"),
+        # El SAT ya recibió: regenerar duplicaría el trámite.
+        "reintento_seguro": etapa == "generada",
+        "siguiente_paso": (
+            "recuperar" if etapa == "enviada"
+            else "reintentar" if etapa == "generada"
+            else None
+        ),
+        "respaldo_disponible": bool(archivos),
+        "archivos": [p.name for p in archivos],
+    }
+
+
+@router.get("/renovar/respaldo")
+def renovar_respaldo(rfc: str):
+    """ZIP con lo que exista del trámite de renovación (.key nueva, .ren, acuse, .cer).
+
+    **Es la red de seguridad del trámite.** El `.cer` nuevo siempre se puede
+    volver a bajar del SAT («Recuperación de certificados»), pero la **llave
+    privada nueva no**: si se pierde, el certificado emitido queda inservible y
+    el contribuyente tiene que ir presencialmente al SAT. Por eso este endpoint
+    sirve desde la etapa `generada` — antes de que el SAT reciba nada — y no
+    espera a que el trámite termine.
+
+    No usa la lista blanca del historial (a esa altura el trámite todavía no
+    está registrado): la ruta se deriva del RFC, nunca del cliente.
+    """
+    rfc = rfc.strip().upper()
+    try:
+        config_store.get_empresa(rfc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="empresa no encontrada")
+
+    archivos = _archivos_renovacion(rfc)
+    if not archivos:
+        raise HTTPException(
+            status_code=404,
+            detail="No hay archivos de renovación para este RFC.",
+        )
+
+    import tempfile
+    import zipfile
+
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in archivos:
+                zf.write(f, f.name)
+            zf.writestr("LÉEME.txt", _LEEME_RESPALDO_RENOVACION.format(rfc=rfc))
+    except Exception:
+        os.unlink(tmp.name)
+        raise
+
+    return FileResponse(
+        tmp.name,
+        filename=f"{rfc}_renovacion_efirma.zip",
+        media_type="application/zip",
+        background=BackgroundTask(os.unlink, tmp.name),
+    )
 
 
 @router.post("/renovar/recuperar")
