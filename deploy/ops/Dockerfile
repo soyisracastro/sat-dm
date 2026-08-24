@@ -9,14 +9,25 @@ ARG SUPERCRONIC_VERSION=v0.2.34
 ADD https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64 /usr/local/bin/supercronic
 RUN chmod +x /usr/local/bin/supercronic
 
-RUN pip install --no-cache-dir requests pymysql boto3 anthropic
+# Chromium de Playwright horneado FUERA de $HOME, para el PDF de cotizaciones
+# (agents/cotizaciones.py → lib/cotizacion_pdf.py). Se lanza con --no-sandbox
+# (el contenedor corre como root). El render es ocasional/bursty; el resto de
+# los agentes no lo usan.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN pip install --no-cache-dir requests pymysql boto3 anthropic playwright \
+    && playwright install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright \
+    && rm -rf /var/lib/apt/lists/* /root/.cache
 
 WORKDIR /app
 COPY crontab ./crontab
 COPY lib ./lib
 COPY agents ./agents
+COPY data ./data
+COPY assets ./assets
 
-# Los snapshots semanales (para deltas) viven en el volumen /data.
+# Los snapshots semanales (para deltas) y el estado de los agentes viven en /data.
 RUN mkdir -p /data
 
 ENV PYTHONPATH=/app PYTHONUNBUFFERED=1

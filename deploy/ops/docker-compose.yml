@@ -14,7 +14,10 @@ services:
     build: .
     container_name: ops
     restart: unless-stopped
-    mem_limit: 256m
+    # 1g (no 256m): el agente de cotizaciones lanza Chromium headless para
+    # renderizar el PDF (pico ~150-400MB). Es un render ocasional/bursty y el
+    # VPS tiene ~6GB libres (ver deploy/vps/README.md).
+    mem_limit: 1g
     env_file: .env
     volumes:
       - ops-data:/data

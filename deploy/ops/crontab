@@ -13,6 +13,11 @@
 # Soporte: clasifica soporte@ y deja borradores para aprobar. Cada hora al :45.
 45 * * * * python /app/agents/soporte.py
 
+# Cotizaciones: arma el PDF y deja borrador para aprobar. Cada 15 min en horas
+# hábiles (14-23 UTC ≈ 8am-6pm CDMX), al :05/:20/:35/:50 para no chocar con
+# soporte (:45). Nace apagado (OPS_COTIZACIONES_ENABLED).
+5,20,35,50 14-23 * * * python /app/agents/cotizaciones.py
+
 # Waitlist de Abacus (Notion) → crm_leads. Diario 08:10 CDMX, antes de que el
 # SDR abra su ventana (09:15) para que trabaje leads ya registrados.
 10 14 * * * python /app/agents/sync_abacus_waitlist.py
