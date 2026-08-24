@@ -6,8 +6,17 @@
 
 _Cambios mergeados a `main` aún no etiquetados; el release de la semana los promueve._
 
+## [2.1.0] - 2026-08-15
+
 ### Feature
 
+- **Tus llaves de API y tu conexión con la IA, en Ajustes.** Ya puedes generar y
+  revocar llaves de API desde la app, y conectar TodoConta con tu asistente de IA
+  (Claude, ChatGPT) sin salir a la web. La llave se muestra una sola vez al
+  crearla; después solo ves cuándo la usaste por última vez.
+- **Tu equipo, desde la app.** Invita a tus colaboradores, revisa quién tiene
+  acceso y retíralo cuando alguien salga del despacho — todo desde Ajustes, sin
+  entrar al portal web.
 - **`sat-dm diot presentar`: la DIOT se presenta sola.** Nuevo subcomando que
   sube el TXT de carga masiva a la plataforma DIOT del SAT con e.firma (sin
   captcha), coteja los Totales del portal contra el archivo y —solo con
@@ -58,6 +67,36 @@ _Cambios mergeados a `main` aún no etiquetados; el release de la semana los pro
   correcta. Además, volver a organizar la misma carpeta ya no reprocesa la
   salida de corridas anteriores (los archivos ya no "rebotan" ni se duplican
   al alternar entre empresas).
+- **Cuando el SAT rechaza algo, ahora te dice qué hacer.** Los rechazos del
+  servicio de descarga masiva llegaban como códigos crudos ("CodEstatus=305,
+  Certificado Inválido") que no orientaban a nadie. Ahora cada rechazo trae la
+  acción concreta: si el SAT no acepta un certificado para la descarga masiva,
+  la app te dice que uses Descarga rápida —que funciona con esa misma e.firma—
+  antes de mandarte a renovar nada.
+- **Empresas dadas de alta hace mucho: su e.firma vuelve a cargar.** Las
+  empresas registradas en versiones antiguas guardaban la ubicación de su
+  e.firma de una forma que dejaba de funcionar al reinstalar o al usar la
+  versión web. La app ahora corrige esas ubicaciones sola, la primera vez que
+  abre tu catálogo, sin que tengas que volver a cargar nada.
+- **Windows: las sesiones largas dejan de cerrarse solas.** El llavero de
+  Windows rechaza credenciales por arriba de cierto tamaño, y eso tumbaba la
+  sesión de tu cuenta al guardarla. Ahora se guarda partida en pedazos y la
+  sesión persiste como debe.
+- **macOS: las actualizaciones automáticas vuelven a funcionar.** El instalador
+  no publicaba el formato que el actualizador necesita, así que la app nunca
+  encontraba la versión nueva.
+- **Si el servicio de cuentas no responde, la app te lo dice.** Un corte de red
+  al validar tu suscripción se reportaba como una falla de la app; ahora se
+  distingue como lo que es —algo temporal— y te invita a reintentar.
+
+### Copy
+
+- **"CIEC" ahora se llama "Contraseña" en toda la app.** Es como la nombra hoy
+  el propio SAT, y es lo que el contribuyente reconoce.
+
+### Tooling
+
+- Bump 2.0.0 → 2.1.0 (3 archivos).
 
 ## [2.0.0] - 2026-07-14
 
