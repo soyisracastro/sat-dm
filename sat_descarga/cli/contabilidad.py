@@ -166,3 +166,54 @@ def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
             "El acuse de RECEPCIÓN no ampara el cumplimiento: el SAT todavía "
             "valida el archivo. Verifica el acuse de aceptación o rechazo en "
             "Buzón Tributario › Contabilidad Electrónica › Consultas.")
+
+
+@contabilidad.command("acuses")
+@click.option("--rfc", default=None, help="Empresa del catálogo (resuelve la e.firma).")
+@click.option("--cer", type=click.Path(exists=True), default=None)
+@click.option("--key", type=click.Path(exists=True), default=None)
+@click.option("--password", default=None)
+@click.option("--anio", type=int, required=True, help="Ejercicio a consultar.")
+@click.option("--mes-ini", type=int, default=1, show_default=True)
+@click.option("--mes-fin", type=int, default=13, show_default=True,
+              help="13 = ajuste al cierre.")
+@click.option("--bajar", is_flag=True,
+              help="Descargar los PDF de recepción y de aceptación/rechazo.")
+@click.option("--salida", default=None, help="Carpeta donde guardar los acuses.")
+@click.option("--ver", is_flag=True, help="Mostrar el navegador.")
+def cmd_acuses(rfc, cer, key, password, anio, mes_ini, mes_fin, bajar, salida, ver):
+    """Consulta el estatus de lo enviado (Recibido / Aceptado / Rechazado)."""
+    from ..portal.contabilidad_electronica import ConsultorCE
+
+    cer, key, password = _resolver_efirma(rfc, cer, key, password)
+    print_header(f"Acuses de contabilidad electrónica — "
+                 f"{(rfc or '').upper()} — {anio}")
+
+    filas = ConsultorCE(headless=not ver,
+                        progreso=lambda m: click.echo(f"  {m}")).consultar(
+        cer, key, password, anio=anio, mes_ini=mes_ini, mes_fin=mes_fin,
+        bajar_acuses=bajar, salida=salida)
+
+    if not filas:
+        print_warning("El portal no reporta envíos en ese rango.")
+        return
+
+    click.echo()
+    for f in filas:
+        marca = {"Aceptado": "✓", "Rechazado": "✗"}.get(f.get("estatus"), "·")
+        click.echo(f"  {marca} {f.get('periodo',''):8s} "
+                   f"{f.get('archivo',''):30s} {f.get('estatus',''):10s} "
+                   f"{f.get('fecha','')}")
+        if f.get("acuse_resultado"):
+            click.echo(f"      resultado: {f['acuse_resultado']}")
+
+    rechazados = [f for f in filas if f.get("estatus") == "Rechazado"]
+    pendientes = [f for f in filas if f.get("estatus") == "Recibido"]
+    click.echo()
+    if rechazados:
+        print_error(f"{len(rechazados)} rechazado(s): hay que corregir y reenviar.")
+    if pendientes:
+        print_warning(f"{len(pendientes)} en «Recibido»: el SAT aún los valida; "
+                      "solo «Aceptado» ampara el cumplimiento.")
+    if not rechazados and not pendientes:
+        print_success(f"Los {len(filas)} envíos están Aceptados.")

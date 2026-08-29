@@ -45,6 +45,16 @@ URL_PORTAL = "https://ceportalenvioprod.clouda.sat.gob.mx/"
 URL_CARGA = "https://ceportalenvioprod.clouda.sat.gob.mx/Envio/Carga"
 URL_ACUSE = ("https://ceportalenvioprod.clouda.sat.gob.mx/ConsultaAcuses/"
              "AR_{folio}?folio={folio}&tipoAcuse=1")
+URL_CONSULTA = "https://ceportalenvioprod.clouda.sat.gob.mx/ConsultaAcuses"
+# La búsqueda de la pantalla de Consultas es un POST JSON; se llama directo y se
+# evita por completo la UI, que además viene rota (ver `consultar`).
+URL_BUSCA = ("https://ceportalenvioprod.clouda.sat.gob.mx/ConsultaAcuses/"
+             "BuscaAcuses/")
+
+MESES = {1: "01 - Enero", 2: "02 - Febrero", 3: "03 - Marzo", 4: "04 - Abril",
+         5: "05 - Mayo", 6: "06 - Junio", 7: "07 - Julio", 8: "08 - Agosto",
+         9: "09 - Septiembre", 10: "10 - Octubre", 11: "11 - Noviembre",
+         12: "12 - Diciembre", 13: "13 - Ajuste al cierre"}
 
 LOGIN_TIMEOUT_MS = 120_000
 LOGIN_INTENTOS = 3
@@ -75,6 +85,12 @@ RE_ERROR_TRANSITORIO = re.compile(
 )
 RE_FOLIO = re.compile(r"Folio\s*No\.?\s*(\d{10,})", re.I)
 RE_FECHA_ACUSE = re.compile(r"el d[íi]a\s+([\d/]+)\s+a las\s+([\d:]+)", re.I)
+RE_FILA_ACUSE = re.compile(r"<tr>(.*?)</tr>", re.S)
+RE_CELDA_ACUSE = re.compile(r'<td[^>]*class="(ac\w+)"[^>]*>(.*?)</td>', re.S)
+COLS_ACUSE = {"acPeriodo": "periodo", "acMotivo": "motivo",
+              "acTipoArch": "tipo_archivo", "acTipoEnvio": "tipo_envio",
+              "acNombreArchivo": "archivo", "acFolio": "folio",
+              "acFecha": "fecha", "acEstatus": "estatus"}
 
 # -- selectores -------------------------------------------------------------
 SEL_AMPARADOS = "form[action='/Envio/RedirecAmparados'] #btnLogout"
@@ -556,6 +572,136 @@ class EnviadorCE:
             "rs => rs.map(r => { const c = r.querySelectorAll('td');"
             "  return {documento: c[0]?.innerText.trim(), motivo: c[1]?.innerText.trim(),"
             "          anio: c[2]?.innerText.trim(), mes: c[3]?.innerText.trim()}; })")
+
+
+def _limpiar_html(txt: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", txt)).strip()
+
+
+def parsear_grid_acuses(html: str) -> list[dict]:
+    """Convierte el HTML que devuelve /ConsultaAcuses/BuscaAcuses en filas."""
+    filas = []
+    for bloque in RE_FILA_ACUSE.findall(html):
+        fila = {COLS_ACUSE[c]: _limpiar_html(v)
+                for c, v in RE_CELDA_ACUSE.findall(bloque) if c in COLS_ACUSE}
+        if fila.get("folio"):
+            filas.append(fila)
+    return filas
+
+
+class ConsultorCE(EnviadorCE):
+    """Consulta acuses (recepción y aceptación/rechazo) en el portal del SAT."""
+
+    def consultar(self, cer_path: str, key_path: str, password: str, *,
+                  anio: int, mes_ini: int = 1, mes_fin: int = 13,
+                  estatus: str = "0", tipo_archivo: str = "0",
+                  bajar_acuses: bool = False,
+                  salida: Optional[str] = None) -> list[dict]:
+        """Devuelve los envíos del ejercicio con su estatus.
+
+        La pantalla /ConsultaAcuses NO se maneja por la UI: su script inline
+        engancha todos los eventos (radios, «Buscar») pero corre ANTES de que
+        cargue el bundle de jQuery y truena con "$ is not defined", así que con
+        caché fría la página queda viva a la vista y muerta a los clics. Su
+        búsqueda es un POST JSON a BuscaAcuses que devuelve el HTML del grid;
+        se llama directo y el bug deja de importar. (Medido 2026-08-29.)
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise ImportError("playwright no está instalado")
+        from .setup import asegurar_chromium, lanzar_chromium
+
+        asegurar_chromium()
+        with sync_playwright() as p:
+            browser = lanzar_chromium(p, headless=self.headless, slow_mo=40)
+            context = browser.new_context(accept_downloads=True)
+            page = context.new_page()
+            try:
+                self._login(page, cer_path, key_path, password)
+                self._cerrar_amparados(page)
+                # visitar la pantalla deja la cookie de sesión del módulo de
+                # consultas antes de pegarle al endpoint
+                page.goto(URL_CONSULTA, wait_until="domcontentloaded")
+
+                payload = {
+                    "EsPorFolio": False, "EsPorCriterios": True, "NoFolio": 0,
+                    "MesInicio": str(mes_ini), "MesFin": str(mes_fin),
+                    "MesDescripcion": f"{MESES[mes_ini]} - {MESES[mes_fin]}",
+                    "Anio": str(anio),
+                    "IdTipoArchivo": tipo_archivo, "TipoArchivo": "Todos",
+                    # el portal solo manda TipoEnvio cuando se filtra por
+                    # balanzas (IdTipoArchivo == 2); en cualquier otro caso va null
+                    "IdTipoEnvio": "0" if tipo_archivo == "2" else None,
+                    "TipoEnvio": "Todos" if tipo_archivo == "2" else None,
+                    "IdEstatus": estatus, "Estatus": "Todos",
+                    "IdTipoPoliza": "0", "TipoPoliza": "Todos",
+                }
+                self._paso(f"Consultando acuses {anio} "
+                           f"({MESES[mes_ini]} a {MESES[mes_fin]})...")
+                resp = context.request.post(
+                    URL_BUSCA, data=payload,
+                    headers={"Content-Type": "application/json; charset=utf-8",
+                             "X-Requested-With": "XMLHttpRequest",
+                             "Referer": URL_CONSULTA},
+                    timeout=60_000)
+                if resp.status != 200:
+                    raise RuntimeError(
+                        f"BuscaAcuses respondió {resp.status}: {resp.text()[:200]}")
+                filas = parsear_grid_acuses(resp.text())
+                self._paso(f"{len(filas)} envío(s) en el portal.")
+
+                if bajar_acuses and filas:
+                    destino = Path(salida) if salida else Path.cwd()
+                    destino.mkdir(parents=True, exist_ok=True)
+                    for f in filas:
+                        f["acuse_recepcion"] = self._bajar_pdf(
+                            context, URL_ACUSE.format(folio=f["folio"]),
+                            destino / f"AR_{f['folio']}.pdf")
+                        f["acuse_resultado"] = self._bajar_procesamiento(
+                            page, context, f["folio"], destino)
+                return filas
+            finally:
+                browser.close()
+
+    def _bajar_pdf(self, context, url: str, dest: Path) -> Optional[str]:
+        try:
+            resp = context.request.get(url, timeout=60_000)
+            cuerpo = resp.body()
+            if cuerpo[:5] == b"%PDF-":
+                dest.write_bytes(cuerpo)
+                return str(dest)
+            logger.warning("[CE] %s no devolvió PDF (status %s)", url, resp.status)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[CE] no se pudo bajar %s: %s", url, e)
+        return None
+
+    def _bajar_procesamiento(self, page, context, folio: str,
+                             destino: Path) -> Optional[str]:
+        """Acuse de aceptación/rechazo.
+
+        La URL del PDF no se adivina: se dispara la función del grid
+        (`VerAcuseProcesamiento`), que abre una pestaña con el PDF embebido en
+        un <iframe>, y se lee el src de ese iframe.
+        """
+        try:
+            with page.expect_popup(timeout=30_000) as pop:
+                page.evaluate(
+                    "f => VerAcuseProcesamiento(f, true, true, 2)", folio)
+            hoja = pop.value
+            hoja.wait_for_load_state("domcontentloaded")
+            src = hoja.get_attribute("iframe", "src")
+            hoja.close()
+            if not src:
+                logger.warning("[CE] sin iframe en el acuse de resultados %s", folio)
+                return None
+            if src.startswith("/"):
+                src = "https://ceportalenvioprod.clouda.sat.gob.mx" + src
+            return self._bajar_pdf(context, src, destino / f"AP_{folio}.pdf")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[CE] no se pudo abrir el acuse de resultados %s: %s",
+                           folio, e)
+            return None
 
 
 def enviar_contabilidad_fiel(cer_path: str, key_path: str, password: str,
