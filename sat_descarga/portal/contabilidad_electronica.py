@@ -46,7 +46,8 @@ URL_CARGA = "https://ceportalenvioprod.clouda.sat.gob.mx/Envio/Carga"
 URL_ACUSE = ("https://ceportalenvioprod.clouda.sat.gob.mx/ConsultaAcuses/"
              "AR_{folio}?folio={folio}&tipoAcuse=1")
 
-LOGIN_TIMEOUT_MS = 180_000
+LOGIN_TIMEOUT_MS = 120_000
+LOGIN_INTENTOS = 3
 ENVIO_TIMEOUT_MS = 180_000
 
 # Nomenclatura del Anexo 24: RFC + AAAA + MM + tipo.
@@ -275,15 +276,33 @@ class EnviadorCE:
     # -- pasos -------------------------------------------------------------
 
     def _login(self, page, cer_path, key_path, password):
+        """Login e.firma con reintentos.
+
+        El NIDP del SAT se atora de vez en cuando a media redirección y deja la
+        página en /nidp/wsfed/ep sin avanzar: 2 fallas en 15 entradas el
+        2026-08-29, y la primera entró al reintentar un minuto después. No es
+        bloqueo por frecuencia (13 logins seguidos en 28 min salieron bien), así
+        que lo que corresponde es reintentar, no esperar.
+        """
         from .login import iniciar_sesion_fiel
-        self._paso("Login con e.firma en el portal de contabilidad electrónica...")
-        iniciar_sesion_fiel(
-            page, cer_path, key_path, password, URL_PORTAL,
-            # el aterrizaje es /Envio/Carga o la interstitial de amparados; basta
-            # con haber salido del host del NIDP
-            exito=lambda url: "clouda.sat.gob.mx" in url and "nidp" not in url,
-            timeout_ms=LOGIN_TIMEOUT_MS,
-        )
+        for intento in range(1, LOGIN_INTENTOS + 1):
+            self._paso(f"Login con e.firma en el portal de contabilidad "
+                       f"electrónica (intento {intento}/{LOGIN_INTENTOS})...")
+            try:
+                iniciar_sesion_fiel(
+                    page, cer_path, key_path, password, URL_PORTAL,
+                    # el aterrizaje es /Envio/Carga o la interstitial de
+                    # amparados; basta con haber salido del host del NIDP
+                    exito=lambda url: ("clouda.sat.gob.mx" in url
+                                       and "nidp" not in url),
+                    timeout_ms=LOGIN_TIMEOUT_MS,
+                )
+                return
+            except RuntimeError as e:
+                if intento == LOGIN_INTENTOS:
+                    raise
+                logger.warning("[CE] El login no completó (%s); reintento.",
+                               str(e)[:160])
 
     def _cerrar_amparados(self, page):
         """El aviso «Contribuyente Amparado» se interpone en cada entrada.
