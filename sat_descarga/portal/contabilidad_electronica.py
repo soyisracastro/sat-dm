@@ -505,16 +505,20 @@ class EnviadorCE:
     def _esperar_status(self, page, item: str) -> dict:
         """Espera el renglón de resultado y lo clasifica."""
         sel = f"#status{item}"
-        # El portal reusa el mismo <span> para el avance y para el resultado:
-        # primero escribe "Enviando archivo. Por favor espere..." y después el
-        # folio o el error. Esperar a que HAYA texto se queda con el mensaje
-        # intermedio (visto 2026-08-29), así que hay que esperar el estado final.
+        # El portal reusa el mismo <span> #status<ID> para TODO el ciclo de vida
+        # del envío: "Enviando archivo. Por favor espere...", luego "N%
+        # completado." y al final el folio o el error. Ni esperar "que haya
+        # texto" ni descartar una lista negra de mensajes sirve —- se cuelan los
+        # porcentajes (visto 2026-08-29 con "0% completado.")—, así que se espera
+        # la señal TERMINAL explícita: folio, éxito o error.
         page.wait_for_function(
             "s => { const el = document.querySelector(s); if (!el) return false;"
             "       const t = (el.innerText || el.textContent || '').trim();"
             "       if (!t) return false;"
             "       if (/folio/i.test(t)) return true;"
-            "       return !/(espere|procesando|enviando|cargando)/i.test(t); }",
+            "       if (/\\d+\\s*%|espere|procesando|enviando|cargando/i.test(t))"
+            "           return false;"
+            "       return /error|\u00e9xito|exito|rechaz|no se pudo/i.test(t); }",
             arg=sel, timeout=ENVIO_TIMEOUT_MS)
         datos = page.eval_on_selector(
             sel,
