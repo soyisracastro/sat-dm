@@ -22,6 +22,11 @@ Flujo real (mapeado en el repo `diot`, contabilidad-electronica/steps_contabilid
   6. el acuse de recepción se baja directo de
      /ConsultaAcuses/AR_<folio>?folio=<folio>&tipoAcuse=1
 
+Almacenamiento: este módulo NO conoce la convención de carpetas — recibe
+`destino_de(ficha) -> Path` del caller. El CLI/API componen
+`<descargas>/ce/<RFC>/<ejercicio>/` con `core.paths.dir_ce`; el default del
+módulo (junto al ZIP de origen) queda para papeles de trabajo (`--junto-al-zip`).
+
 OJO — el acuse de RECEPCIÓN no ampara el cumplimiento: el propio PDF dice que el
 archivo "será procesado" y que hay que verificar el acuse de ACEPTACIÓN o
 RECHAZO. Eso es `ConsultorCE.consultar` (`sat-dm ce acuses`), que vive en OTRO
@@ -225,9 +230,19 @@ class EnviadorCE:
 
     def enviar(self, cer_path: str, key_path: str, password: str,
                zips: list, *, sellar: bool = True, enviar: bool = False,
-               motivo: str = "mensual", salida: Optional[str] = None,
+               motivo: str = "mensual",
+               destino_de: Optional[Callable[[dict], Path]] = None,
                omitir_enviados: bool = True) -> dict:
-        """Sube `zips` (rutas a .zip) uno por uno. Devuelve dict con resultados."""
+        """Sube `zips` (rutas a .zip) uno por uno. Devuelve dict con resultados.
+
+        `destino_de(ficha) -> Path` decide dónde caen los acuses y la evidencia
+        de cada archivo; el default es junto al ZIP de origen. La convención
+        TodoConta (`<descargas>/ce/<RFC>/<ejercicio>/`) la compone el CALLER con
+        `core.paths.dir_ce` — este módulo no conoce el layout (mismo criterio
+        que constancia/opinión/csd).
+        """
+        if destino_de is None:
+            destino_de = lambda f: Path(f["path"]).parent  # noqa: E731
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
@@ -306,7 +321,7 @@ class EnviadorCE:
 
                 for ficha in fichas:
                     r = self._enviar_uno(page, context, ficha, motivo, enviar,
-                                         salida)
+                                         destino_de)
                     # clasificar por estado, no por folio: en modo validación
                     # no hay folio y aun así el archivo pasó
                     if r.get("estado") == "error":
@@ -316,7 +331,7 @@ class EnviadorCE:
                 return resultado
             except Exception:
                 try:
-                    dest = Path(salida) if salida else Path(fichas[0]["path"]).parent
+                    dest = destino_de(fichas[0])
                     dest.mkdir(parents=True, exist_ok=True)
                     page.screenshot(path=str(dest / f"error_ce_{rfc_lote}.png"),
                                     full_page=True)
@@ -489,7 +504,8 @@ class EnviadorCE:
                     enviados[fila["archivo"].upper()] = fila.get("estatus", "")
         return enviados
 
-    def _enviar_uno(self, page, context, ficha, motivo, enviar, salida) -> dict:
+    def _enviar_uno(self, page, context, ficha, motivo, enviar,
+                    destino_de) -> dict:
         """Agrega un archivo, lo manda y lee el resultado, con reintentos."""
         etiqueta = f"{ficha['archivo']} ({ficha['tipo_desc']} {ficha['anio']}-{ficha['mes']})"
         ultimo_error = ""
@@ -512,7 +528,8 @@ class EnviadorCE:
             if estado["ok"]:
                 folio = estado["folio"]
                 self._paso(f"{etiqueta} — recibido, folio {folio}")
-                acuse = self._bajar_acuse(context, folio, ficha, salida)
+                acuse = self._bajar_acuse(context, folio, ficha,
+                                          destino_de(ficha))
                 return {**ficha, "folio": folio, "fecha": estado.get("fecha"),
                         "acuse": acuse, "estado": "enviado",
                         "intentos": intento}
@@ -621,9 +638,8 @@ class EnviadorCE:
                 "fecha": f"{f.group(1)} {f.group(2)}" if f else None}
 
     def _bajar_acuse(self, context, folio: str, ficha: dict,
-                     salida: Optional[str]) -> Optional[str]:
+                     destino: Path) -> Optional[str]:
         """Baja el acuse de recepción por su URL directa (sin pelear con el visor)."""
-        destino = Path(salida) if salida else Path(ficha["path"]).parent
         destino.mkdir(parents=True, exist_ok=True)
         dest = destino / f"AR_{folio}.pdf"
         url = URL_ACUSE.format(folio=folio)
@@ -691,7 +707,7 @@ class ConsultorCE(EnviadorCE):
                   anio: int, mes_ini: int = 1, mes_fin: int = 13,
                   estatus: str = "0", tipo_archivo: str = "0",
                   bajar_acuses: bool = False,
-                  salida: Optional[str] = None) -> list[dict]:
+                  destino: Optional[Path] = None) -> list[dict]:
         """Devuelve los envíos del ejercicio con su estatus.
 
         La pantalla /ConsultaAcuses NO se maneja por la UI: su script inline
@@ -725,7 +741,7 @@ class ConsultorCE(EnviadorCE):
                 self._paso(f"{len(filas)} envío(s) en el portal.")
 
                 if bajar_acuses and filas:
-                    destino = Path(salida) if salida else Path.cwd()
+                    destino = Path(destino) if destino else Path.cwd()
                     destino.mkdir(parents=True, exist_ok=True)
                     for f in filas:
                         f["acuse_recepcion"] = self._bajar_pdf(

@@ -11,7 +11,20 @@ from pathlib import Path
 
 import click
 
+from ..core import paths
+from .config_store import get_descargas_dir
 from .display import print_error, print_header, print_success, print_warning
+
+
+def _destino_todoconta():
+    """destino_de con la convención TodoConta: <descargas>/ce/<RFC>/<ejercicio>/.
+
+    OJO: `salida_base` va explícito — `dir_ce(...)` sin base caería en
+    `./descargas` relativo al cwd (herencia de `sat-dm descargar`), y en la app
+    empaquetada el cwd puede ser de solo lectura.
+    """
+    base = get_descargas_dir()
+    return lambda f: paths.dir_ce(f["rfc"], f["anio"], salida_base=base)
 
 
 def _expandir(rutas) -> list[Path]:
@@ -101,14 +114,18 @@ def cmd_inventario(rutas):
 @click.option("--motivo", default="mensual",
               help="Texto que debe contener el motivo del envío (default: mensual).")
 @click.option("--salida", default=None,
-              help="Dónde guardar los acuses (default: junto a cada ZIP).")
+              help="Carpeta literal para los acuses "
+                   "(default: {descargas}/ce/{RFC}/{ejercicio}/).")
+@click.option("--junto-al-zip", is_flag=True,
+              help="Guardar cada acuse junto a su ZIP de origen "
+                   "(papeles de trabajo).")
 @click.option("--reintentos", default=8, show_default=True,
               help="Intentos por archivo ante errores transitorios del SAT.")
 @click.option("--reenviar", is_flag=True,
               help="Mandar aunque el portal ya tenga el archivo (default: se omite).")
 @click.option("--ver", is_flag=True, help="Mostrar el navegador.")
 def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
-               salida, reintentos, reenviar, ver):
+               salida, junto_al_zip, reintentos, reenviar, ver):
     """Sube los ZIP de contabilidad electrónica al portal del SAT."""
     from ..portal.contabilidad_electronica import EnviadorCE, inventario
 
@@ -142,10 +159,17 @@ def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
 
     enviador = EnviadorCE(headless=not ver, reintentos=reintentos,
                          progreso=lambda m: click.echo(f"  {m}"))
+    if junto_al_zip:
+        destino_de = None            # default del portal: junto a cada ZIP
+    elif salida:
+        destino_de = lambda f, _d=Path(salida): _d   # noqa: E731 — literal
+    else:
+        destino_de = _destino_todoconta()
+
     try:
         res = enviador.enviar(cer, key, password, [f["path"] for f in filas],
                              sellar=not sin_sellar, enviar=enviar,
-                             motivo=motivo, salida=salida,
+                             motivo=motivo, destino_de=destino_de,
                              omitir_enviados=not reenviar)
     except (ValueError, FileNotFoundError) as e:
         print_error(str(e))
@@ -185,7 +209,9 @@ def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
               help="13 = ajuste al cierre.")
 @click.option("--bajar", is_flag=True,
               help="Descargar los PDF de recepción y de aceptación/rechazo.")
-@click.option("--salida", default=None, help="Carpeta donde guardar los acuses.")
+@click.option("--salida", default=None,
+              help="Carpeta literal para los acuses "
+                   "(default: {descargas}/ce/{RFC}/{anio}/).")
 @click.option("--ver", is_flag=True, help="Mostrar el navegador.")
 def cmd_acuses(rfc, cer, key, password, anio, mes_ini, mes_fin, bajar, salida, ver):
     """Consulta el estatus de lo enviado (Recibido / Aceptado / Rechazado)."""
@@ -198,7 +224,10 @@ def cmd_acuses(rfc, cer, key, password, anio, mes_ini, mes_fin, bajar, salida, v
     filas = ConsultorCE(headless=not ver,
                         progreso=lambda m: click.echo(f"  {m}")).consultar(
         cer, key, password, anio=anio, mes_ini=mes_ini, mes_fin=mes_fin,
-        bajar_acuses=bajar, salida=salida)
+        bajar_acuses=bajar,
+        destino=Path(salida) if salida else paths.dir_ce(
+            (rfc or "sin_rfc").upper(), anio,
+            salida_base=get_descargas_dir()))
 
     if not filas:
         print_warning("El portal no reporta envíos en ese rango.")
