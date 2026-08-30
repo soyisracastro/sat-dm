@@ -147,7 +147,7 @@ def generar(rfc: str, periodo: str, salida: str | None, forzar: bool):
               help="Con --enviar: no pedir confirmación interactiva (batch)")
 @click.option("--salida", default=None,
               help="Carpeta para acuse y evidencia (default: "
-                   "{descargas}/diot/presentaciones/{RFC}/)")
+                   "{descargas}/diot/presentaciones/{RFC}/{ejercicio}/{MM}-{AAAA}/)")
 @click.option("--ver-navegador", is_flag=True, default=False,
               help="Debug: mostrar el navegador (headful)")
 def presentar(rfc, cer, key, password, txt_path, ejercicio, periodo, tipo,
@@ -269,7 +269,7 @@ def presentar(rfc, cer, key, password, txt_path, ejercicio, periodo, tipo,
 @click.option("--tipo", default="001", show_default=True,
               help="Tipo de declaración (001=Normal)")
 @click.option("--salida", default=None,
-              help="Carpeta destino (default: {descargas}/diot/presentaciones/{RFC}/)")
+              help="Carpeta destino (default: {descargas}/diot/presentaciones/{RFC}/{ejercicio}/{MM}-{AAAA}/)")
 @click.option("--ver-navegador", is_flag=True, default=False,
               help="Debug: mostrar el navegador (headful)")
 def acuse(rfc, cer, key, password, ejercicio, periodo, tipo, salida,

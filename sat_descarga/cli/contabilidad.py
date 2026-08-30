@@ -140,10 +140,10 @@ def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
             click.echo("  Cancelado.")
             return
 
-    envidor = EnviadorCE(headless=not ver, reintentos=reintentos,
+    enviador = EnviadorCE(headless=not ver, reintentos=reintentos,
                          progreso=lambda m: click.echo(f"  {m}"))
     try:
-        res = envidor.enviar(cer, key, password, [f["path"] for f in filas],
+        res = enviador.enviar(cer, key, password, [f["path"] for f in filas],
                              sellar=not sin_sellar, enviar=enviar,
                              motivo=motivo, salida=salida,
                              omitir_enviados=not reenviar)
