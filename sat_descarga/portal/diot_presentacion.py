@@ -25,6 +25,7 @@ import logging
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..core.errores import ErrorEsperado
 from .login import iniciar_sesion_fiel
 
 logger = logging.getLogger(__name__)
@@ -232,10 +233,15 @@ class PresentadorDiot:
 
     def __init__(self, headless: bool = True,
                  confirmar: Optional[Callable[[dict], bool]] = None,
-                 progreso: Optional[Callable[[str], None]] = None):
+                 progreso: Optional[Callable[[str], None]] = None,
+                 on_progreso: Optional[Callable[[str, dict], None]] = None):
         self.headless = headless
         self.confirmar = confirmar
         self.progreso = progreso or (lambda msg: None)
+        # contrato UI (patrón csd.py): fases con nombre ESTABLE para la
+        # checklist del renderer; `progreso` sigue siendo el mensaje libre
+        # del CLI — se emiten ambos
+        self._on_progreso = on_progreso
 
     @staticmethod
     def _qs(page, selector):
@@ -249,6 +255,14 @@ class PresentadorDiot:
     def _paso(self, msg: str):
         logger.info("[DIOT] %s", msg)
         self.progreso(msg)
+
+    def _emitir(self, fase: str, **data):
+        if self._on_progreso is None:
+            return
+        try:
+            self._on_progreso(fase, data)
+        except Exception as e:  # noqa: BLE001 — el progreso es cosmético
+            logger.warning("[DIOT] callback de progreso falló en %s: %s", fase, e)
 
     # -- flujo principal ----------------------------------------------------
 
@@ -320,102 +334,140 @@ class PresentadorDiot:
             finally:
                 browser.close()
 
+    LOGIN_INTENTOS = 3
+
+    def _login_diot(self, page, cer_path, key_path, password):
+        """Login e.firma al portal DIOT con reintentos.
+
+        El NIDP del SAT se atora de vez en cuando a media redirección (medido
+        2026-08-29 en el portal de contabilidad electrónica: 2 fallas sueltas
+        en 15 entradas, sin patrón de rate-limit — es el mismo login). Se
+        reintenta; agotar los intentos es fallo de entorno (`ErrorEsperado`),
+        no bug.
+        """
+        # comparar el HOST parseado: la URL del OAuth intermedio trae
+        # "pstcdi..." embebido en el redirect_uri y un substring simple
+        # daría falso positivo (visto en la corrida del 2026-07-31)
+        from urllib.parse import urlparse
+        for intento in range(1, self.LOGIN_INTENTOS + 1):
+            self._paso(f"Login con e.firma en el portal DIOT "
+                       f"(intento {intento}/{self.LOGIN_INTENTOS})...")
+            try:
+                iniciar_sesion_fiel(
+                    page, cer_path, key_path, password,
+                    url_entrada=DIOT_URL_ENTRADA,
+                    exito=lambda url: urlparse(url).netloc.lower() == DIOT_HOST,
+                )
+                return
+            except RuntimeError as e:
+                if intento == self.LOGIN_INTENTOS:
+                    raise ErrorEsperado(
+                        f"El SAT no respondió al login del portal DIOT tras "
+                        f"{self.LOGIN_INTENTOS} intentos ({str(e)[:120]}). "
+                        "Suele ser lentitud o mantenimiento sin aviso; "
+                        "reintenta más tarde.") from e
+                logger.warning("[DIOT] El login no completó (%s); reintento.",
+                               str(e)[:160])
+
     def _flujo(self, page, context, cer_path, key_path, password, txt_path,
                ejercicio, periodo_clave, esperado, tipo_declaracion, out_dir,
                etiqueta, evidencia, resultado, enviar, rfc) -> dict:
-            self._paso("Login con e.firma en el portal DIOT...")
-            # comparar el HOST parseado: la URL del OAuth intermedio trae
-            # "pstcdi..." embebido en el redirect_uri y un substring simple
-            # daría falso positivo (visto en la corrida del 2026-07-31)
-            from urllib.parse import urlparse
-            iniciar_sesion_fiel(
-                page, cer_path, key_path, password,
-                url_entrada=DIOT_URL_ENTRADA,
-                exito=lambda url: urlparse(url).netloc.lower() == DIOT_HOST,
-            )
-            page.wait_for_selector(SEL_MENU_PRESENTAR, timeout=60_000)
+        self._emitir("login")
+        self._login_diot(page, cer_path, key_path, password)
+        page.wait_for_selector(SEL_MENU_PRESENTAR, timeout=60_000)
 
-            self._paso("Seleccionando obligación DIOT y periodo...")
-            self._seleccionar_declaracion(page, ejercicio, periodo_clave,
-                                          tipo_declaracion)
+        self._paso("Seleccionando obligación DIOT y periodo...")
+        self._emitir("seleccionando_declaracion", ejercicio=ejercicio,
+                     periodo=periodo_clave)
+        self._seleccionar_declaracion(page, ejercicio, periodo_clave,
+                                      tipo_declaracion)
 
-            self._paso("Configurando método de carga masiva...")
-            self._configurar_carga_masiva(page)
+        self._paso("Configurando método de carga masiva...")
+        self._configurar_carga_masiva(page)
 
-            self._paso("Subiendo el archivo TXT...")
-            self._cargar_txt(page, txt_path)
+        self._paso("Subiendo el archivo TXT...")
+        self._emitir("subiendo_txt")
+        self._cargar_txt(page, txt_path)
 
-            self._paso("Leyendo la sección Totales...")
-            portal = self._leer_totales(page, esperado.get("layout", "2025"))
-            resultado["totales_portal"] = portal
+        self._paso("Leyendo la sección Totales...")
+        self._emitir("totales_leyendo")
+        portal = self._leer_totales(page, esperado.get("layout", "2025"))
+        resultado["totales_portal"] = portal
 
-            # Único flujo soportado: SIN estímulos fiscales (responde "No").
-            self._paso("Respondiendo estímulos fiscales: No...")
-            self._responder_estimulos(page, esperado.get("layout", "2025"))
+        # Único flujo soportado: SIN estímulos fiscales (responde "No").
+        self._paso("Respondiendo estímulos fiscales: No...")
+        self._emitir("estimulos", respuesta="No")
+        self._responder_estimulos(page, esperado.get("layout", "2025"))
 
-            discrepancias = comparar_totales(esperado, portal)
-            resultado["discrepancias"] = discrepancias
+        discrepancias = comparar_totales(esperado, portal)
+        resultado["discrepancias"] = discrepancias
 
-            shot = out_dir / f"totales_{etiqueta}.png"
-            try:
-                page.screenshot(path=str(shot), full_page=True)
-                evidencia.append(str(shot))
-            except Exception:  # noqa: BLE001 — la evidencia es best-effort
-                pass
+        shot = out_dir / f"totales_{etiqueta}.png"
+        try:
+            page.screenshot(path=str(shot), full_page=True)
+            evidencia.append(str(shot))
+        except Exception:  # noqa: BLE001 — la evidencia es best-effort
+            pass
 
-            if discrepancias:
-                logger.error("[DIOT] Totales NO cuadran; no se envía:\n  %s",
-                             "\n  ".join(discrepancias))
-                return resultado
-            self._paso(
-                f"Totales OK: {portal['operaciones']} operaciones, "
-                f"IVA acreditable {portal['iva_acreditable']:,}, "
-                f"retenido {portal['iva_retenido']:,}."
-            )
-
-            if not enviar:
-                self._paso("Modo validación: NO se envía la declaración.")
-                return resultado
-
-            if self.confirmar is not None and not self.confirmar({
-                "rfc": rfc, "ejercicio": ejercicio, "periodo": periodo_clave,
-                **portal,
-            }):
-                self._paso("Envío cancelado por el usuario.")
-                return resultado
-
-            self._paso("Enviando declaración (firma con e.firma)...")
-            acuse = self._enviar_y_firmar(
-                page, context, cer_path, key_path, password,
-                out_dir / f"acuse_diot_{etiqueta}_"
-                f"{datetime.date.today():%Y%m%d}.pdf",
-            )
-            if acuse is None:
-                # Sin acuse NO se afirma nada: la prueba de presentación es
-                # que la declaración temporal fue consumida por el envío.
-                quedo = self._quedo_temporal(page, ejercicio, periodo_clave)
-                if quedo is True:
-                    resultado["estado"] = "no_presentada"
-                    logger.error(
-                        "[DIOT] El envío NO se concretó: la declaración "
-                        "sigue como temporal en el portal. Reintenta."
-                    )
-                else:
-                    # Que la temporal desaparezca NO prueba la presentación
-                    # (comprobado 2026-07-31: una firma fallida consumió la
-                    # temporal sin presentar). Sin acuse, el estado queda en
-                    # duda SIEMPRE.
-                    resultado["estado"] = "desconocido"
-                    logger.error(
-                        "[DIOT] Sin acuse no hay confirmación. Verifica en "
-                        "el portal antes de re-presentar (intenta "
-                        "`sat-dm diot acuse` en unos minutos)."
-                    )
-                return resultado
-            resultado["estado"] = "presentado"
-            resultado["acuse"] = str(acuse)
-            self._paso(f"Acuse guardado: {acuse}")
+        if discrepancias:
+            logger.error("[DIOT] Totales NO cuadran; no se envía:\n  %s",
+                         "\n  ".join(discrepancias))
             return resultado
+        self._paso(
+            f"Totales OK: {portal['operaciones']} operaciones, "
+            f"IVA acreditable {portal['iva_acreditable']:,}, "
+            f"retenido {portal['iva_retenido']:,}."
+        )
+
+        if not enviar:
+            self._paso("Modo validación: NO se envía la declaración.")
+            self._emitir("fin", estado="validado")
+            return resultado
+
+        self._emitir("confirmando", **{k: portal.get(k) for k in
+                     ("operaciones", "iva_acreditable", "iva_retenido")})
+        if self.confirmar is not None and not self.confirmar({
+            "rfc": rfc, "ejercicio": ejercicio, "periodo": periodo_clave,
+            **portal,
+        }):
+            self._paso("Envío cancelado por el usuario.")
+            self._emitir("fin", estado="cancelado")
+            return resultado
+
+        self._emitir("firmando")
+        self._paso("Enviando declaración (firma con e.firma)...")
+        acuse = self._enviar_y_firmar(
+            page, context, cer_path, key_path, password,
+            out_dir / f"acuse_diot_{etiqueta}_"
+            f"{datetime.date.today():%Y%m%d}.pdf",
+        )
+        if acuse is None:
+            # Sin acuse NO se afirma nada: la prueba de presentación es
+            # que la declaración temporal fue consumida por el envío.
+            quedo = self._quedo_temporal(page, ejercicio, periodo_clave)
+            if quedo is True:
+                resultado["estado"] = "no_presentada"
+                logger.error(
+                    "[DIOT] El envío NO se concretó: la declaración "
+                    "sigue como temporal en el portal. Reintenta."
+                )
+            else:
+                # Que la temporal desaparezca NO prueba la presentación
+                # (comprobado 2026-07-31: una firma fallida consumió la
+                # temporal sin presentar). Sin acuse, el estado queda en
+                # duda SIEMPRE.
+                resultado["estado"] = "desconocido"
+                logger.error(
+                    "[DIOT] Sin acuse no hay confirmación. Verifica en "
+                    "el portal antes de re-presentar (intenta "
+                    "`sat-dm diot acuse` en unos minutos)."
+                )
+            return resultado
+        resultado["estado"] = "presentado"
+        self._emitir("acuse", path=str(resultado.get("acuse") or ""))
+        resultado["acuse"] = str(acuse)
+        self._paso(f"Acuse guardado: {acuse}")
+        return resultado
 
     # -- pasos --------------------------------------------------------------
 
@@ -667,13 +719,7 @@ class PresentadorDiot:
             context = browser.new_context(accept_downloads=True)
             page = context.new_page()
             try:
-                from urllib.parse import urlparse
-                self._paso("Login con e.firma en el portal DIOT...")
-                iniciar_sesion_fiel(
-                    page, cer_path, key_path, password,
-                    url_entrada=DIOT_URL_ENTRADA,
-                    exito=lambda url: urlparse(url).netloc.lower() == DIOT_HOST,
-                )
+                self._login_diot(page, cer_path, key_path, password)
                 page.wait_for_selector(SEL_ACUSE_MENU, timeout=60_000)
                 page.click(SEL_ACUSE_MENU)
                 self._paso("Buscando la declaración presentada...")

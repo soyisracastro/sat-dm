@@ -46,6 +46,8 @@ from html import unescape
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..core.errores import ErrorEsperado
+
 logger = logging.getLogger(__name__)
 
 URL_PORTAL = "https://ceportalenvioprod.clouda.sat.gob.mx/"
@@ -239,14 +241,26 @@ class EnviadorCE:
 
     def __init__(self, headless: bool = True,
                  progreso: Optional[Callable[[str], None]] = None,
+                 on_progreso: Optional[Callable[[str, dict], None]] = None,
                  reintentos: int = 8):
         self.headless = headless
         self.progreso = progreso or (lambda msg: None)
+        # contrato UI (patrón csd.py): fases con nombre ESTABLE — son el
+        # vocabulario de la checklist del renderer, no mensajes libres
+        self._on_progreso = on_progreso
         self.reintentos = max(1, reintentos)
 
     def _paso(self, msg: str):
         logger.info("[CE] %s", msg)
         self.progreso(msg)
+
+    def _emitir(self, fase: str, **data):
+        if self._on_progreso is None:
+            return
+        try:
+            self._on_progreso(fase, data)
+        except Exception as e:  # noqa: BLE001 — el progreso es cosmético
+            logger.warning("[CE] callback de progreso falló en %s: %s", fase, e)
 
     # -- flujo principal ---------------------------------------------------
 
@@ -292,7 +306,7 @@ class EnviadorCE:
         rfc_lote = rfcs.pop()
 
         resultado = {"rfc": rfc_lote, "enviados": [], "fallidos": [],
-                     "omitidos": [],
+                     "omitidos": [], "sellar": sellar,
                      "estado": "enviado" if enviar else "validado"}
 
         asegurar_chromium()
@@ -309,6 +323,7 @@ class EnviadorCE:
                     # archivo dos veces sin chistar, y una corrida cortada a
                     # media tanda (o un reintento manual) duplicaría envíos.
                     self._paso("Revisando qué está ya presentado...")
+                    self._emitir("revisando_presentados")
                     ya = self._ya_enviados(page, fichas)
                     pendientes = []
                     for f in fichas:
@@ -330,6 +345,7 @@ class EnviadorCE:
                         return resultado
 
                 rfc_sesion = (page.get_attribute(SEL_HF_RFC, "value") or "").upper()
+                self._emitir("sesion_verificada", rfc=rfc_sesion or rfc_lote)
                 if rfc_sesion and rfc_sesion != rfc_lote:
                     # sin esto se podrían subir los archivos de una empresa con la
                     # sesión de otra: el portal los acepta y el rechazo llega después
@@ -338,18 +354,43 @@ class EnviadorCE:
                         f"{rfc_lote}. No se envió nada.")
                 self._paso(f"Sesión de {rfc_sesion or rfc_lote}.")
 
+                # El sellado es una decisión VISIBLE del usuario, no un default
+                # escondido: la fase lleva el bool para que la UI diga "irá
+                # sellado con tu e.firma" o "irá sin sellar" antes de confirmar.
                 if sellar:
+                    self._emitir("sellando", sellar=True)
                     self._sellar(page, cer_path, key_path, password, rfc_lote)
+                else:
+                    self._paso("Envío SIN sellar (decisión del usuario).")
+                    self._emitir("sin_sellar", sellar=False)
 
-                for ficha in fichas:
+                for n, ficha in enumerate(fichas, 1):
+                    self._emitir("subiendo", archivo=ficha["archivo"], n=n,
+                                 total=len(fichas))
                     r = self._enviar_uno(page, context, ficha, motivo, enviar,
                                          destino_de)
+                    if r.get("folio"):
+                        self._emitir("archivo_ok", archivo=ficha["archivo"],
+                                     folio=r["folio"])
+                        if r.get("acuse"):
+                            self._emitir("acuse_recepcion", archivo=ficha["archivo"],
+                                         path=r["acuse"])
+                    elif r.get("estado") == "error":
+                        self._emitir("archivo_error", archivo=ficha["archivo"],
+                                     mensaje=(r.get("mensaje") or "")[:200],
+                                     transitorio=bool(RE_ERROR_TRANSITORIO.search(
+                                         r.get("mensaje") or "")))
                     # clasificar por estado, no por folio: en modo validación
                     # no hay folio y aun así el archivo pasó
                     if r.get("estado") == "error":
                         resultado["fallidos"].append(r)
                     else:
                         resultado["enviados"].append(r)
+                self._emitir("fin",
+                             enviados=len(resultado["enviados"]),
+                             fallidos=len(resultado["fallidos"]),
+                             omitidos=len(resultado["omitidos"]),
+                             sellar=sellar)
                 return resultado
             except Exception:
                 try:
@@ -378,6 +419,7 @@ class EnviadorCE:
         que lo que corresponde es reintentar, no esperar.
         """
         from .login import iniciar_sesion_fiel
+        self._emitir("login")
         for intento in range(1, LOGIN_INTENTOS + 1):
             self._paso(f"Login con e.firma en el portal de contabilidad "
                        f"electrónica (intento {intento}/{LOGIN_INTENTOS})...")
@@ -390,12 +432,38 @@ class EnviadorCE:
                                        and "nidp" not in url),
                     timeout_ms=LOGIN_TIMEOUT_MS,
                 )
+                self._verificar_disponible(page)
                 return
+            except ErrorEsperado:
+                raise
             except RuntimeError as e:
                 if intento == LOGIN_INTENTOS:
-                    raise
+                    # fallo de entorno (NIDP atorado / SAT caído), no bug:
+                    # ErrorEsperado degrada a warning y es el gatillo de la
+                    # cola de reintentos diferidos
+                    raise ErrorEsperado(
+                        f"El SAT no respondió al login tras {LOGIN_INTENTOS} "
+                        f"intentos ({str(e)[:120]}). Reintenta más tarde: el "
+                        "portal suele estar lento o en mantenimiento sin aviso."
+                    ) from e
                 logger.warning("[CE] El login no completó (%s); reintento.",
                                str(e)[:160])
+
+    def _verificar_disponible(self, page):
+        """El SAT redirige a NoDisponible.html sin aviso cuando da mantenimiento."""
+        try:
+            url = page.url or ""
+            texto = page.evaluate(
+                "() => (document.body ? document.body.innerText : '')"
+                "        .slice(0, 400)") or ""
+        except Exception:  # noqa: BLE001 — no convertir un glitch en falso positivo
+            return
+        if ("NoDisponible" in url
+                or "no se encuentra disponible" in texto.lower()):
+            raise ErrorEsperado(
+                "El portal de contabilidad electrónica está en mantenimiento "
+                "(«sistema no disponible»). El SAT no lo anuncia; reintenta "
+                "más tarde.")
 
     def _cerrar_amparados(self, page):
         """El aviso «Contribuyente Amparado» se interpone en cada entrada.
@@ -758,20 +826,24 @@ class ConsultorCE(EnviadorCE):
                 # consultas antes de pegarle al endpoint
                 self._paso(f"Consultando acuses {anio} "
                            f"({MESES[mes_ini]} a {MESES[mes_fin]})...")
+                self._emitir("consultando", anio=anio)
                 filas = self._buscar_acuses(
                     page, anio=anio, mes_ini=mes_ini, mes_fin=mes_fin,
                     estatus=estatus, tipo_archivo=tipo_archivo)
                 self._paso(f"{len(filas)} envío(s) en el portal.")
+                self._emitir("resultados", total=len(filas))
 
                 if bajar_acuses and filas:
                     destino = Path(destino) if destino else Path.cwd()
                     destino.mkdir(parents=True, exist_ok=True)
                     for f in filas:
+                        self._emitir("bajando_acuses", folio=f["folio"])
                         f["acuse_recepcion"] = self._bajar_pdf(
                             context, URL_ACUSE_CONSULTA.format(folio=f["folio"]),
                             destino / f"AR_{f['folio']}.pdf")
                         f["acuse_resultado"] = self._bajar_procesamiento(
                             page, context, f["folio"], destino)
+                self._emitir("fin", total=len(filas))
                 return filas
             finally:
                 browser.close()
