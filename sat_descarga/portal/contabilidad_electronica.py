@@ -98,6 +98,28 @@ RE_ERROR_TRANSITORIO = re.compile(
 )
 RE_FOLIO = re.compile(r"Folio\s*No\.?\s*(\d{10,})", re.I)
 RE_FECHA_ACUSE = re.compile(r"el d[íi]a\s+([\d/]+)\s+a las\s+([\d:]+)", re.I)
+RE_AVANCE = re.compile(r"\d+\s*%|espere|procesando|enviando|cargando", re.I)
+RE_TERMINAL = re.compile(r"error|éxito|exito|rechaz|no se pudo", re.I)
+
+
+def es_estado_terminal(texto: str) -> bool:
+    """¿El texto de `#status<ID>` es un resultado final o solo avance?
+
+    El portal reusa el mismo <span> para TODO el ciclo de vida del envío:
+    "Enviando archivo. Por favor espere...", luego "N% completado." y al final
+    el folio o el error. Espejo en Python del predicado JS de `_esperar_status`
+    — si se toca uno hay que tocar el otro (los tests cubren este).
+    """
+    t = (texto or "").strip()
+    if not t:
+        return False
+    if RE_FOLIO.search(t) or re.search(r"folio", t, re.I):
+        return True
+    if RE_AVANCE.search(t):
+        return False
+    return bool(RE_TERMINAL.search(t))
+
+
 RE_FILA_ACUSE = re.compile(r"<tr>(.*?)</tr>", re.S)
 RE_CELDA_ACUSE = re.compile(r'<td[^>]*class="(ac\w+)"[^>]*>(.*?)</td>', re.S)
 COLS_ACUSE = {"acPeriodo": "periodo", "acMotivo": "motivo",
@@ -613,7 +635,8 @@ class EnviadorCE:
         # completado." y al final el folio o el error. Ni esperar "que haya
         # texto" ni descartar una lista negra de mensajes sirve —- se cuelan los
         # porcentajes (visto 2026-08-29 con "0% completado.")—, así que se espera
-        # la señal TERMINAL explícita: folio, éxito o error.
+        # la señal TERMINAL explícita: folio, éxito o error. Espejo Python:
+        # `es_estado_terminal` (testeado); si se toca uno hay que tocar el otro.
         page.wait_for_function(
             "s => { const el = document.querySelector(s); if (!el) return false;"
             "       const t = (el.innerText || el.textContent || '').trim();"
