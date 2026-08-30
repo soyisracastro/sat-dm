@@ -63,6 +63,9 @@ MESES = {1: "01 - Enero", 2: "02 - Febrero", 3: "03 - Marzo", 4: "04 - Abril",
 LOGIN_TIMEOUT_MS = 120_000
 LOGIN_INTENTOS = 3
 ENVIO_TIMEOUT_MS = 180_000
+# El error transitorio del SAT es la norma, no la excepción: en la corrida
+# del 2026-08-29 casi ningún archivo entró al primer intento y uno agotó 4.
+PAUSA_REINTENTO_MS = 2_500
 
 # Nomenclatura del Anexo 24: RFC + AAAA + MM + tipo.
 RE_NOMBRE_ZIP = re.compile(r"^([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})(\d{4})(\d{2})([A-Z]{2})$")
@@ -203,7 +206,7 @@ class EnviadorCE:
 
     def __init__(self, headless: bool = True,
                  progreso: Optional[Callable[[str], None]] = None,
-                 reintentos: int = 4):
+                 reintentos: int = 8):
         self.headless = headless
         self.progreso = progreso or (lambda msg: None)
         self.reintentos = max(1, reintentos)
@@ -216,7 +219,8 @@ class EnviadorCE:
 
     def enviar(self, cer_path: str, key_path: str, password: str,
                zips: list, *, sellar: bool = True, enviar: bool = False,
-               motivo: str = "mensual", salida: Optional[str] = None) -> dict:
+               motivo: str = "mensual", salida: Optional[str] = None,
+               omitir_enviados: bool = True) -> dict:
         """Sube `zips` (rutas a .zip) uno por uno. Devuelve dict con resultados."""
         try:
             from playwright.sync_api import sync_playwright
@@ -245,6 +249,7 @@ class EnviadorCE:
         rfc_lote = rfcs.pop()
 
         resultado = {"rfc": rfc_lote, "enviados": [], "fallidos": [],
+                     "omitidos": [],
                      "estado": "enviado" if enviar else "validado"}
 
         asegurar_chromium()
@@ -255,6 +260,31 @@ class EnviadorCE:
             try:
                 self._login(page, cer_path, key_path, password)
                 self._cerrar_amparados(page)
+
+                if omitir_enviados:
+                    # Consultar ANTES de subir: el portal acepta el mismo
+                    # archivo dos veces sin chistar, y una corrida cortada a
+                    # media tanda (o un reintento manual) duplicaría envíos.
+                    self._paso("Revisando qué está ya presentado...")
+                    ya = self._ya_enviados(page, fichas)
+                    pendientes = []
+                    for f in fichas:
+                        est = ya.get(f["archivo"].upper())
+                        # un rechazado SÍ hay que reenviarlo corregido
+                        if est and est.lower() != "rechazado":
+                            self._paso(f"{f['archivo']} ya está en el portal "
+                                       f"({est}); se omite.")
+                            resultado["omitidos"].append({**f, "estatus": est})
+                        else:
+                            pendientes.append(f)
+                    fichas = pendientes
+                    # volver al portal de envío (la consulta vive en otro host)
+                    page.goto(URL_CARGA, wait_until="domcontentloaded")
+                    self._cerrar_amparados(page)
+                    page.wait_for_selector(SEL_BTN_ADD, timeout=30_000)
+                    if not fichas:
+                        self._paso("No queda nada por enviar.")
+                        return resultado
 
                 rfc_sesion = (page.get_attribute(SEL_HF_RFC, "value") or "").upper()
                 if rfc_sesion and rfc_sesion != rfc_lote:
@@ -408,6 +438,51 @@ class EnviadorCE:
             "        el.dispatchEvent(new Event('click', {bubbles: true})); }")
         page.wait_for_selector(SEL_DIV_EFIRMA, state="visible", timeout=10_000)
 
+    def _buscar_acuses(self, page, *, anio: int, mes_ini: int = 1,
+                       mes_fin: int = 13, estatus: str = "0",
+                       tipo_archivo: str = "0") -> list[dict]:
+        """Consulta el grid de acuses. Deja la página en el host de consulta."""
+        page.goto(URL_CONSULTA, wait_until="domcontentloaded")
+        page.wait_for_selector("#ddlAnio", timeout=30_000)
+        payload = {
+            "EsPorFolio": False, "EsPorCriterios": True, "NoFolio": 0,
+            "MesInicio": str(mes_ini), "MesFin": str(mes_fin),
+            "MesDescripcion": f"{MESES[mes_ini]} - {MESES[mes_fin]}",
+            "Anio": str(anio),
+            "IdTipoArchivo": tipo_archivo, "TipoArchivo": "Todos",
+            # el portal solo manda TipoEnvio cuando se filtra por balanzas
+            "IdTipoEnvio": "0" if tipo_archivo == "2" else None,
+            "TipoEnvio": "Todos" if tipo_archivo == "2" else None,
+            "IdEstatus": estatus, "Estatus": "Todos",
+            "IdTipoPoliza": "0", "TipoPoliza": "Todos",
+        }
+        # El fetch va DESDE la página: así lleva la cookie de sesión, el Referer
+        # y el origen igual que el $.ajax del portal. Pedirlo desde el contexto
+        # de Playwright devolvía 500.
+        resp = page.evaluate(
+            """async (p) => {
+                const r = await fetch('/ConsultaAcuses/BuscaAcuses/', {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/json; charset=utf-8',
+                              'X-Requested-With': 'XMLHttpRequest'},
+                    body: JSON.stringify(p)});
+                return {status: r.status, html: await r.text()};
+            }""", payload)
+        if resp["status"] != 200:
+            raise RuntimeError("BuscaAcuses respondió {}: {}".format(
+                resp["status"],
+                _limpiar_html(resp["html"])[:300] or "(sin cuerpo)"))
+        return parsear_grid_acuses(resp["html"])
+
+    def _ya_enviados(self, page, fichas: list[dict]) -> dict:
+        """Mapa archivo → estatus de lo que el portal ya tiene, por ejercicio."""
+        enviados = {}
+        for anio in sorted({f["anio"] for f in fichas}):
+            for fila in self._buscar_acuses(page, anio=int(anio)):
+                if fila.get("archivo"):
+                    enviados[fila["archivo"].upper()] = fila.get("estatus", "")
+        return enviados
+
     def _enviar_uno(self, page, context, ficha, motivo, enviar, salida) -> dict:
         """Agrega un archivo, lo manda y lee el resultado, con reintentos."""
         etiqueta = f"{ficha['archivo']} ({ficha['tipo_desc']} {ficha['anio']}-{ficha['mes']})"
@@ -440,6 +515,7 @@ class EnviadorCE:
                 break  # error de fondo (XML inválido, periodo cerrado): no insistir
             logger.info("[CE] Error transitorio del SAT; reintento. (%s)",
                         ultimo_error[:120])
+            page.wait_for_timeout(PAUSA_REINTENTO_MS)
         return {**ficha, "folio": None, "estado": "error", "mensaje": ultimo_error}
 
     def _agregar_archivo(self, page, zip_path: str, motivo: str) -> str:
@@ -630,43 +706,11 @@ class ConsultorCE(EnviadorCE):
                 self._cerrar_amparados(page)
                 # visitar la pantalla deja la cookie de sesión del módulo de
                 # consultas antes de pegarle al endpoint
-                page.goto(URL_CONSULTA, wait_until="domcontentloaded")
-                page.wait_for_selector("#ddlAnio", timeout=30_000)
-
-                payload = {
-                    "EsPorFolio": False, "EsPorCriterios": True, "NoFolio": 0,
-                    "MesInicio": str(mes_ini), "MesFin": str(mes_fin),
-                    "MesDescripcion": f"{MESES[mes_ini]} - {MESES[mes_fin]}",
-                    "Anio": str(anio),
-                    "IdTipoArchivo": tipo_archivo, "TipoArchivo": "Todos",
-                    # el portal solo manda TipoEnvio cuando se filtra por
-                    # balanzas (IdTipoArchivo == 2); en cualquier otro caso va null
-                    "IdTipoEnvio": "0" if tipo_archivo == "2" else None,
-                    "TipoEnvio": "Todos" if tipo_archivo == "2" else None,
-                    "IdEstatus": estatus, "Estatus": "Todos",
-                    "IdTipoPoliza": "0", "TipoPoliza": "Todos",
-                }
                 self._paso(f"Consultando acuses {anio} "
                            f"({MESES[mes_ini]} a {MESES[mes_fin]})...")
-                # El fetch va DESDE la página: así lleva la cookie de sesión, el
-                # Referer y el origen igual que el $.ajax del portal. Pedirlo
-                # desde el contexto de Playwright devolvía 500.
-                resp = page.evaluate(
-                    """async (p) => {
-                        const r = await fetch('/ConsultaAcuses/BuscaAcuses/', {
-                            method: 'POST', credentials: 'same-origin',
-                            headers: {
-                              'Content-Type': 'application/json; charset=utf-8',
-                              'X-Requested-With': 'XMLHttpRequest'},
-                            body: JSON.stringify(p)});
-                        return {status: r.status, html: await r.text()};
-                    }""", payload)
-                if resp["status"] != 200:
-                    raise RuntimeError(
-                        "BuscaAcuses respondió {}: {}".format(
-                            resp["status"],
-                            _limpiar_html(resp["html"])[:300] or "(sin cuerpo)"))
-                filas = parsear_grid_acuses(resp["html"])
+                filas = self._buscar_acuses(
+                    page, anio=anio, mes_ini=mes_ini, mes_fin=mes_fin,
+                    estatus=estatus, tipo_archivo=tipo_archivo)
                 self._paso(f"{len(filas)} envío(s) en el portal.")
 
                 if bajar_acuses and filas:

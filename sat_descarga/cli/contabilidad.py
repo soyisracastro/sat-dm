@@ -102,11 +102,13 @@ def cmd_inventario(rutas):
               help="Texto que debe contener el motivo del envío (default: mensual).")
 @click.option("--salida", default=None,
               help="Dónde guardar los acuses (default: junto a cada ZIP).")
-@click.option("--reintentos", default=4, show_default=True,
+@click.option("--reintentos", default=8, show_default=True,
               help="Intentos por archivo ante errores transitorios del SAT.")
+@click.option("--reenviar", is_flag=True,
+              help="Mandar aunque el portal ya tenga el archivo (default: se omite).")
 @click.option("--ver", is_flag=True, help="Mostrar el navegador.")
 def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
-               salida, reintentos, ver):
+               salida, reintentos, reenviar, ver):
     """Sube los ZIP de contabilidad electrónica al portal del SAT."""
     from ..portal.contabilidad_electronica import EnviadorCE, inventario
 
@@ -143,12 +145,16 @@ def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
     try:
         res = envidor.enviar(cer, key, password, [f["path"] for f in filas],
                              sellar=not sin_sellar, enviar=enviar,
-                             motivo=motivo, salida=salida)
+                             motivo=motivo, salida=salida,
+                             omitir_enviados=not reenviar)
     except (ValueError, FileNotFoundError) as e:
         print_error(str(e))
         raise SystemExit(1)
 
     click.echo()
+    for r in res.get("omitidos", []):
+        click.echo(f"  – {r['archivo']} ya presentado ({r.get('estatus','')}); "
+                   "se omitió")
     for r in res["enviados"]:
         if r.get("folio"):
             print_success(f"{r['archivo']} — folio {r['folio']} "
