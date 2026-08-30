@@ -24,8 +24,9 @@ Flujo real (mapeado en el repo `diot`, contabilidad-electronica/steps_contabilid
 
 OJO — el acuse de RECEPCIÓN no ampara el cumplimiento: el propio PDF dice que el
 archivo "será procesado" y que hay que verificar el acuse de ACEPTACIÓN o
-RECHAZO en Buzón Tributario › Contabilidad Electrónica › Consultas. Esa segunda
-fase todavía no está automatizada aquí (falta mapear esa pantalla).
+RECHAZO. Eso es `ConsultorCE.consultar` (`sat-dm ce acuses`), que vive en OTRO
+host —- ceportalconsultaextprod, no el de envío—- y baja los dos PDF por folio:
+AR_ (recepción) y AP_ (aceptación, el que sí ampara).
 """
 
 from __future__ import annotations
@@ -45,11 +46,14 @@ URL_PORTAL = "https://ceportalenvioprod.clouda.sat.gob.mx/"
 URL_CARGA = "https://ceportalenvioprod.clouda.sat.gob.mx/Envio/Carga"
 URL_ACUSE = ("https://ceportalenvioprod.clouda.sat.gob.mx/ConsultaAcuses/"
              "AR_{folio}?folio={folio}&tipoAcuse=1")
-URL_CONSULTA = "https://ceportalenvioprod.clouda.sat.gob.mx/ConsultaAcuses"
-# La búsqueda de la pantalla de Consultas es un POST JSON; se llama directo y se
-# evita por completo la UI, que además viene rota (ver `consultar`).
-URL_BUSCA = ("https://ceportalenvioprod.clouda.sat.gob.mx/ConsultaAcuses/"
-             "BuscaAcuses/")
+# OJO: Consultas NO vive en el portal de envío. `ceportalenvioprod` sirve una
+# copia de /ConsultaAcuses que se ve idéntica pero está rota (su JS truena con
+# "$ is not defined" y BuscaAcuses responde 500). La buena está en otro host, y
+# la sesión SSO del login de envío sirve ahí sin volver a autenticarse.
+HOST_CONSULTA = "https://ceportalconsultaextprod.clouda.sat.gob.mx"
+URL_CONSULTA = HOST_CONSULTA + "/ConsultaAcuses"
+URL_ACUSE_CONSULTA = (HOST_CONSULTA +
+                      "/ConsultaAcuses/AR_{folio}?folio={folio}&tipoAcuse=1")
 
 MESES = {1: "01 - Enero", 2: "02 - Febrero", 3: "03 - Marzo", 4: "04 - Abril",
          5: "05 - Mayo", 6: "06 - Junio", 7: "07 - Julio", 8: "08 - Agosto",
@@ -627,6 +631,7 @@ class ConsultorCE(EnviadorCE):
                 # visitar la pantalla deja la cookie de sesión del módulo de
                 # consultas antes de pegarle al endpoint
                 page.goto(URL_CONSULTA, wait_until="domcontentloaded")
+                page.wait_for_selector("#ddlAnio", timeout=30_000)
 
                 payload = {
                     "EsPorFolio": False, "EsPorCriterios": True, "NoFolio": 0,
@@ -643,16 +648,25 @@ class ConsultorCE(EnviadorCE):
                 }
                 self._paso(f"Consultando acuses {anio} "
                            f"({MESES[mes_ini]} a {MESES[mes_fin]})...")
-                resp = context.request.post(
-                    URL_BUSCA, data=payload,
-                    headers={"Content-Type": "application/json; charset=utf-8",
-                             "X-Requested-With": "XMLHttpRequest",
-                             "Referer": URL_CONSULTA},
-                    timeout=60_000)
-                if resp.status != 200:
+                # El fetch va DESDE la página: así lleva la cookie de sesión, el
+                # Referer y el origen igual que el $.ajax del portal. Pedirlo
+                # desde el contexto de Playwright devolvía 500.
+                resp = page.evaluate(
+                    """async (p) => {
+                        const r = await fetch('/ConsultaAcuses/BuscaAcuses/', {
+                            method: 'POST', credentials: 'same-origin',
+                            headers: {
+                              'Content-Type': 'application/json; charset=utf-8',
+                              'X-Requested-With': 'XMLHttpRequest'},
+                            body: JSON.stringify(p)});
+                        return {status: r.status, html: await r.text()};
+                    }""", payload)
+                if resp["status"] != 200:
                     raise RuntimeError(
-                        f"BuscaAcuses respondió {resp.status}: {resp.text()[:200]}")
-                filas = parsear_grid_acuses(resp.text())
+                        "BuscaAcuses respondió {}: {}".format(
+                            resp["status"],
+                            _limpiar_html(resp["html"])[:300] or "(sin cuerpo)"))
+                filas = parsear_grid_acuses(resp["html"])
                 self._paso(f"{len(filas)} envío(s) en el portal.")
 
                 if bajar_acuses and filas:
@@ -660,7 +674,7 @@ class ConsultorCE(EnviadorCE):
                     destino.mkdir(parents=True, exist_ok=True)
                     for f in filas:
                         f["acuse_recepcion"] = self._bajar_pdf(
-                            context, URL_ACUSE.format(folio=f["folio"]),
+                            context, URL_ACUSE_CONSULTA.format(folio=f["folio"]),
                             destino / f"AR_{f['folio']}.pdf")
                         f["acuse_resultado"] = self._bajar_procesamiento(
                             page, context, f["folio"], destino)
@@ -700,7 +714,7 @@ class ConsultorCE(EnviadorCE):
                 logger.warning("[CE] sin iframe en el acuse de resultados %s", folio)
                 return None
             if src.startswith("/"):
-                src = "https://ceportalenvioprod.clouda.sat.gob.mx" + src
+                src = page.evaluate("() => location.origin") + src
             return self._bajar_pdf(context, src, destino / f"AP_{folio}.pdf")
         except Exception as e:  # noqa: BLE001
             logger.warning("[CE] no se pudo abrir el acuse de resultados %s: %s",
