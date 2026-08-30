@@ -12,6 +12,7 @@ from pathlib import Path
 import click
 
 from ..core import paths
+from ..core.errores import ErrorEsperado
 from .config_store import get_descargas_dir
 from .display import print_error, print_header, print_success, print_warning
 
@@ -166,11 +167,25 @@ def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
     else:
         destino_de = _destino_todoconta()
 
+    params_cola = {"sellar": not sin_sellar, "motivo": motivo,
+                   "salida": salida, "junto_al_zip": junto_al_zip}
+
     try:
         res = enviador.enviar(cer, key, password, [f["path"] for f in filas],
                              sellar=not sin_sellar, enviar=enviar,
                              motivo=motivo, destino_de=destino_de,
                              omitir_enviados=not reenviar)
+    except ErrorEsperado as e:
+        # SAT lento o en mantenimiento (nunca lo anuncian): el lote completo
+        # queda en cola para retomarse sin volver a teclear nada
+        print_error(str(e))
+        if enviar:
+            from .config_store import save_envio_pendiente
+            save_envio_pendiente(rfc_lote, "ce", [f["path"] for f in filas],
+                                 params=params_cola, error=str(e))
+            print_warning(f"{len(filas)} archivo(s) quedaron en cola; "
+                          "reintenta con: sat-dm ce reanudar")
+        raise SystemExit(1)
     except (ValueError, FileNotFoundError) as e:
         print_error(str(e))
         raise SystemExit(1)
@@ -190,6 +205,21 @@ def cmd_enviar(rutas, rfc, cer, key, password, enviar, si, sin_sellar, motivo,
         print_error(f"{r['archivo']} — {r.get('mensaje', 'sin detalle')[:160]}")
 
     if res["fallidos"]:
+        if enviar:
+            from ..portal.contabilidad_electronica import RE_ERROR_TRANSITORIO
+            from .config_store import save_envio_pendiente
+            transitorios = [f for f in res["fallidos"]
+                            if RE_ERROR_TRANSITORIO.search(f.get("mensaje") or "")]
+            if transitorios:
+                # errores de fondo NO se encolan: insistir no los arregla
+                save_envio_pendiente(
+                    rfc_lote, "ce", [f["path"] for f in transitorios],
+                    params=params_cola,
+                    error=(transitorios[0].get("mensaje") or "")[:300])
+                print_warning(
+                    f"{len(transitorios)} archivo(s) quedaron en cola por "
+                    "errores transitorios del SAT; reintenta con: "
+                    "sat-dm ce reanudar")
         raise SystemExit(1)
     if enviar:
         print_warning(
@@ -252,3 +282,65 @@ def cmd_acuses(rfc, cer, key, password, anio, mes_ini, mes_fin, bajar, salida, v
                       "solo «Aceptado» ampara el cumplimiento.")
     if not rechazados and not pendientes:
         print_success(f"Los {len(filas)} envíos están Aceptados.")
+
+
+@contabilidad.command("pendientes")
+@click.option("--rfc", default=None, help="Filtrar por empresa.")
+def cmd_pendientes(rfc):
+    """Lista los envíos en cola de reintento (SAT lento / mantenimiento)."""
+    from .config_store import get_envios_pendientes
+
+    pendientes = get_envios_pendientes(rfc)
+    if not pendientes:
+        print_success("No hay envíos pendientes.")
+        return
+    print_header(f"Envíos pendientes — {len(pendientes)}")
+    for e in pendientes:
+        click.echo(f"  · [{e['id']}] {e['rfc']} — {len(e['archivos'])} "
+                   f"archivo(s), {e['intentos']} intento(s), "
+                   f"último: {e.get('ultimo_intento') or 'nunca'}")
+        if e.get("ultimo_error"):
+            click.echo(f"      {e['ultimo_error'][:120]}")
+
+
+@contabilidad.command("reanudar")
+@click.option("--rfc", default=None,
+              help="Empresa a reanudar (default: todas las que tengan pendientes).")
+@click.option("--ver", is_flag=True, help="Mostrar el navegador.")
+def cmd_reanudar(rfc, ver):
+    """Retoma los envíos que quedaron en cola. Idempotente: consulta el portal
+    antes de subir, así que nunca duplica lo ya presentado."""
+    from ..portal.reanudar_envios import reanudar_envios_ce
+    from .config_store import get_envios_pendientes
+
+    pendientes = get_envios_pendientes(rfc)
+    if not pendientes:
+        print_success("No hay envíos pendientes.")
+        return
+
+    rfcs = sorted({e["rfc"] for e in pendientes})
+    quedan = 0
+    for r in rfcs:
+        print_header(f"Reanudando envíos de {r}")
+        try:
+            cer, key, password = _resolver_efirma(r, None, None, None)
+        except SystemExit:
+            print_warning(f"{r} sin e.firma en el catálogo; se salta.")
+            quedan += 1
+            continue
+        try:
+            resumen = reanudar_envios_ce(
+                r, cer, key, password, headless=not ver,
+                destino_de=_destino_todoconta(),
+                progreso=lambda m: click.echo(f"  {m}"))
+        except ErrorEsperado as e:
+            print_error(str(e))
+            quedan += 1
+            continue
+        for eid in resumen["completados"]:
+            print_success(f"[{eid}] completado")
+        for eid in resumen["aun_pendientes"]:
+            print_warning(f"[{eid}] sigue pendiente (el SAT volvió a fallar)")
+            quedan += 1
+    if quedan:
+        raise SystemExit(1)

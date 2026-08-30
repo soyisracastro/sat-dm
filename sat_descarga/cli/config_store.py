@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # pegándole a /verificar al mismo tiempo) hacen read-modify-write entrelazado y
 # corrompen el JSON.
 _solicitudes_lock = threading.RLock()
+_envios_lock = threading.RLock()
 
 # Mismo problema para empresas.json, historial/{RFC}.json y settings.json: el
 # agente atiende requests concurrentes y los mutadores hacen read-modify-write.
@@ -1408,3 +1409,136 @@ def set_organizador_config(patch: dict) -> dict:
         data["organizador"] = cfg
         _save_settings(data)
     return get_organizador_config()
+
+
+# ---------------------------------------------------------------------------
+# Envíos pendientes (contabilidad electrónica / DIOT): cola de reintento diferido
+# ---------------------------------------------------------------------------
+# El portal del SAT se pone lento o entra en mantenimiento sin aviso; cuando un
+# envío agota sus reintentos por errores TRANSITORIOS (nunca por errores de
+# fondo), queda aquí para retomarse después con `sat-dm ce reanudar` o con el
+# poller de la app. Reanudar es idempotente: siempre se consulta el portal
+# antes de subir (omitir_enviados), así que un pendiente "de más" no duplica.
+#
+# Esquema — ~/.sat-descarga/envios/{RFC}.json:
+#   {"version": 1, "envios": [{
+#       "id": uuid4.hex[:12], "tramite": "ce",         # "diot" reservado
+#       "rfc": "...", "archivos": ["/abs/x.zip", ...], # lo que FALTA por enviar
+#       "params": {"sellar": true, "motivo": "mensual",
+#                  "salida": null, "junto_al_zip": false},
+#       "estado": "pendiente" | "curso" | "completado" | "abandonado",
+#       "intentos": 0,                                  # corridas completas fallidas
+#       "creado": iso, "ultimo_intento": iso | null,
+#       "ultimo_error": str | null, "resultado": dict | null }]}
+#
+# Sin vencimiento automático (a diferencia de solicitudes/): la obligación
+# fiscal no caduca a las 72 h. "abandonado" es decisión manual.
+
+ESTADOS_ENVIO = ("pendiente", "curso", "completado", "abandonado")
+
+
+def _envios_dir() -> Path:
+    d = get_config_dir() / "envios"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _envios_path(rfc: str) -> Path:
+    return _envios_dir() / f"{rfc.strip().upper()}.json"
+
+
+def _load_envios(rfc: str) -> dict:
+    path = _envios_path(rfc)
+    data = _load_json_resiliente(path, lambda: {"version": 1, "envios": []})
+    data.setdefault("version", 1)
+    data.setdefault("envios", [])
+    return data
+
+
+def _save_envios(rfc: str, data: dict):
+    _write_json_atomico(_envios_path(rfc), data)
+
+
+def save_envio_pendiente(rfc: str, tramite: str, archivos: list,
+                         params: Optional[dict] = None,
+                         error: Optional[str] = None) -> str:
+    """Encola archivos para reintentar más tarde. Devuelve el id del registro.
+
+    Dedup: si ya hay un pendiente del mismo trámite, FUSIONA los archivos y
+    actualiza el error en vez de crear otro registro — una corrida cortada a
+    media tanda no debe fabricar N pendientes del mismo lote.
+    """
+    import uuid
+
+    rfc = rfc.strip().upper()
+    archivos = [str(a) for a in archivos]
+    with _envios_lock:
+        data = _load_envios(rfc)
+        for e in data["envios"]:
+            if e["tramite"] == tramite and e["estado"] == "pendiente":
+                previos = set(e["archivos"])
+                e["archivos"] += [a for a in archivos if a not in previos]
+                if error:
+                    e["ultimo_error"] = str(error)[:500]
+                if params:
+                    e["params"] = params
+                _save_envios(rfc, data)
+                return e["id"]
+        registro = {
+            "id": uuid.uuid4().hex[:12],
+            "tramite": tramite,
+            "rfc": rfc,
+            "archivos": archivos,
+            "params": params or {},
+            "estado": "pendiente",
+            "intentos": 0,
+            "creado": datetime.now().isoformat(timespec="seconds"),
+            "ultimo_intento": None,
+            "ultimo_error": str(error)[:500] if error else None,
+            "resultado": None,
+        }
+        data["envios"].append(registro)
+        _save_envios(rfc, data)
+        return registro["id"]
+
+
+def update_envio(rfc: str, envio_id: str, *, estado: Optional[str] = None,
+                 archivos: Optional[list] = None, error: Optional[str] = None,
+                 resultado: Optional[dict] = None) -> bool:
+    """Actualiza un envío pendiente; pasar a "curso" estampa el intento."""
+    rfc = rfc.strip().upper()
+    if estado is not None and estado not in ESTADOS_ENVIO:
+        raise ValueError(f"estado inválido: {estado}")
+    with _envios_lock:
+        data = _load_envios(rfc)
+        for e in data["envios"]:
+            if e["id"] != envio_id:
+                continue
+            if estado == "curso":
+                e["intentos"] = int(e.get("intentos") or 0) + 1
+                e["ultimo_intento"] = datetime.now().isoformat(timespec="seconds")
+            if estado is not None:
+                e["estado"] = estado
+            if archivos is not None:
+                e["archivos"] = [str(a) for a in archivos]
+            if error is not None:
+                e["ultimo_error"] = str(error)[:500]
+            if resultado is not None:
+                e["resultado"] = resultado
+            _save_envios(rfc, data)
+            return True
+        return False
+
+
+def get_envios_pendientes(rfc: Optional[str] = None) -> list:
+    """Envíos en estado "pendiente". Sin RFC recorre todas las empresas."""
+    with _envios_lock:
+        if rfc:
+            rfcs = [rfc.strip().upper()]
+        else:
+            rfcs = sorted(p.stem for p in _envios_dir().glob("*.json"))
+        out = []
+        for r in rfcs:
+            out.extend(e for e in _load_envios(r)["envios"]
+                       if e.get("estado") == "pendiente")
+        return out
