@@ -189,8 +189,13 @@ def inspeccionar_zip(path) -> dict:
 def inventario(paths) -> list[dict]:
     """Inspecciona varios ZIP y los ordena por RFC/ejercicio/periodo/tipo."""
     filas = [inspeccionar_zip(p) for p in paths]
+    # El catálogo de cuentas va ANTES de las balanzas del mismo periodo: se
+    # envía la primera vez junto con la primera balanza, y ordenar por tipo a
+    # secas lo dejaría después (BN < CT alfabéticamente).
     return sorted(filas, key=lambda f: (f.get("rfc", ""), f.get("anio", ""),
-                                        f.get("mes", ""), f.get("tipo", "")))
+                                        f.get("mes", ""),
+                                        0 if f.get("tipo") == "CT" else 1,
+                                        f.get("tipo", "")))
 
 
 # ---------------------------------------------------------------------------
