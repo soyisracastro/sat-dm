@@ -37,6 +37,7 @@ import time
 import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
+from html import unescape
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -664,7 +665,12 @@ class EnviadorCE:
 
 
 def _limpiar_html(txt: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", txt)).strip()
+    """Texto plano de una celda del grid.
+
+    El portal devuelve el HTML con las acentuadas escapadas («Comprobaci&#243;n»),
+    así que hay que desescaparlas o se filtran tal cual al reporte.
+    """
+    return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", txt))).strip()
 
 
 def parsear_grid_acuses(html: str) -> list[dict]:
