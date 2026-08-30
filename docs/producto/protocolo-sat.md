@@ -168,3 +168,25 @@ Mismo login CIEC reutilizado (`iniciar_sesion_ciec`), solo cambia entrada + nave
 Mismo patrón. Entrada OAuth2/OIDC (PKCE) → `ptsc32d.clouda.sat.gob.mx/#/reporteOpinion32DContribuyente`;
 el PDF se abre directo al aterrizar (sin botón). Los params PKCE/state son efímeros: entrar por
 la página del trámite que inicia el SSO fresco.
+
+## Portal DIOT (pstcdi, carga masiva)
+
+Entrada `pstcdi.clouda.sat.gob.mx` vía lanzador NIDP, e.firma sin captcha. SPA; la
+declaración se arma como "temporal" y solo el acuse PDF prueba la presentación (una firma
+fallida puede consumir la temporal SIN presentar — comprobado 2026-07-31). La e.firma del
+envío se carga por el botón «Buscar» (file chooser): inyectar al input oculto deja `#txtRFC`
+vacío y truena con "RFC de la sesión no coincide". El validador recalcula el IVA por renglón
+como `round((valor−devol)×0.16)` e ignora el campo de IVA del TXT. Formulario clásico
+(ejercicios ≤2024): pantalla única, sin tabs, no pregunta estímulos. Detalle completo:
+`docs/producto/diot-2025.md` §Presentación.
+
+## Portal Contabilidad Electrónica (DOS hosts)
+
+Envío en `ceportalenvioprod.clouda.sat.gob.mx`; consulta de acuses en
+`ceportalconsultaextprod.clouda.sat.gob.mx` (el host de envío sirve una copia de
+/ConsultaAcuses visualmente idéntica pero rota: `$ is not defined` + BuscaAcuses→500). La
+sesión SSO sirve en ambos. El portal de envío se traga interacciones en silencio (primer
+«Agregar» tras la e.firma, radio de sellado, lista de motivos reemplazada) y su error
+transitorio del xmlTemp es la norma (1-4 intentos por archivo). La búsqueda de acuses es un
+POST JSON ejecutado DESDE la página (same-origin). Detalle completo y tabla de hallazgos:
+`docs/producto/contabilidad-electronica.md`.

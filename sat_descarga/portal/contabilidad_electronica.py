@@ -5,7 +5,8 @@ Portal: https://ceportalenvioprod.clouda.sat.gob.mx/ — ASP.NET MVC, sesión de
 15 minutos (`#lifeTime`), login por el NIDP del SAT (mismo formulario que el
 resto de los scrapers: `_login_efirma` de portal/login.py, sin captcha).
 
-Flujo real (mapeado en el repo `diot`, contabilidad-electronica/steps_contabilidad_2025.md):
+Flujo real (medido contra producción; doc canónico:
+docs/producto/contabilidad-electronica.md):
 
   1. login e.firma
   2. modal «Contribuyente Amparado» → botón `#btnLogout` (postea a
