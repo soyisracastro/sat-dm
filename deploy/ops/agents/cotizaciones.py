@@ -44,6 +44,7 @@ from email.mime.text import MIMEText
 from pathlib import Path
 
 from lib import buzon, correo, cotizacion_pdf, llm
+from lib import emisor as emisor_lib
 
 # Plumbing de correo entrante, reutilizado del agente hermano (misma cuenta,
 # mismos filtros). Single source of truth; no se duplica.
@@ -264,7 +265,10 @@ def main() -> int:  # noqa: C901
         if d.strip()
     }
 
-    emisor = _cargar_json("emisor.json")
+    # La cara del emisor se elige por el dominio del alias: mismo RFC y mismo
+    # banco para TodoConta y soycontador.ai, distinto membrete. Devuelve el dict
+    # plano de siempre, así que cotizacion_pdf.py no se entera del cambio.
+    emisor = emisor_lib.cargar(emisor_lib.marca_para_alias(alias))
     catalogo = _cargar_json("productos.json")["productos"]
     estado = _cargar_estado()
     procesados: list[str] = estado["procesados"]
