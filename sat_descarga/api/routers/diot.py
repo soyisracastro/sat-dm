@@ -157,3 +157,143 @@ def diot_catalogos():
             for c in CAMPOS_DIOT
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Presentación en el portal (job + SSE, FIEL-only) — patrón certifica.py
+# ---------------------------------------------------------------------------
+
+class DiotPresentarRequest(BaseModel):
+    rfc: str
+    ejercicio: int
+    periodo: int                       # 1-12
+    txt_path: Optional[str] = None     # TXT del software contable del usuario…
+    usar_generado: bool = False        # …o el que exporta la propia app
+    confirmar: bool = False            # presentar es IRREVERSIBLE → 400 sin esto
+    solo_validar: bool = False         # sube y coteja totales, no envía
+    sin_estimulos: bool = False        # el flujo con estímulos NO está soportado
+    tipo_declaracion: str = "001"
+
+
+class DiotAcuseRequest(BaseModel):
+    rfc: str
+    ejercicio: int
+    periodo: int
+
+
+def _resolver_txt(req: DiotPresentarRequest) -> str:
+    if req.txt_path:
+        path = Path(req.txt_path)
+        if not path.is_file():
+            raise HTTPException(status_code=400,
+                                detail=f"No existe el TXT: {req.txt_path}")
+        return str(path)
+    if req.usar_generado:
+        # el mismo TXT que produce GET /diot/exportar, materializado a disco
+        from ...cli.config_store import get_descargas_dir
+        from ...diot import exportar_txt, nombre_archivo
+
+        rfc = _rfc_requerido(req.rfc)
+        periodo = f"{req.ejercicio}-{req.periodo:02d}"
+        destino = Path(get_descargas_dir()) / nombre_archivo(rfc, periodo)
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(exportar_txt(rfc, periodo))
+        return str(destino)
+    raise HTTPException(status_code=400,
+                        detail="Falta txt_path o usar_generado=true.")
+
+
+@router.post("/diot/presentar")
+def diot_presentar(req: DiotPresentarRequest):
+    """Presenta (o solo valida) la DIOT por carga masiva. Devuelve {job_id}.
+
+    Two-step recomendado para la UI: primer request con solo_validar=true (el
+    `done` trae los totales que el PORTAL calculó), mostrar al usuario, y
+    segundo request con confirmar=true.
+    """
+    from .certifica import _credenciales_keychain, _lanzar_job_certifica
+
+    if not req.sin_estimulos:
+        # Limitante como CONTRATO, no como nota: el flujo con estímulos
+        # fiscales no está mapeado (roadmap: capturar los estímulos en la app
+        # y poblarlos en la declaración). La UI está obligada a preguntarlo.
+        raise HTTPException(
+            status_code=400,
+            detail=("El flujo solo soporta declaraciones SIN estímulos "
+                    "fiscales (se responde «No»). Si la empresa aplica "
+                    "estímulos, presenta a mano; confirma con "
+                    "sin_estimulos=true."),
+        )
+    if not req.confirmar and not req.solo_validar:
+        raise HTTPException(
+            status_code=400,
+            detail=("Falta la confirmación explícita de la presentación "
+                    "(confirmar=true), o usa solo_validar=true."),
+        )
+    if not (1 <= req.periodo <= 12):
+        raise HTTPException(status_code=400, detail="Periodo inválido (1-12).")
+
+    txt = _resolver_txt(req)
+    empresa = _credenciales_keychain(req.rfc)
+    rfc = _rfc_requerido(req.rfc)
+
+    from ...cli.config_store import get_descargas_dir
+    salida = (Path(get_descargas_dir()) / "diot" / "presentaciones" / rfc
+              / str(req.ejercicio) / f"{req.periodo:02d}-{req.ejercicio}")
+
+    def fn_factory(emitir_fase):
+        def fn():
+            from ...portal.diot_presentacion import PresentadorDiot
+
+            presentador = PresentadorDiot(
+                headless=True,
+                # la irreversibilidad ya se resolvió con confirmar=true en el
+                # request (patrón certifica); no hay callback bloqueante aquí
+                confirmar=None,
+                on_progreso=lambda fase, data: emitir_fase(fase, data),
+            )
+            return presentador.presentar(
+                empresa["cer_path"], empresa["key_path"], empresa["password"],
+                txt_path=txt, ejercicio=req.ejercicio, periodo=req.periodo,
+                tipo_declaracion=req.tipo_declaracion,
+                directorio_salida=str(salida),
+                enviar=bool(req.confirmar and not req.solo_validar),
+                rfc=rfc,
+            )
+        return fn
+
+    return _lanzar_job_certifica(fn_factory)
+
+
+@router.post("/diot/acuse")
+def diot_acuse(req: DiotAcuseRequest):
+    """Reimprime el acuse de una DIOT ya presentada. Devuelve {job_id}.
+
+    OJO: baja el PDF del primer resultado del grid; NO verifica estatus (ver
+    docs/producto/pendientes-envios-sat.md — acuse de aceptación DIOT).
+    """
+    from .certifica import _credenciales_keychain, _lanzar_job_certifica
+
+    empresa = _credenciales_keychain(req.rfc)
+    rfc = _rfc_requerido(req.rfc)
+    from ...cli.config_store import get_descargas_dir
+    salida = (Path(get_descargas_dir()) / "diot" / "presentaciones" / rfc
+              / str(req.ejercicio) / f"{req.periodo:02d}-{req.ejercicio}")
+
+    def fn_factory(emitir_fase):
+        def fn():
+            from ...portal.diot_presentacion import PresentadorDiot
+
+            presentador = PresentadorDiot(
+                headless=True,
+                on_progreso=lambda fase, data: emitir_fase(fase, data),
+            )
+            acuse = presentador.descargar_acuse(
+                empresa["cer_path"], empresa["key_path"], empresa["password"],
+                ejercicio=req.ejercicio, periodo=req.periodo,
+                directorio_salida=str(salida), rfc=rfc,
+            )
+            return {"acuse": str(acuse) if acuse else None}
+        return fn
+
+    return _lanzar_job_certifica(fn_factory)

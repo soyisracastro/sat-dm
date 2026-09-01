@@ -1,0 +1,12 @@
+{
+  "_comment": "Catálogo de SKUs cotizables. El agente SOLO cotiza precios de aquí en modo directo (correo del cliente). En modo forward (reenvío de Israel) su texto puede fijar precio/concepto libre. Agregar filas aquí para ampliar. precioUnitario en MXN, IVA incluido.",
+  "productos": {
+    "xmlsat-premium": {
+      "nombre": "Licencia XMLSAT Premium (anual)",
+      "aliases": ["xmlsat premium", "xmlsat", "licencia xmlsat", "premium"],
+      "precioUnitario": 2299.00,
+      "iva_incluido": true,
+      "conceptoRenovacion": "Renovación de licencia XMLSAT Premium (anual)"
+    }
+  }
+}

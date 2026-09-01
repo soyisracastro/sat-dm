@@ -10,6 +10,7 @@ de "departamentos" automatizados del plan de ventas jul–dic 2026:
 | `agents/contenido_semanal.py` | ✅ | Lunes 06:30 CDMX: genera con Claude (Sonnet) el paquete semanal — post de blog con frontmatter listo, ficha SEO + heroImage y guion de video — y abre PR `drafts/semana-NN` en todoconta-apps. Los 3 posts sociales NO van en el PR: se crean como filas en la base de Notion **Contenido social — TodoConta** (`NOTION_DB_SOCIALES`), en `Borrador`. El correo tampoco: la newsletter se arma con la skill `/partida-doble` usando este post como hero. Los archivos viven en `drafts/`: **mergear tampoco publica**; Israel mueve el post al blog cuando lo aprueba. Fuente de temas: **el calendario editorial del repo** (`apps/landing/editorial/calendario-editorial-2026.csv`, leído en runtime — editarlo NO requiere redeploy; toma la fila más próxima con `publicado=no` y usa su brief/fuentes); backlog embebido solo como respaldo. Lee además el listado del blog para interlinkear con slugs reales y no repetir temas ya publicados. |
 | `agents/sdr_inbound.py` | ✅ | Cada hora (9:15–17:15 CDMX): lee `crm_leads` etapa=lead con fuente en `SDR_FUENTES` (SOLO gente que llenó un formulario — opt-in estricto; hoy solo `abacus`), puntúa y redacta con Claude **respondiendo a la intención real de la fuente** (abacus → ayudar a activar su prueba de WhatsApp; diagnostico → entregar el plan prometido), manda el correo por SES como Israel (BCC al buzón del CRM), etapa→`mql` + evento `email_enviado` con el **cuerpo completo**. Secuencia de 3 toques (día 0, 3 y 7) que se corta sola si el lead responde, crea cuenta o sale de `mql`. |
 | `agents/soporte.py` | ✅ | Cada hora: busca correos dirigidos a soporte@todoconta.com (que es un ALIAS dentro de la cuenta real de Israel — el agente entra por IMAP a esa cuenta pero SOLO procesa lo dirigido al alias, INBOX en readonly, banderas intactas), descarta auto-correos, clasifica y redacta BORRADOR con Claude, lo deja hilado en Borradores (sale como el alias) y avisa a Israel. Dedupe por Message-ID en `/data`. **No auto-responde a nadie** (v1). |
+| `agents/cotizaciones.py` | ⚪ | Cada 15 min en horas hábiles: busca correos a cotizaciones@todoconta.com (send-as sobre la MISMA cuenta real que soporte@; INBOX readonly). Dos modos — **directo** (cliente escribe: cotiza con precios del catálogo `data/productos.json`, arma bitácora del historial) y **forward** (Israel reenvía con contexto: su texto puede fijar concepto/precio libre). Renderiza el **PDF de marca** (Chromium/Playwright, plantilla del design-system) y deja el **borrador con el PDF adjunto** hilado en Borradores (sale como el alias), avisando a Israel. Precios del catálogo o del forward de Israel; datos bancarios SIEMPRE de `data/emisor.json`, nunca del correo. Dedupe por Message-ID en `/data`. **No envía nada solo** (v1). |
 | `agents/sync_abacus_waitlist.py` | ⚪ | Diario 08:10 CDMX: lee la waitlist de Abacus en Notion y la registra en `crm_leads` (`fuente=abacus`, nombre, teléfono en E.164, etapa según el Estado de Notion sin retroceder). Cierra el hueco por el que 114 personas en Sendy nunca llegaron al CRM. Solo lee Notion y escribe `crm_*`: la allowlist de OpenClaw NO se toca. |
 
 ## Despliegue (patrón de deploy/{gateway,provisioner,sendy})
@@ -29,6 +30,7 @@ docker compose run --rm ops python agents/reporte_semanal.py --dry-run
 docker compose run --rm ops python agents/contenido_semanal.py --dry-run
 docker compose run --rm ops python agents/sdr_inbound.py --dry-run
 docker compose run --rm ops python agents/soporte.py --dry-run
+docker compose run --rm ops python agents/cotizaciones.py --dry-run
 ```
 
 ## `.env` (chmod 600, NUNCA al repo)
@@ -40,6 +42,7 @@ OPS_REPORTE_ENABLED=1
 OPS_CONTENIDO_ENABLED=0
 OPS_SDR_ENABLED=0
 OPS_SOPORTE_ENABLED=0
+OPS_COTIZACIONES_ENABLED=0
 
 # Supabase (mismo proyecto que todoconta-apps; service role)
 TODOCONTA_SUPABASE_URL=https://pyyyzvicjpffohwjsmzi.supabase.co
@@ -121,6 +124,18 @@ SOPORTE_APP_PASSWORD=                    # app password de ESA cuenta
 SOPORTE_ALIAS=soporte@todoconta.com      # dirección que filtra y desde la que responde
 SOPORTE_VENTANA_DIAS=2   # qué tan atrás busca (no barre correo viejo al encender)
 OPS_SOPORTE_MAX=10       # mensajes por corrida
+
+# Cotizaciones. cotizaciones@todoconta.com es OTRO send-as sobre la MISMA cuenta
+# real que soporte@ (reutiliza SOPORTE_EMAIL/SOPORTE_APP_PASSWORD). Crear el
+# alias en Workspace y configurarlo como "Enviar como" en la cuenta real, o el
+# borrador no saldrá con el alias. El emisor/banco/catálogo viven en data/*.json
+# (versionados, no aquí).
+COTIZACIONES_ALIAS=cotizaciones@todoconta.com
+COTIZACIONES_VENTANA_DIAS=2
+OPS_COTIZACIONES_MAX=10
+# Direcciones que activan el modo forward (confianza). Vacío = cuenta real +
+# israel@todoconta.com + REPORTE_TO. Coma-separadas.
+# COTIZACIONES_REMITENTES_ISRAEL=
 ```
 
 ## Reglas del contenedor
@@ -128,14 +143,17 @@ OPS_SOPORTE_MAX=10       # mensajes por corrida
 - **Escritura mínima y acotada**: Supabase solo a tablas `crm_*` (SDR); GitHub
   solo PRs de borradores con PAT fine-grained (contenido); Gmail solo APPEND a
   la carpeta Borradores — INBOX se abre readonly y las banderas de leído son de
-  Israel, no del agente (soporte). Stripe con restricted key RO, Sendy con
+  Israel, no del agente (soporte y cotizaciones; este último además adjunta el
+  PDF al borrador). Stripe con restricted key RO, Sendy con
   usuario MySQL `SELECT`-only. Nada de docker.sock, nada de Traefik (sin inbound).
 - **Nadie recibe correo sin humano o sin opt-in**: el SDR solo escribe a quien
   llenó un formulario (máximo 3 correos y para en cuanto haya respuesta, con
   BCC al buzón del CRM); soporte solo deja
-  borradores. Los envíos masivos siguen siendo territorio de Sendy.
-- **Sin daemons**: supercronic dispara procesos que terminan. `mem_limit: 256m`.
-- **Cada agente con kill switch por env** (SDR/soporte/contenido nacen apagados)
+  borradores; cotizaciones también. Los envíos masivos siguen siendo territorio de Sendy.
+- **Sin daemons**: supercronic dispara procesos que terminan. `mem_limit: 1g`
+  (subió de 256m para el Chromium headless del PDF de cotizaciones; render
+  ocasional/bursty, el VPS tiene ~6GB libres).
+- **Cada agente con kill switch por env** (SDR/soporte/contenido/cotizaciones nacen apagados)
   y horarios escalonados en el crontab. Todos aceptan `--dry-run`.
 - **OpenClaw intocable**: este contenedor no toca nada de /root ni del host.
 - El estado de cada agente (snapshots, candados diarios, procesados) vive en el
@@ -149,10 +167,11 @@ docker compose run --rm ops python agents/reporte_semanal.py --dry-run
 docker compose run --rm ops python agents/contenido_semanal.py --dry-run   # imprime el paquete, sin PR
 docker compose run --rm ops python agents/sdr_inbound.py --dry-run         # imprime correos, sin mandar
 docker compose run --rm ops python agents/soporte.py --dry-run             # imprime clasificación, sin tocar el buzón
+docker compose run --rm ops python agents/cotizaciones.py --dry-run        # imprime el plan de cotización, sin tocar nada
 pgrep -f openclaw                      # checklist del host (runbook deploy/vps)
 ```
 
 Secuencia de encendido sugerida: validar cada dry-run → `OPS_CONTENIDO_ENABLED=1`
-(el PR es inofensivo) → `OPS_SOPORTE_ENABLED=1` (solo borradores) →
-`OPS_SDR_ENABLED=1` al final (este sí manda correo a leads; empezar con
-`OPS_SDR_MAX_DIA=2` y subir cuando el tono esté validado).
+(el PR es inofensivo) → `OPS_SOPORTE_ENABLED=1` y `OPS_COTIZACIONES_ENABLED=1`
+(solo borradores) → `OPS_SDR_ENABLED=1` al final (este sí manda correo a leads;
+empezar con `OPS_SDR_MAX_DIA=2` y subir cuando el tono esté validado).

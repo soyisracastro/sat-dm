@@ -57,6 +57,7 @@ from .routers import (
     procesador_router,
     utilidades_router,
     calculadoras_router,
+    ce_router,
     diot_router,
     tareas_router,
     system_router,
@@ -199,6 +200,7 @@ app.include_router(empresas_router)
 app.include_router(procesador_router)
 app.include_router(calculadoras_router)
 app.include_router(diot_router)
+app.include_router(ce_router)
 app.include_router(tareas_router)
 app.include_router(descargas_router)
 

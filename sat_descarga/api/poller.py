@@ -32,6 +32,7 @@ Notas de diseño:
 
 import logging
 import os
+from datetime import datetime
 import threading
 from typing import Optional
 
@@ -119,6 +120,7 @@ def _una_pasada() -> None:
         rfc = emp["rfc"]
         try:
             _procesar_empresa(rfc, emp)
+            _reanudar_envios_ce(rfc, emp)
         except (requests.RequestException, ErrorEsperado) as e:
             # SAT caído/lento (timeouts, SSL, su «Error no controlado»): condición
             # transitoria esperada — la siguiente pasada reintenta. Warning para
@@ -256,3 +258,76 @@ def _fiel_de(rfc: str) -> Optional[FIEL]:
         fiel = None
     _fiel_cache[rfc] = (cer, key, fiel)
     return fiel
+
+
+# ---------------------------------------------------------------------------
+# Envíos CE pendientes (cola de reintento diferido)
+# ---------------------------------------------------------------------------
+
+# El SAT se pone lento o entra en mantenimiento sin aviso; los envíos que
+# agotaron reintentos quedan en ~/.sat-descarga/envios/{RFC}.json y aquí se
+# retoman solos. Enfriamiento para no martillar un portal caído.
+ENVIOS_ENFRIAMIENTO_S = 30 * 60
+
+# candado propio: la reanudación abre un Chromium; nunca dos a la vez, ni
+# encimarse con un job interactivo de la UI
+_envio_en_curso = threading.Lock()
+
+
+def _reanudar_envios_ce(rfc: str, emp: dict) -> None:
+    if os.environ.get("SAT_DM_SIN_REANUDAR_ENVIOS") == "1":
+        return
+    from ..cli import config_store
+
+    pendientes = [e for e in config_store.get_envios_pendientes(rfc)
+                  if e.get("tramite") == "ce"]
+    if not pendientes:
+        return
+
+    # enfriamiento: reintentar solo si el último intento fue hace ≥30 min
+    ahora = datetime.now()
+    def _frio(e):
+        ui = e.get("ultimo_intento")
+        if not ui:
+            return True
+        try:
+            return (ahora - datetime.fromisoformat(ui)).total_seconds() \
+                >= ENVIOS_ENFRIAMIENTO_S
+        except ValueError:
+            return True
+    if not any(_frio(e) for e in pendientes):
+        return
+
+    # no encimarse con un job interactivo (comparten Playwright/CPU) ni
+    # correr dos reanudaciones a la vez
+    from . import jobs
+    if jobs.registry.hay_activo():
+        logger.info("[poller] %s: envíos CE pendientes, pero hay un job "
+                    "activo; se intenta en la siguiente pasada.", rfc)
+        return
+    if not _envio_en_curso.acquire(blocking=False):
+        return
+    try:
+        fiel_info = emp if emp.get("cer_path") and emp.get("password") else None
+        if not fiel_info:
+            logger.info("[poller] %s: envíos CE pendientes pero sin e.firma "
+                        "completa en el catálogo.", rfc)
+            return
+        logger.info("[poller] %s: reanudando %d envío(s) CE pendiente(s)...",
+                    rfc, len(pendientes))
+        from ..cli.config_store import get_descargas_dir
+        from ..core import paths
+        from ..portal.reanudar_envios import reanudar_envios_ce
+
+        base = get_descargas_dir()
+        resumen = reanudar_envios_ce(
+            rfc, emp["cer_path"], emp["key_path"], emp["password"],
+            headless=True,
+            destino_de=lambda f: paths.dir_ce(f["rfc"], f["anio"],
+                                              salida_base=base),
+        )
+        logger.info("[poller] %s: envíos CE — completados=%d, "
+                    "aún pendientes=%d", rfc,
+                    len(resumen["completados"]), len(resumen["aun_pendientes"]))
+    finally:
+        _envio_en_curso.release()

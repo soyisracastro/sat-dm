@@ -29,6 +29,7 @@ TIPO_CONSTANCIA = "constancia"  # → "constancias"
 TIPO_OPINION = "opinion"        # → "opiniones"
 TIPO_RENOVACION = "renovacion"  # e.firma: .ren/.key/acuse/cer del trámite de renovación
 TIPO_CSD = "csd"                # CSD: .sdg/.key/acuse/cer por solicitud de sello
+TIPO_CE = "ce"                  # contabilidad electrónica: acuses AR_/AP_ por envío
 
 SUB_EMITIDOS = "emitidos"       # colecciones en plural
 SUB_RECIBIDOS = "recibidos"
@@ -98,3 +99,17 @@ def dir_documento(
     """
     rfc_seg = rfc.strip().upper() if rfc and rfc.strip() else "sin_rfc"
     return _raiz(salida_base) / tipo_doc / rfc_seg
+
+
+def dir_ce(
+    rfc: str,
+    ejercicio: Union[int, str],
+    *,
+    salida_base: Optional[Union[str, Path]] = None,
+) -> Path:
+    """``descargas/ce/{RFC}/{ejercicio}/`` — acuses de contabilidad electrónica.
+
+    El nivel {ejercicio} espeja ``diot/presentaciones/{RFC}/{ejercicio}/`` y evita
+    mezclar años (hasta 13 periodos x 2 acuses AR_/AP_ por año).
+    """
+    return dir_documento(TIPO_CE, rfc, salida_base=salida_base) / str(ejercicio)
