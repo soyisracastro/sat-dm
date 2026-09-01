@@ -18,6 +18,11 @@
 # soporte (:45). Nace apagado (OPS_COTIZACIONES_ENABLED).
 5,20,35,50 14-23 * * * python /app/agents/cotizaciones.py
 
+# Primer contacto de soycontador.ai: clasifica hola@ (y los alias que se le
+# agreguen) y deja borradores para aprobar. Cada hora al :25, para no chocar con
+# sdr (:15) ni soporte (:45). Nace apagado (OPS_PRIMER_CONTACTO_ENABLED).
+25 * * * * python /app/agents/primer_contacto.py
+
 # Waitlist de Abacus (Notion) → crm_leads. Diario 08:10 CDMX, antes de que el
 # SDR abra su ventana (09:15) para que trabaje leads ya registrados.
 10 14 * * * python /app/agents/sync_abacus_waitlist.py
