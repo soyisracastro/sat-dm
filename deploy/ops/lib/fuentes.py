@@ -142,6 +142,9 @@ def metricas_stripe() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 # Listas que Israel quiere ver SIEMPRE, existan o no movimientos esa semana.
+# Van por NOMBRE, no por id: el desglose agrupa por nombre. Verificado que no
+# hay nombres duplicados en la instalación; si algún día se repite uno, el dict
+# se pisaría y una de las dos desaparecería del reporte sin avisar.
 LISTAS_CLAVE = [
     "Newsletter Blog (contadores)",  # lead magnet del blog (la más grande)
     "substack",
@@ -151,6 +154,12 @@ LISTAS_CLAVE = [
     "todoconta_proyecto",
     "cfdi",
     "clients-airtable",
+    "Recursos gratis - Casos prácticos IA",  # imán de los 3 flujos híbridos
+    # soycontador.ai (brand 5). Nacen en cero y ESO es justo lo que hay que
+    # mirar: son listas nuevas y el reporte es donde se ve si arrancan o no.
+    "soycontador.ai - Newsletter",
+    "soycontador.ai - Ebook IA para contadores",
+    "soycontador.ai - Jueves de ContadorIA",
 ]
 
 # Además de las clave, las N listas más grandes: así el desglose no se queda
@@ -187,6 +196,41 @@ def metricas_sendy() -> dict[str, Any]:
                     """
                 )
                 filas = cur.fetchall()
+
+                # Salud de los autoresponders. No basta con "hace N días que no
+                # manda": si nadie se suscribió, no mandar es lo correcto. Lo que
+                # delata una falla es que HAYA confirmaciones y NO haya envíos,
+                # así que traemos las dos mitades y que el análisis las compare.
+                # Contexto: en julio 2026 el sidecar corría scheduled.php pero no
+                # autoresponders.php y dos semanas de bienvenidas no salieron —
+                # nadie se enteró porque nada lo miraba. Esto es ese vigilante.
+                cur.execute("SELECT MAX(sent), COUNT(*) FROM ares_deliveries")
+                ultimo_envio, total_envios = cur.fetchone()
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM ares_deliveries
+                    WHERE sent >= UNIX_TIMESTAMP() - 7*86400
+                    """
+                )
+                envios_7d = cur.fetchone()[0]
+
+                # Confirmaciones de la semana SOLO en listas que tienen un
+                # autoresponder inmediato encendido: son las que debieron
+                # disparar un envío. join_date se estampa al confirmar.
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM subscribers s
+                    WHERE s.confirmed = 1
+                      AND s.join_date >= UNIX_TIMESTAMP() - 7*86400
+                      AND s.list IN (
+                          SELECT a.list FROM ares a
+                          JOIN ares_emails e ON e.ares_id = a.id
+                          WHERE e.enabled = 1 AND e.time_condition = 'immediately'
+                      )
+                    """
+                )
+                confirmados_7d = cur.fetchone()[0]
         finally:
             conn.close()
 
@@ -210,6 +254,27 @@ def metricas_sendy() -> dict[str, Any]:
         }
         if ausentes:
             salida["listas_clave_ausentes"] = ", ".join(ausentes)
+
+        ahora = datetime.now(timezone.utc).timestamp()
+        dias_sin_enviar = (
+            round((ahora - float(ultimo_envio)) / 86400, 1) if ultimo_envio else None
+        )
+        salida["autoresponders"] = {
+            "ultimo_envio": (
+                datetime.fromtimestamp(float(ultimo_envio), tz=timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M UTC"
+                )
+                if ultimo_envio
+                else "nunca"
+            ),
+            "dias_sin_enviar": dias_sin_enviar,
+            "envios_7d": int(envios_7d or 0),
+            "confirmados_7d_en_listas_con_autoresponder": int(confirmados_7d or 0),
+            # La bandera es la comparación, no el tiempo: gente que confirmó y
+            # ningún envío significa que el cron de autoresponders no corrió.
+            "posible_falla": bool(confirmados_7d and not envios_7d),
+            "total_historico": int(total_envios or 0),
+        }
         return salida
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
