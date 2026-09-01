@@ -43,6 +43,15 @@ OPS_CONTENIDO_ENABLED=0
 OPS_SDR_ENABLED=0
 OPS_SOPORTE_ENABLED=0
 OPS_COTIZACIONES_ENABLED=0
+OPS_PRIMER_CONTACTO_ENABLED=0
+
+# Primer contacto de soycontador.ai (agents/primer_contacto.py). Reutiliza
+# SOPORTE_EMAIL/SOPORTE_APP_PASSWORD: los alias de soycontador.ai entregan en la
+# misma cuenta real. Los tres alias caen en el mismo grupo, así que se pueden
+# atender juntos; empieza solo con hola@ y agrega los otros cuando valides.
+PRIMER_CONTACTO_ALIASES=hola@soycontador.ai
+PRIMER_CONTACTO_VENTANA_DIAS=2
+PRIMER_CONTACTO_LLMS_URL=https://soycontador.ai/llms-full.txt
 
 # Supabase (mismo proyecto que todoconta-apps; service role)
 TODOCONTA_SUPABASE_URL=https://pyyyzvicjpffohwjsmzi.supabase.co
